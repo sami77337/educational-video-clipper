@@ -26,8 +26,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.file_utils import ensure_directory
 from src.validation import ClipRowInput, validate_clip_rows, validate_required_text
+from src.video_processor import (
+    AR_PREPARING_VIDEO,
+    VideoProcessor,
+    VideoSourceError,
+    VideoSourceRequest,
+    VideoSourceType,
+    validate_local_video_file,
+    validate_youtube_url,
+)
 
 
 NUMBER_COLUMN = 0
@@ -41,7 +49,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.output_dir = Path.cwd() / "output"
+        self.output_root = Path.cwd() / "output"
+        self.video_processor = VideoProcessor(self.output_root)
 
         self.setWindowTitle("Educational Video Clipper")
         self.setLayoutDirection(Qt.RightToLeft)
@@ -186,44 +195,45 @@ class MainWindow(QMainWindow):
         self._write_log("تم حذف الصف المحدد.")
 
     def validate_inputs(self) -> bool:
-        errors: list[str] = []
-
-        try:
-            validate_required_text(self.project_name_input.text(), "Project name")
-        except ValueError:
-            errors.append("أدخل اسم المشروع.")
-
-        if self.youtube_radio.isChecked():
-            try:
-                validate_required_text(self.youtube_input.text(), "YouTube URL")
-            except ValueError:
-                errors.append("أدخل رابط YouTube.")
-        else:
-            try:
-                selected_file = validate_required_text(self.local_file_input.text(), "Local video file")
-            except ValueError:
-                errors.append("اختر ملف فيديو من جهازك.")
-            else:
-                if not Path(selected_file).is_file():
-                    errors.append("ملف الفيديو المحدد غير موجود.")
-
-        errors.extend(error.message_ar for error in validate_clip_rows(self._collect_clip_rows()))
-
+        errors = self._collect_validation_errors()
         if errors:
-            self._write_log("تعذر فحص البيانات:\n" + "\n".join(f"- {error}" for error in errors))
+            self._write_validation_errors(errors)
             return False
 
         self._write_log("تم فحص البيانات بنجاح. يمكنك بدء المعالجة.")
         return True
 
     def start_processing(self) -> None:
-        if not self.validate_inputs():
+        errors = self._collect_validation_errors()
+        if errors:
+            self._write_validation_errors(errors)
             return
 
-        self._append_log("المعالجة الفعلية للفيديو لم تُنفذ بعد في هذه المرحلة.")
+        self._write_log(AR_PREPARING_VIDEO)
+        try:
+            prepared_video = self.video_processor.prepare_source(
+                self._current_video_source(),
+                self.project_name_input.text(),
+                progress_callback=self._append_log,
+            )
+        except VideoSourceError as error:
+            self._append_log(str(error))
+            return
+        except Exception as error:
+            self._append_log(f"خطأ: {error}")
+            return
+
+        self._append_log(f"تم تجهيز الفيديو داخل: {prepared_video.project_output_folder}")
+        self._append_log("قص المقاطع باستخدام ffmpeg لم يُنفذ بعد في هذه المرحلة.")
 
     def open_output_folder(self) -> None:
-        output_dir = ensure_directory(self.output_dir)
+        try:
+            project_name = validate_required_text(self.project_name_input.text(), "Project name")
+        except ValueError:
+            self._append_log("أدخل اسم المشروع.")
+            return
+
+        output_dir = self.video_processor.get_project_output_folder(project_name)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(output_dir)))
         self._append_log(f"تم فتح مجلد الإخراج: {output_dir}")
 
@@ -232,7 +242,7 @@ class MainWindow(QMainWindow):
             self,
             "اختر ملف فيديو",
             str(Path.home()),
-            "Video files (*.mp4 *.mkv *.mov *.avi *.webm);;All files (*.*)",
+            "Video files (*.mp4 *.mov *.mkv *.webm);;All files (*.*)",
         )
         if not file_path:
             return
@@ -260,6 +270,31 @@ class MainWindow(QMainWindow):
 
         return rows
 
+    def _collect_validation_errors(self) -> list[str]:
+        errors: list[str] = []
+
+        try:
+            validate_required_text(self.project_name_input.text(), "Project name")
+        except ValueError:
+            errors.append("أدخل اسم المشروع.")
+
+        try:
+            if self.youtube_radio.isChecked():
+                validate_youtube_url(self.youtube_input.text())
+            else:
+                validate_local_video_file(self.local_file_input.text())
+        except VideoSourceError as error:
+            errors.append(str(error))
+
+        errors.extend(error.message_ar for error in validate_clip_rows(self._collect_clip_rows()))
+        return errors
+
+    def _current_video_source(self) -> VideoSourceRequest:
+        if self.youtube_radio.isChecked():
+            return VideoSourceRequest(VideoSourceType.YOUTUBE, self.youtube_input.text())
+
+        return VideoSourceRequest(VideoSourceType.LOCAL_FILE, self.local_file_input.text())
+
     def _cell_text(self, row: int, column: int) -> str:
         item = self.clips_table.item(row, column)
         return item.text().strip() if item is not None else ""
@@ -279,3 +314,6 @@ class MainWindow(QMainWindow):
 
     def _append_log(self, message: str) -> None:
         self.log_area.append(message)
+
+    def _write_validation_errors(self, errors: list[str]) -> None:
+        self._write_log("تعذر فحص البيانات:\n" + "\n".join(f"- {error}" for error in errors))
