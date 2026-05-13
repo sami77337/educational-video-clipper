@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
@@ -101,41 +102,45 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Educational Video Clipper")
         self.setLayoutDirection(Qt.RightToLeft)
-        self.resize(980, 720)
+        self.resize(1100, 820)
 
-        self.youtube_radio = QRadioButton("رابط YouTube")
-        self.local_file_radio = QRadioButton("ملف فيديو من الجهاز")
+        self.youtube_radio = QRadioButton("رابط يوتيوب")
+        self.local_file_radio = QRadioButton("فيديو من الجهاز")
         self.youtube_input = QLineEdit()
         self.local_file_input = QLineEdit()
-        self.browse_button = QPushButton("استعراض")
+        self.browse_button = QPushButton("اختيار فيديو")
+        self.source_status_label = QLabel()
         self.project_name_input = QLineEdit()
         self.paste_message_input = QTextEdit()
         self.parse_message_button = QPushButton("تحويل النص إلى جدول")
         self.clips_table = QTableWidget(0, 4)
-        self.add_row_button = QPushButton("إضافة صف")
+        self.add_row_button = QPushButton("إضافة مقطع")
         self.import_excel_button = QPushButton("استيراد من Excel")
-        self.delete_row_button = QPushButton("حذف الصف المحدد")
+        self.delete_row_button = QPushButton("حذف المحدد")
+        self.clear_table_button = QPushButton("مسح الجدول")
         self.validate_button = QPushButton("فحص الجدول")
-        self.start_button = QPushButton("بدء المعالجة")
-        self.open_output_button = QPushButton("فتح مجلد الإخراج")
+        self.start_button = QPushButton("بدء القص")
+        self.open_output_button = QPushButton("فتح مجلد النتائج")
+        self.processing_status_label = QLabel("الحالة: جاهز")
         self.log_area = QTextEdit()
 
         self.setCentralWidget(self._build_ui())
         self._connect_signals()
-        self.add_clip_row()
         self._update_source_inputs()
         self.open_output_button.setEnabled(False)
 
     def _build_ui(self) -> QWidget:
         central = QWidget()
         layout = QVBoxLayout(central)
-        layout.setSpacing(12)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(14)
+        layout.setContentsMargins(18, 18, 18, 18)
 
         layout.addWidget(self._build_video_source_section())
         layout.addWidget(self._build_project_section())
-        layout.addWidget(self._build_paste_section())
+        layout.addWidget(self._build_help_section())
         layout.addWidget(self._build_clips_section(), stretch=1)
+        layout.addWidget(self._build_paste_section())
+        layout.addWidget(self._build_action_section())
         layout.addWidget(self._build_log_section(), stretch=1)
 
         return central
@@ -149,21 +154,23 @@ class MainWindow(QMainWindow):
         source_group.addButton(self.local_file_radio)
         self.youtube_radio.setChecked(True)
 
-        self.youtube_input.setPlaceholderText("ضع رابط YouTube هنا")
+        self.youtube_input.setPlaceholderText("ضع رابط يوتيوب هنا")
         self.local_file_input.setPlaceholderText("اختر ملف فيديو من جهازك")
         self.local_file_input.setReadOnly(True)
+        self.source_status_label.setText("المصدر النشط: رابط يوتيوب")
 
         layout.addWidget(self.youtube_radio, 0, 0)
         layout.addWidget(self.youtube_input, 0, 1, 1, 2)
         layout.addWidget(self.local_file_radio, 1, 0)
         layout.addWidget(self.local_file_input, 1, 1)
         layout.addWidget(self.browse_button, 1, 2)
+        layout.addWidget(self.source_status_label, 2, 0, 1, 3)
         layout.setColumnStretch(1, 1)
 
         return group
 
     def _build_project_section(self) -> QGroupBox:
-        group = QGroupBox("معلومات المشروع")
+        group = QGroupBox("اسم المشروع")
         layout = QGridLayout(group)
 
         self.project_name_input.setPlaceholderText("مثال: درس الجبر - الوحدة الأولى")
@@ -174,12 +181,29 @@ class MainWindow(QMainWindow):
 
         return group
 
-    def _build_paste_section(self) -> QGroupBox:
-        group = QGroupBox("الصق قائمة المقاطع هنا")
+    def _build_help_section(self) -> QGroupBox:
+        group = QGroupBox("تعليمات سريعة")
         layout = QVBoxLayout(group)
 
+        help_text = QLabel(
+            "اختر مصدر الفيديو، ثم أدخل اسم المشروع.\n"
+            "أضف المقاطع يدويًا، أو استورد Excel، أو الصق رسالة.\n"
+            "اضغط بدء القص عند جاهزية الجدول.\n"
+            "المقاطع 3 دقائق أو أقل تذهب إلى ريلز.\n"
+            "المقاطع أكثر من 3 دقائق تذهب إلى فوائد."
+        )
+        help_text.setWordWrap(True)
+        layout.addWidget(help_text)
+
+        return group
+
+    def _build_paste_section(self) -> QGroupBox:
+        group = QGroupBox("لصق قائمة المقاطع")
+        layout = QVBoxLayout(group)
+
+        layout.addWidget(QLabel("الصق قائمة المقاطع هنا"))
         self.paste_message_input.setPlaceholderText("مثال: 1- 9:16 - 9:50 عنوان المقطع")
-        self.paste_message_input.setMinimumHeight(90)
+        self.paste_message_input.setMinimumHeight(80)
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
@@ -191,34 +215,46 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_clips_section(self) -> QGroupBox:
-        group = QGroupBox("قائمة المقاطع")
+        group = QGroupBox("جدول المقاطع")
         layout = QVBoxLayout(group)
 
         self.clips_table.setHorizontalHeaderLabels(["الرقم", "العنوان", "البداية", "النهاية"])
         self.clips_table.verticalHeader().setVisible(False)
         self.clips_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.clips_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.clips_table.setAlternatingRowColors(True)
+        self.clips_table.setMinimumHeight(180)
         self.clips_table.horizontalHeader().setSectionResizeMode(NUMBER_COLUMN, QHeaderView.ResizeToContents)
         self.clips_table.horizontalHeader().setSectionResizeMode(TITLE_COLUMN, QHeaderView.Stretch)
         self.clips_table.horizontalHeader().setSectionResizeMode(START_COLUMN, QHeaderView.ResizeToContents)
         self.clips_table.horizontalHeader().setSectionResizeMode(END_COLUMN, QHeaderView.ResizeToContents)
 
-        buttons = QHBoxLayout()
-        buttons.addWidget(self.add_row_button)
-        buttons.addWidget(self.import_excel_button)
-        buttons.addWidget(self.delete_row_button)
-        buttons.addStretch(1)
-        buttons.addWidget(self.validate_button)
-        buttons.addWidget(self.start_button)
-        buttons.addWidget(self.open_output_button)
+        table_buttons = QHBoxLayout()
+        table_buttons.addWidget(self.add_row_button)
+        table_buttons.addWidget(self.delete_row_button)
+        table_buttons.addWidget(self.clear_table_button)
+        table_buttons.addStretch(1)
+        table_buttons.addWidget(self.import_excel_button)
 
         layout.addWidget(self.clips_table)
-        layout.addLayout(buttons)
+        layout.addLayout(table_buttons)
+
+        return group
+
+    def _build_action_section(self) -> QGroupBox:
+        group = QGroupBox("أزرار التشغيل")
+        layout = QHBoxLayout(group)
+
+        layout.addWidget(self.validate_button)
+        layout.addWidget(self.start_button)
+        layout.addWidget(self.open_output_button)
+        layout.addStretch(1)
+        layout.addWidget(self.processing_status_label)
 
         return group
 
     def _build_log_section(self) -> QGroupBox:
-        group = QGroupBox("السجل والتقدم")
+        group = QGroupBox("سجل الحالة")
         layout = QVBoxLayout(group)
 
         self.log_area.setReadOnly(True)
@@ -234,6 +270,7 @@ class MainWindow(QMainWindow):
         self.add_row_button.clicked.connect(self.add_clip_row)
         self.import_excel_button.clicked.connect(self.import_from_excel)
         self.delete_row_button.clicked.connect(self.delete_selected_row)
+        self.clear_table_button.clicked.connect(self.clear_table)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
         self.validate_button.clicked.connect(self.validate_inputs)
         self.start_button.clicked.connect(self.start_processing)
@@ -272,6 +309,29 @@ class MainWindow(QMainWindow):
 
         self._renumber_rows()
         self._write_log("تم حذف الصف المحدد.")
+
+    def clear_table(self) -> None:
+        if self.clips_table.rowCount() == 0:
+            self._write_log("الجدول فارغ بالفعل.")
+            return
+
+        if not self._ask_clear_table_confirmation():
+            self._append_log("تم إلغاء مسح الجدول.")
+            return
+
+        self.clips_table.setRowCount(0)
+        self._write_log("تم مسح الجدول.")
+
+    def _ask_clear_table_confirmation(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("مسح الجدول")
+        dialog.setText("هل تريد مسح كل المقاطع من الجدول؟")
+        clear_button = dialog.addButton("مسح الجدول", QMessageBox.AcceptRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(clear_button)
+        dialog.exec()
+
+        return dialog.clickedButton() == clear_button
 
     def convert_pasted_text_to_table(self) -> None:
         pasted_text = self.paste_message_input.toPlainText()
@@ -337,6 +397,10 @@ class MainWindow(QMainWindow):
         return True
 
     def start_processing(self) -> None:
+        if self._processing_thread is not None:
+            self._append_log("المعالجة قيد التشغيل بالفعل.")
+            return
+
         errors = self._collect_validation_errors()
         if errors:
             self._write_validation_errors(errors)
@@ -349,6 +413,7 @@ class MainWindow(QMainWindow):
             return
 
         self.log_area.clear()
+        self._write_log("بدأ القص. يرجى الانتظار حتى تنتهي المعالجة.")
         self._last_output_folder = None
         self._set_processing_enabled(False)
         self._start_processing_worker(
@@ -388,6 +453,11 @@ class MainWindow(QMainWindow):
         self.youtube_input.setEnabled(use_youtube)
         self.local_file_input.setEnabled(not use_youtube)
         self.browse_button.setEnabled(not use_youtube)
+        self.source_status_label.setText(
+            "المصدر النشط: رابط يوتيوب" if use_youtube else "المصدر النشط: فيديو من الجهاز"
+        )
+        self.youtube_input.setStyleSheet("" if use_youtube else "background-color: #f2f2f2;")
+        self.local_file_input.setStyleSheet("" if not use_youtube else "background-color: #f2f2f2;")
 
     def _collect_clip_rows(self) -> list[ClipRowInput]:
         rows: list[ClipRowInput] = []
@@ -492,13 +562,18 @@ class MainWindow(QMainWindow):
             item.setText(str(row + 1))
 
     def _write_log(self, message: str) -> None:
-        self.log_area.setPlainText(message)
+        self.log_area.setPlainText(self._format_log_message(message))
 
     def _append_log(self, message: str) -> None:
-        self.log_area.append(message)
+        self.log_area.append(self._format_log_message(message))
 
     def _write_validation_errors(self, errors: list[str]) -> None:
         self._write_log("تعذر فحص البيانات:\n" + "\n".join(f"- {error}" for error in errors))
+
+    def _format_log_message(self, message: str) -> str:
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        lines = message.splitlines() or [message]
+        return "\n".join(f"[{timestamp}] {line}" if line else f"[{timestamp}]" for line in lines)
 
     def _start_processing_worker(
         self,
@@ -533,11 +608,13 @@ class MainWindow(QMainWindow):
     def _handle_processing_success(self, output_folder: str) -> None:
         self._last_output_folder = Path(output_folder)
         self._append_log(f"تم حفظ النتائج داخل: {output_folder}")
+        self.processing_status_label.setText("الحالة: انتهى بنجاح")
 
     @Slot(str)
     def _handle_processing_failure(self, message: str) -> None:
         self._last_output_folder = None
         self._append_log(message or "حدث خطأ أثناء المعالجة.")
+        self.processing_status_label.setText("الحالة: فشل")
 
     @Slot()
     def _finish_processing(self) -> None:
@@ -562,6 +639,7 @@ class MainWindow(QMainWindow):
             self.add_row_button,
             self.import_excel_button,
             self.delete_row_button,
+            self.clear_table_button,
             self.validate_button,
             self.start_button,
             self.open_output_button,
@@ -571,5 +649,9 @@ class MainWindow(QMainWindow):
 
         if enabled:
             self._update_source_inputs()
+            self.start_button.setText("بدء القص")
+        else:
+            self.processing_status_label.setText("الحالة: جاري القص...")
+            self.start_button.setText("جاري القص...")
 
         self.open_output_button.setEnabled(enabled and self._last_output_folder is not None)
