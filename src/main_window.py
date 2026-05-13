@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -30,6 +30,7 @@ from src.validation import ClipRowInput, validate_clip_rows, validate_required_t
 from src.video_processor import (
     AR_PREPARING_VIDEO,
     VideoProcessor,
+    VideoProcessingError,
     VideoSourceError,
     VideoSourceRequest,
     VideoSourceType,
@@ -44,6 +45,52 @@ START_COLUMN = 2
 END_COLUMN = 3
 
 
+class ProcessingWorker(QObject):
+    """Runs video preparation and clip cutting away from the UI thread."""
+
+    progress = Signal(str)
+    succeeded = Signal(str)
+    failed = Signal(str)
+    finished = Signal()
+
+    def __init__(
+        self,
+        video_processor: VideoProcessor,
+        source_request: VideoSourceRequest,
+        project_name: str,
+        clip_rows: list[ClipRowInput],
+    ) -> None:
+        super().__init__()
+        self.video_processor = video_processor
+        self.source_request = source_request
+        self.project_name = project_name
+        self.clip_rows = clip_rows
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.progress.emit(AR_PREPARING_VIDEO)
+            prepared_video = self.video_processor.prepare_source(
+                self.source_request,
+                self.project_name,
+                progress_callback=self.progress.emit,
+            )
+            clips = self.video_processor.build_clip_definitions(self.clip_rows)
+            self.video_processor.cut_clips(
+                prepared_video,
+                clips,
+                progress_callback=self.progress.emit,
+            )
+        except (VideoSourceError, VideoProcessingError) as error:
+            self.failed.emit(str(error))
+        except Exception as error:
+            self.failed.emit(f"خطأ: {error}")
+        else:
+            self.succeeded.emit(str(prepared_video.project_output_folder))
+        finally:
+            self.finished.emit()
+
+
 class MainWindow(QMainWindow):
     """Arabic-friendly initial application shell."""
 
@@ -51,6 +98,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.output_root = Path.cwd() / "output"
         self.video_processor = VideoProcessor(self.output_root)
+        self._processing_thread: QThread | None = None
+        self._processing_worker: ProcessingWorker | None = None
 
         self.setWindowTitle("Educational Video Clipper")
         self.setLayoutDirection(Qt.RightToLeft)
@@ -209,22 +258,19 @@ class MainWindow(QMainWindow):
             self._write_validation_errors(errors)
             return
 
-        self._write_log(AR_PREPARING_VIDEO)
         try:
-            prepared_video = self.video_processor.prepare_source(
-                self._current_video_source(),
-                self.project_name_input.text(),
-                progress_callback=self._append_log,
-            )
-        except VideoSourceError as error:
-            self._append_log(str(error))
-            return
-        except Exception as error:
-            self._append_log(f"خطأ: {error}")
+            project_name = validate_required_text(self.project_name_input.text(), "Project name")
+        except ValueError:
+            self._write_validation_errors(["أدخل اسم المشروع."])
             return
 
-        self._append_log(f"تم تجهيز الفيديو داخل: {prepared_video.project_output_folder}")
-        self._append_log("قص المقاطع باستخدام ffmpeg لم يُنفذ بعد في هذه المرحلة.")
+        self.log_area.clear()
+        self._set_processing_enabled(False)
+        self._start_processing_worker(
+            source_request=self._current_video_source(),
+            project_name=project_name,
+            clip_rows=self._collect_clip_rows(),
+        )
 
     def open_output_folder(self) -> None:
         try:
@@ -317,3 +363,70 @@ class MainWindow(QMainWindow):
 
     def _write_validation_errors(self, errors: list[str]) -> None:
         self._write_log("تعذر فحص البيانات:\n" + "\n".join(f"- {error}" for error in errors))
+
+    def _start_processing_worker(
+        self,
+        source_request: VideoSourceRequest,
+        project_name: str,
+        clip_rows: list[ClipRowInput],
+    ) -> None:
+        thread = QThread(self)
+        worker = ProcessingWorker(
+            video_processor=self.video_processor,
+            source_request=source_request,
+            project_name=project_name,
+            clip_rows=clip_rows,
+        )
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._append_log)
+        worker.succeeded.connect(self._handle_processing_success)
+        worker.failed.connect(self._handle_processing_failure)
+        worker.finished.connect(self._finish_processing)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._clear_processing_worker)
+
+        self._processing_thread = thread
+        self._processing_worker = worker
+        thread.start()
+
+    @Slot(str)
+    def _handle_processing_success(self, output_folder: str) -> None:
+        self._append_log(f"تم حفظ النتائج داخل: {output_folder}")
+
+    @Slot(str)
+    def _handle_processing_failure(self, message: str) -> None:
+        self._append_log(message or "حدث خطأ أثناء المعالجة.")
+
+    @Slot()
+    def _finish_processing(self) -> None:
+        self._set_processing_enabled(True)
+
+    @Slot()
+    def _clear_processing_worker(self) -> None:
+        self._processing_thread = None
+        self._processing_worker = None
+
+    def _set_processing_enabled(self, enabled: bool) -> None:
+        widgets = [
+            self.youtube_radio,
+            self.local_file_radio,
+            self.youtube_input,
+            self.local_file_input,
+            self.browse_button,
+            self.project_name_input,
+            self.clips_table,
+            self.add_row_button,
+            self.delete_row_button,
+            self.validate_button,
+            self.start_button,
+            self.open_output_button,
+        ]
+        for widget in widgets:
+            widget.setEnabled(enabled)
+
+        if enabled:
+            self._update_source_inputs()

@@ -4,10 +4,21 @@ from src.video_processor import (
     AR_EMPTY_LOCAL_VIDEO,
     AR_EMPTY_YOUTUBE_URL,
     AR_UNSUPPORTED_LOCAL_VIDEO,
+    BENEFITS_FOLDER_NAME,
+    ClipDefinition,
     INPUT_VIDEO_NAME,
+    REELS_FOLDER_NAME,
+    PreparedVideoSource,
     VideoProcessor,
     VideoSourceError,
+    VideoSourceType,
+    build_clip_filename,
+    build_clip_output_path,
+    build_ffmpeg_command,
+    calculate_clip_duration,
+    classify_clip_folder,
     create_project_output_folder,
+    cut_clips,
     validate_local_video_file,
     validate_youtube_url,
 )
@@ -64,3 +75,92 @@ def test_prepare_local_video_copies_source_to_project_input(tmp_path) -> None:
     assert prepared_video.project_output_folder.name == "Project- 1"
     assert prepared_video.input_video_path.name == INPUT_VIDEO_NAME
     assert prepared_video.input_video_path.read_bytes() == b"local video"
+
+
+def test_calculate_clip_duration() -> None:
+    assert calculate_clip_duration(15, 45) == 30
+
+
+def test_calculate_clip_duration_rejects_invalid_range() -> None:
+    with pytest.raises(ValueError):
+        calculate_clip_duration(45, 45)
+
+
+@pytest.mark.parametrize(
+    ("duration", "folder_name"),
+    [
+        (180, REELS_FOLDER_NAME),
+        (181, BENEFITS_FOLDER_NAME),
+    ],
+)
+def test_classify_clip_folder(duration: int, folder_name: str) -> None:
+    assert classify_clip_folder(duration) == folder_name
+
+
+def test_build_clip_filename_sanitizes_arabic_title() -> None:
+    clip = ClipDefinition(number=3, title="مقدمة: الدرس/الأول", start_seconds=0, end_seconds=30)
+
+    assert build_clip_filename(clip) == "3_مقدمة- الدرس-الأول.mp4"
+
+
+def test_build_ffmpeg_command_matches_required_shape(tmp_path) -> None:
+    input_path = tmp_path / "input.mp4"
+    output_path = tmp_path / REELS_FOLDER_NAME / "1_intro.mp4"
+
+    command = build_ffmpeg_command(input_path, output_path, start_seconds=10, duration_seconds=30)
+
+    assert command == [
+        "ffmpeg",
+        "-y",
+        "-ss",
+        "10",
+        "-t",
+        "30",
+        "-i",
+        str(input_path),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "20",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        str(output_path),
+    ]
+
+
+def test_build_clip_output_path_uses_sorted_folder(tmp_path) -> None:
+    clip = ClipDefinition(number=1, title="فائدة", start_seconds=0, end_seconds=181)
+
+    output_path = build_clip_output_path(tmp_path, clip)
+
+    assert output_path == tmp_path / BENEFITS_FOLDER_NAME / "1_فائدة.mp4"
+    assert output_path.parent.is_dir()
+
+
+def test_cut_clips_generates_reels_output_and_logs(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(number=1, title="ريل قصير", start_seconds=5, end_seconds=25)
+    commands: list[list[str]] = []
+    messages: list[str] = []
+
+    def fake_runner(command, **kwargs):
+        commands.append(command)
+
+    results = cut_clips(prepared_video, [clip], messages.append, fake_runner)
+
+    assert results[0].destination_folder_name == REELS_FOLDER_NAME
+    assert results[0].output_path == input_path.parent / REELS_FOLDER_NAME / "1_ريل قصير.mp4"
+    assert commands[0][0] == "ffmpeg"
+    assert "جاري قص المقطع 1" in messages
+    assert "تم الانتهاء من القص والفرز" in messages
