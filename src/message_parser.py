@@ -5,36 +5,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from src.time_utils import parse_timestamp
+from src.time_utils import normalize_digits, normalize_time_symbols, normalize_timestamp_text
 
 
 AR_UNPARSEABLE_LINE = "تعذر فهم السطر"
 
 _TIME_PATTERN = r"\d{1,3}:\d{1,2}(?::\d{1,2})?"
-_DIGIT_TRANSLATION = str.maketrans(
-    {
-        "٠": "0",
-        "١": "1",
-        "٢": "2",
-        "٣": "3",
-        "٤": "4",
-        "٥": "5",
-        "٦": "6",
-        "٧": "7",
-        "٨": "8",
-        "٩": "9",
-        "۰": "0",
-        "۱": "1",
-        "۲": "2",
-        "۳": "3",
-        "۴": "4",
-        "۵": "5",
-        "۶": "6",
-        "۷": "7",
-        "۸": "8",
-        "۹": "9",
-    }
-)
 _ARABIC_ORDINALS = {
     "الأول": 1,
     "الاول": 1,
@@ -104,8 +80,9 @@ def parse_clip_message(message: str) -> ParseResult:
 def parse_clip_line(raw_line: str) -> ParsedClipLine | None:
     """Parse a single message line, returning None when unsupported."""
 
-    line = normalize_digits(raw_line).strip()
-    if not line:
+    try:
+        line = normalize_time_symbols(raw_line)
+    except ValueError:
         return None
 
     parsers = (
@@ -121,12 +98,6 @@ def parse_clip_line(raw_line: str) -> ParsedClipLine | None:
     return None
 
 
-def normalize_digits(text: str) -> str:
-    """Convert Arabic-Indic and Persian digits to ASCII digits."""
-
-    return text.translate(_DIGIT_TRANSLATION)
-
-
 def _parse_csv_like_line(line: str) -> ParsedClipLine | None:
     parts = [part.strip() for part in re.split(r"[,،]", line) if part.strip()]
     if len(parts) < 4:
@@ -134,8 +105,8 @@ def _parse_csv_like_line(line: str) -> ParsedClipLine | None:
 
     number = _parse_sequence_number(parts[0])
     title = parts[1].strip()
-    start = _normalize_timestamp(parts[2])
-    end = _normalize_timestamp(parts[3])
+    start = _try_normalize_timestamp(parts[2])
+    end = _try_normalize_timestamp(parts[3])
 
     if number is None or start is None or end is None or not title:
         return None
@@ -156,8 +127,8 @@ def _parse_begin_end_line(line: str) -> ParsedClipLine | None:
         return None
 
     number = _parse_sequence_number(match.group("prefix"))
-    start = _normalize_timestamp(match.group("start"))
-    end = _normalize_timestamp(match.group("end"))
+    start = _try_normalize_timestamp(match.group("start"))
+    end = _try_normalize_timestamp(match.group("end"))
     title = _clean_title(match.group("title")) or _clean_title(match.group("tail"))
 
     if number is None or start is None or end is None or not title:
@@ -176,8 +147,8 @@ def _parse_numbered_time_line(line: str) -> ParsedClipLine | None:
     if not match:
         return None
 
-    start = _normalize_timestamp(match.group("start"))
-    end = _normalize_timestamp(match.group("end"))
+    start = _try_normalize_timestamp(match.group("start"))
+    end = _try_normalize_timestamp(match.group("end"))
     title = _clean_title(match.group("title"))
 
     if start is None or end is None or not title:
@@ -207,23 +178,11 @@ def _parse_sequence_number(text: str) -> int | None:
     return None
 
 
-def _normalize_timestamp(value: str) -> str | None:
-    parts = value.strip().split(":")
-    if len(parts) not in (2, 3) or not all(part.isdigit() for part in parts):
-        return None
-
-    numbers = [int(part) for part in parts]
-    if len(numbers) == 2:
-        timestamp = f"{numbers[0]:02}:{numbers[1]:02}"
-    else:
-        timestamp = f"{numbers[0]:02}:{numbers[1]:02}:{numbers[2]:02}"
-
+def _try_normalize_timestamp(value: str) -> str | None:
     try:
-        parse_timestamp(timestamp)
+        return normalize_timestamp_text(value)
     except ValueError:
         return None
-
-    return timestamp
 
 
 def _clean_title(value: str) -> str:

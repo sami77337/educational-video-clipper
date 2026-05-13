@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.message_parser import ParsedClipLine, parse_clip_message
+from src.time_utils import normalize_timestamp_text
 from src.validation import ClipRowInput, validate_clip_rows, validate_required_text
 from src.video_processor import (
     VideoProcessor,
@@ -393,6 +394,7 @@ class MainWindow(QMainWindow):
             self._write_validation_errors(errors)
             return False
 
+        self._normalize_clip_table_times()
         self._write_log("تم فحص البيانات بنجاح. يمكنك بدء المعالجة.")
         return True
 
@@ -405,6 +407,8 @@ class MainWindow(QMainWindow):
         if errors:
             self._write_validation_errors(errors)
             return
+
+        self._normalize_clip_table_times()
 
         try:
             project_name = validate_required_text(self.project_name_input.text(), "Project name")
@@ -521,6 +525,13 @@ class MainWindow(QMainWindow):
                 start=clip.start,
                 end=clip.end,
             )
+
+    def _normalize_clip_table_times(self) -> None:
+        for row in range(self.clips_table.rowCount()):
+            for column in (START_COLUMN, END_COLUMN):
+                item = self.clips_table.item(row, column)
+                if item is not None:
+                    item.setText(normalize_timestamp_text(item.text()))
 
     def _table_has_clip_data(self) -> bool:
         for row in range(self.clips_table.rowCount()):

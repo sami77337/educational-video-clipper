@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from src.time_utils import parse_timestamp
+from src.time_utils import AR_INVALID_TIME_FORMAT, parse_timestamp
 
 
 @dataclass(frozen=True)
@@ -141,10 +141,7 @@ def _parse_row_timestamp(
                 row_number=row_number,
                 field=field,
                 message=f"{field} time is invalid.",
-                message_ar=(
-                    f"صيغة وقت {field_name_ar} في الصف {row_number} غير صحيحة. "
-                    "استخدم MM:SS أو HH:MM:SS."
-                ),
+                message_ar=f"{AR_INVALID_TIME_FORMAT} (وقت {field_name_ar} في الصف {row_number}).",
             )
         )
         return None

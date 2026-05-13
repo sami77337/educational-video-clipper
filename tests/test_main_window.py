@@ -42,6 +42,24 @@ def test_validation_reports_empty_table_in_arabic() -> None:
     app.processEvents()
 
 
+def test_successful_validation_normalizes_table_times() -> None:
+    app = _app()
+    window = MainWindow()
+    window.project_name_input.setText("مشروع")
+    window.youtube_input.setText("https://youtube.com/watch?v=test")
+    window.add_clip_row()
+    window.clips_table.item(0, TITLE_COLUMN).setText("مقطع")
+    window.clips_table.item(0, START_COLUMN).setText("4:15")
+    window.clips_table.item(0, END_COLUMN).setText("6:35")
+
+    assert window.validate_inputs() is True
+    assert window.clips_table.item(0, START_COLUMN).text() == "00:04:15"
+    assert window.clips_table.item(0, END_COLUMN).text() == "00:06:35"
+
+    window.close()
+    app.processEvents()
+
+
 def test_source_selection_disables_inactive_input() -> None:
     app = _app()
     window = MainWindow()

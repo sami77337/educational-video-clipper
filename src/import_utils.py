@@ -10,8 +10,7 @@ from typing import Any
 
 from openpyxl import load_workbook
 
-from src.message_parser import normalize_digits
-from src.time_utils import parse_timestamp
+from src.time_utils import format_seconds, normalize_digits, normalize_timestamp_text
 
 
 REQUIRED_COLUMNS = ("number", "title", "start", "end")
@@ -116,7 +115,7 @@ def import_xls_clip_rows(file_path: str | Path) -> list[ImportedClipRow]:
 
 
 def normalize_imported_time(value: Any) -> str:
-    """Normalize spreadsheet time values into MM:SS or HH:MM:SS text."""
+    """Normalize spreadsheet time values into HH:MM:SS text."""
 
     if isinstance(value, datetime):
         return _seconds_to_timestamp(value.hour * 3600 + value.minute * 60 + value.second)
@@ -128,9 +127,9 @@ def normalize_imported_time(value: Any) -> str:
         if 0 <= value < 1:
             return _seconds_to_timestamp(round(value * 24 * 60 * 60))
         if float(value).is_integer():
-            return _normalize_time_text(str(int(value)))
+            return normalize_timestamp_text(str(int(value)))
 
-    return _normalize_time_text(str(value))
+    return normalize_timestamp_text(str(value))
 
 
 def _build_column_map(headers: tuple[Any, ...] | list[Any]) -> dict[str, int]:
@@ -172,35 +171,11 @@ def _parse_number(value: Any) -> int:
     return int(float(text))
 
 
-def _normalize_time_text(value: str) -> str:
-    value = normalize_digits(value).strip()
-    parts = value.split(":")
-    if len(parts) not in (2, 3) or not all(part.isdigit() for part in parts):
-        raise ValueError("Invalid time")
-
-    numbers = [int(part) for part in parts]
-    if len(numbers) == 2:
-        timestamp = f"{numbers[0]:02}:{numbers[1]:02}"
-    else:
-        timestamp = f"{numbers[0]:02}:{numbers[1]:02}:{numbers[2]:02}"
-
-    parse_timestamp(timestamp)
-    return timestamp
-
-
 def _seconds_to_timestamp(total_seconds: int) -> str:
     if total_seconds < 0:
         raise ValueError("Invalid time")
 
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    if hours:
-        timestamp = f"{hours:02}:{minutes:02}:{seconds:02}"
-    else:
-        timestamp = f"{minutes:02}:{seconds:02}"
-
-    parse_timestamp(timestamp)
-    return timestamp
+    return format_seconds(total_seconds)
 
 
 def _row_has_data(row: tuple[Any, ...] | list[Any]) -> bool:

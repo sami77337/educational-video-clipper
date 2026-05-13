@@ -45,12 +45,12 @@ def test_validate_clip_rows_reports_missing_title_in_arabic() -> None:
 
 
 def test_validate_clip_rows_reports_invalid_start_time() -> None:
-    rows = [ClipRowInput(row_number=1, title="درس", start="1:10", end="00:30")]
+    rows = [ClipRowInput(row_number=1, title="درس", start="1:99", end="00:30")]
 
     errors = validate_clip_rows(rows)
 
     assert errors[0].field == "start"
-    assert "MM:SS" in errors[0].message_ar
+    assert "أمثلة صحيحة: 4:15 أو 00:04:15" in errors[0].message_ar
 
 
 def test_validate_clip_rows_reports_end_before_start() -> None:

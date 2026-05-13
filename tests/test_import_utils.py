@@ -36,7 +36,7 @@ def test_valid_csv_import(tmp_path) -> None:
 
     rows = import_clip_rows(file_path)
 
-    assert rows == [ImportedClipRow(number=2, title="سؤال قصير", start="09:16", end="09:50")]
+    assert rows == [ImportedClipRow(number=2, title="سؤال قصير", start="00:09:16", end="00:09:50")]
 
 
 def test_missing_required_columns(tmp_path) -> None:
@@ -63,13 +63,13 @@ def test_arabic_title_import(tmp_path) -> None:
 
 
 def test_time_text_parsing() -> None:
-    assert normalize_imported_time("9:16") == "09:16"
+    assert normalize_imported_time("9:16") == "00:09:16"
     assert normalize_imported_time("00:09:16") == "00:09:16"
-    assert normalize_imported_time("٩:١٦") == "09:16"
+    assert normalize_imported_time("٩:١٦") == "00:09:16"
 
 
 def test_excel_time_value_parsing() -> None:
-    assert normalize_imported_time(time(0, 9, 16)) == "09:16"
+    assert normalize_imported_time(time(0, 9, 16)) == "00:09:16"
 
 
 def test_append_and_replace_table_behavior_is_practical() -> None:

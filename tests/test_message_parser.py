@@ -15,8 +15,8 @@ def test_parse_simple_numbered_lines() -> None:
     assert result.warnings == []
     assert len(result.clips) == 2
     assert result.clips[0].number == 1
-    assert result.clips[0].start == "09:16"
-    assert result.clips[0].end == "09:50"
+    assert result.clips[0].start == "00:09:16"
+    assert result.clips[0].end == "00:09:50"
     assert result.clips[0].title == "ما حكم نعي الميت"
     assert result.clips[1].number == 2
     assert result.clips[1].title == "هل يجوز لبس ملابس عليها نجمة داوود"
@@ -27,8 +27,8 @@ def test_parse_arabic_indic_digits() -> None:
 
     assert clip is not None
     assert clip.number == 1
-    assert clip.start == "09:16"
-    assert clip.end == "09:50"
+    assert clip.start == "00:09:16"
+    assert clip.end == "00:09:50"
     assert clip.title == "ما حكم نعي الميت"
 
 
@@ -41,8 +41,8 @@ def test_parse_begin_end_style() -> None:
 
     assert clip is not None
     assert clip.number == 5
-    assert clip.start == "09:16"
-    assert clip.end == "09:50"
+    assert clip.start == "00:09:16"
+    assert clip.end == "00:09:50"
     assert clip.title == "ما حكم نعي الميت"
 
 
