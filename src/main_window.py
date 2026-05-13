@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QRadioButton,
     QTableWidget,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.export_utils import ExportError, validate_output_folder_path
+from src.message_parser import ParsedClipLine, parse_clip_message
 from src.validation import ClipRowInput, validate_clip_rows, validate_required_text
 from src.video_processor import (
     VideoProcessor,
@@ -106,6 +108,8 @@ class MainWindow(QMainWindow):
         self.local_file_input = QLineEdit()
         self.browse_button = QPushButton("استعراض")
         self.project_name_input = QLineEdit()
+        self.paste_message_input = QTextEdit()
+        self.parse_message_button = QPushButton("تحويل النص إلى جدول")
         self.clips_table = QTableWidget(0, 4)
         self.add_row_button = QPushButton("إضافة صف")
         self.delete_row_button = QPushButton("حذف الصف المحدد")
@@ -128,6 +132,7 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self._build_video_source_section())
         layout.addWidget(self._build_project_section())
+        layout.addWidget(self._build_paste_section())
         layout.addWidget(self._build_clips_section(), stretch=1)
         layout.addWidget(self._build_log_section(), stretch=1)
 
@@ -164,6 +169,22 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("اسم المشروع"), 0, 0)
         layout.addWidget(self.project_name_input, 0, 1)
         layout.setColumnStretch(1, 1)
+
+        return group
+
+    def _build_paste_section(self) -> QGroupBox:
+        group = QGroupBox("الصق قائمة المقاطع هنا")
+        layout = QVBoxLayout(group)
+
+        self.paste_message_input.setPlaceholderText("مثال: 1- 9:16 - 9:50 عنوان المقطع")
+        self.paste_message_input.setMinimumHeight(90)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        button_row.addWidget(self.parse_message_button)
+
+        layout.addWidget(self.paste_message_input)
+        layout.addLayout(button_row)
 
         return group
 
@@ -209,23 +230,32 @@ class MainWindow(QMainWindow):
         self.browse_button.clicked.connect(self._browse_local_video)
         self.add_row_button.clicked.connect(self.add_clip_row)
         self.delete_row_button.clicked.connect(self.delete_selected_row)
+        self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
         self.validate_button.clicked.connect(self.validate_inputs)
         self.start_button.clicked.connect(self.start_processing)
         self.open_output_button.clicked.connect(self.open_output_folder)
 
     def add_clip_row(self) -> None:
+        self._insert_clip_row(
+            number=self.clips_table.rowCount() + 1,
+            title="",
+            start="",
+            end="",
+        )
+        self.clips_table.setCurrentCell(self.clips_table.rowCount() - 1, TITLE_COLUMN)
+
+    def _insert_clip_row(self, number: int, title: str, start: str, end: str) -> None:
         row = self.clips_table.rowCount()
         self.clips_table.insertRow(row)
 
-        number_item = QTableWidgetItem(str(row + 1))
+        number_item = QTableWidgetItem(str(number))
         number_item.setFlags(number_item.flags() & ~Qt.ItemIsEditable)
         number_item.setTextAlignment(Qt.AlignCenter)
 
         self.clips_table.setItem(row, NUMBER_COLUMN, number_item)
-        self.clips_table.setItem(row, TITLE_COLUMN, QTableWidgetItem(""))
-        self.clips_table.setItem(row, START_COLUMN, QTableWidgetItem(""))
-        self.clips_table.setItem(row, END_COLUMN, QTableWidgetItem(""))
-        self.clips_table.setCurrentCell(row, TITLE_COLUMN)
+        self.clips_table.setItem(row, TITLE_COLUMN, QTableWidgetItem(title))
+        self.clips_table.setItem(row, START_COLUMN, QTableWidgetItem(start))
+        self.clips_table.setItem(row, END_COLUMN, QTableWidgetItem(end))
 
     def delete_selected_row(self) -> None:
         selected_rows = self.clips_table.selectionModel().selectedRows()
@@ -238,6 +268,30 @@ class MainWindow(QMainWindow):
 
         self._renumber_rows()
         self._write_log("تم حذف الصف المحدد.")
+
+    def convert_pasted_text_to_table(self) -> None:
+        pasted_text = self.paste_message_input.toPlainText()
+        if not pasted_text.strip():
+            self._write_log("لا يوجد نص لتحويله.")
+            return
+
+        parse_result = parse_clip_message(pasted_text)
+        if not parse_result.clips:
+            self._write_log("\n".join(warning.message_ar for warning in parse_result.warnings))
+            return
+
+        import_mode = "replace"
+        if self._table_has_clip_data():
+            import_mode = self._ask_table_import_mode()
+            if import_mode is None:
+                self._append_log("تم إلغاء تحويل النص.")
+                return
+
+        self._insert_parsed_clips(parse_result.clips, append=import_mode == "append")
+
+        messages = [f"تم تحويل {len(parse_result.clips)} مقطع إلى الجدول."]
+        messages.extend(warning.message_ar for warning in parse_result.warnings)
+        self._write_log("\n".join(messages))
 
     def validate_inputs(self) -> bool:
         errors = self._collect_validation_errors()
@@ -306,7 +360,7 @@ class MainWindow(QMainWindow):
         for row in range(self.clips_table.rowCount()):
             rows.append(
                 ClipRowInput(
-                    row_number=row + 1,
+                    row_number=self._row_number(row),
                     title=self._cell_text(row, TITLE_COLUMN),
                     start=self._cell_text(row, START_COLUMN),
                     end=self._cell_text(row, END_COLUMN),
@@ -343,6 +397,55 @@ class MainWindow(QMainWindow):
     def _cell_text(self, row: int, column: int) -> str:
         item = self.clips_table.item(row, column)
         return item.text().strip() if item is not None else ""
+
+    def _row_number(self, row: int) -> int:
+        try:
+            return int(self._cell_text(row, NUMBER_COLUMN))
+        except ValueError:
+            return row + 1
+
+    def _insert_parsed_clips(self, clips: list[ParsedClipLine], append: bool) -> None:
+        if not append:
+            self.clips_table.setRowCount(0)
+        elif not self._table_has_clip_data():
+            self.clips_table.setRowCount(0)
+
+        for clip in clips:
+            self._insert_clip_row(
+                number=clip.number,
+                title=clip.title,
+                start=clip.start,
+                end=clip.end,
+            )
+
+    def _table_has_clip_data(self) -> bool:
+        for row in range(self.clips_table.rowCount()):
+            if (
+                self._cell_text(row, TITLE_COLUMN)
+                or self._cell_text(row, START_COLUMN)
+                or self._cell_text(row, END_COLUMN)
+            ):
+                return True
+
+        return False
+
+    def _ask_table_import_mode(self) -> str | None:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("تحويل النص إلى جدول")
+        dialog.setText("الجدول يحتوي على بيانات. هل تريد استبدال الصفوف الحالية أم إضافة الصفوف الجديدة؟")
+        replace_button = dialog.addButton("استبدال", QMessageBox.AcceptRole)
+        append_button = dialog.addButton("إضافة", QMessageBox.ActionRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(replace_button)
+        dialog.exec()
+
+        clicked_button = dialog.clickedButton()
+        if clicked_button == replace_button:
+            return "replace"
+        if clicked_button == append_button:
+            return "append"
+
+        return None
 
     def _renumber_rows(self) -> None:
         for row in range(self.clips_table.rowCount()):
@@ -419,6 +522,8 @@ class MainWindow(QMainWindow):
             self.local_file_input,
             self.browse_button,
             self.project_name_input,
+            self.paste_message_input,
+            self.parse_message_button,
             self.clips_table,
             self.add_row_button,
             self.delete_row_button,
