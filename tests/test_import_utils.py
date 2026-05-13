@@ -39,6 +39,47 @@ def test_valid_csv_import(tmp_path) -> None:
     assert rows == [ImportedClipRow(number=2, title="سؤال قصير", start="00:09:16", end="00:09:50")]
 
 
+def test_csv_import_accepts_optional_empty_exclusions_column(tmp_path) -> None:
+    file_path = tmp_path / "clips.csv"
+    with file_path.open("w", encoding="utf-8-sig", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=["number", "title", "start", "end", "exclusions"])
+        writer.writeheader()
+        writer.writerow(
+            {
+                "number": "1",
+                "title": "بدون حذف",
+                "start": "9:16",
+                "end": "9:50",
+                "exclusions": "",
+            }
+        )
+
+    rows = import_clip_rows(file_path)
+
+    assert rows == [ImportedClipRow(number=1, title="بدون حذف", start="00:09:16", end="00:09:50")]
+
+
+def test_xlsx_import_normalizes_optional_exclusions_column(tmp_path) -> None:
+    file_path = tmp_path / "clips.xlsx"
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["number", "title", "start", "end", "exclusions"])
+    worksheet.append([1, "مع حذف داخلي", "00:26:56", "00:29:14", "27:40 - 28:20"])
+    workbook.save(file_path)
+
+    rows = import_clip_rows(file_path)
+
+    assert rows == [
+        ImportedClipRow(
+            number=1,
+            title="مع حذف داخلي",
+            start="00:26:56",
+            end="00:29:14",
+            exclusions="00:27:40-00:28:20",
+        )
+    ]
+
+
 def test_missing_required_columns(tmp_path) -> None:
     file_path = tmp_path / "clips.xlsx"
     workbook = Workbook()

@@ -10,10 +10,12 @@ from typing import Any
 
 from openpyxl import load_workbook
 
+from src.exclusions import format_exclusions, parse_exclusions
 from src.time_utils import format_seconds, normalize_digits, normalize_timestamp_text
 
 
 REQUIRED_COLUMNS = ("number", "title", "start", "end")
+OPTIONAL_COLUMNS = ("exclusions",)
 AR_MISSING_REQUIRED_COLUMNS = "ملف Excel لا يحتوي على الأعمدة المطلوبة: number, title, start, end"
 AR_UNSUPPORTED_IMPORT_FILE = "صيغة الملف غير مدعومة. استخدم xlsx أو csv"
 AR_XLS_REQUIRES_CONVERSION = "صيغة .xls غير مدعومة حاليًا. احفظ الملف بصيغة .xlsx أو .csv"
@@ -28,6 +30,7 @@ class ImportedClipRow:
     title: str
     start: str
     end: str
+    exclusions: str = ""
 
 
 class ClipImportError(ValueError):
@@ -138,7 +141,12 @@ def _build_column_map(headers: tuple[Any, ...] | list[Any]) -> dict[str, int]:
     if missing_columns:
         raise ClipImportError(AR_MISSING_REQUIRED_COLUMNS)
 
-    return {column: normalized_headers[column] for column in REQUIRED_COLUMNS}
+    column_map = {column: normalized_headers[column] for column in REQUIRED_COLUMNS}
+    for column in OPTIONAL_COLUMNS:
+        if column in normalized_headers:
+            column_map[column] = normalized_headers[column]
+
+    return column_map
 
 
 def _values_to_mapping(row: tuple[Any, ...] | list[Any], column_map: dict[str, int]) -> dict[str, Any]:
@@ -151,13 +159,23 @@ def _row_from_mapping(row: dict[str, Any], row_number: int) -> ImportedClipRow:
         title = "" if row["title"] is None else str(row["title"]).strip()
         start = normalize_imported_time(row["start"])
         end = normalize_imported_time(row["end"])
+        exclusions = normalize_imported_exclusions(row.get("exclusions"))
     except (KeyError, TypeError, ValueError) as error:
         raise ClipImportError(f"{AR_INVALID_TIME_VALUE} في الصف {row_number}") from error
 
     if not title:
         raise ClipImportError(f"العنوان فارغ في الصف {row_number}")
 
-    return ImportedClipRow(number=number, title=title, start=start, end=end)
+    return ImportedClipRow(number=number, title=title, start=start, end=end, exclusions=exclusions)
+
+
+def normalize_imported_exclusions(value: Any) -> str:
+    """Normalize optional imported exclusion ranges."""
+
+    if value is None or not str(value).strip():
+        return ""
+
+    return format_exclusions(parse_exclusions(str(value)))
 
 
 def _parse_number(value: Any) -> int:

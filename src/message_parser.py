@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from src.exclusions import format_exclusions, parse_exclusions
 from src.time_utils import normalize_digits, normalize_time_symbols, normalize_timestamp_text
 
 
@@ -16,6 +17,10 @@ _RANGE_PATTERN = re.compile(
 )
 _INTERNAL_RANGE_PATTERN = re.compile(
     rf"\(\s*{_TIME_PATTERN}\s*[-–—]\s*{_TIME_PATTERN}\s*\)"
+)
+_EXCLUSION_NOTE_PATTERN = re.compile(
+    rf"(?:ما\s*بين\s*القوسين\s*يقطع|مابين\s*القوسين\s*يقطع|احذف|يقطع)?"
+    rf"\s*\(?\s*{_TIME_PATTERN}\s*[-–—]\s*{_TIME_PATTERN}\s*\)?"
 )
 _ARABIC_ORDINALS = {
     "الأول": 1,
@@ -49,6 +54,7 @@ class ParsedClipLine:
     title: str
     start: str
     end: str
+    exclusions: str = ""
 
 
 @dataclass(frozen=True)
@@ -77,6 +83,7 @@ class _ClipCandidate:
     title: str
     start: str
     end: str
+    exclusions: str = ""
 
 
 @dataclass(frozen=True)
@@ -228,7 +235,9 @@ def _parse_csv_like_line(line: str) -> _ClipCandidate | None:
     if number is None or start is None or end is None or not title:
         return None
 
-    return _ClipCandidate(number=number, title=title, start=start, end=end)
+    exclusions = _try_parse_exclusions(parts[4]) if len(parts) >= 5 else ""
+
+    return _ClipCandidate(number=number, title=title, start=start, end=end, exclusions=exclusions)
 
 
 def _parse_begin_end_line(line: str) -> _ClipCandidate | None:
@@ -269,8 +278,9 @@ def _parse_range_line(line: str) -> _ClipCandidate | None:
     prefix_title = _clean_title(_strip_sequence_prefix(prefix))
     suffix_title = _clean_title(suffix)
     title = prefix_title or suffix_title
+    exclusions = _extract_exclusions_after_first_range(line)
 
-    return _ClipCandidate(number=number, title=title, start=start, end=end)
+    return _ClipCandidate(number=number, title=title, start=start, end=end, exclusions=exclusions)
 
 
 def _parse_title_only_line(line: str, line_number: int, raw_line: str) -> _PendingTitle | None:
@@ -347,6 +357,7 @@ def _build_clip(
             title=normalized_title,
             start=candidate.start,
             end=candidate.end,
+            exclusions=candidate.exclusions,
         ),
         max(next_auto_number, clip_number + 1),
     )
@@ -358,6 +369,7 @@ def _append_title_continuation(clip: ParsedClipLine, continuation: str) -> Parse
         title=_clean_title(f"{clip.title} {continuation}"),
         start=clip.start,
         end=clip.end,
+        exclusions=clip.exclusions,
     )
 
 
@@ -428,10 +440,27 @@ def _normalize_line(raw_line: str) -> str:
 def _clean_title(value: str) -> str:
     title = normalize_digits(str(value))
     title = _INTERNAL_RANGE_PATTERN.sub("", title)
+    title = _EXCLUSION_NOTE_PATTERN.sub("", title)
     title = re.sub(r"\s+", " ", title).strip(" -–—،,")
     if title.startswith("(") and title.endswith(")"):
         title = title[1:-1].strip()
     return title
+
+
+def _extract_exclusions_after_first_range(line: str) -> str:
+    range_matches = list(_RANGE_PATTERN.finditer(line))
+    if len(range_matches) <= 1:
+        return ""
+
+    exclusion_text = ", ".join(match.group(0) for match in range_matches[1:])
+    return _try_parse_exclusions(exclusion_text)
+
+
+def _try_parse_exclusions(value: str) -> str:
+    try:
+        return format_exclusions(parse_exclusions(value))
+    except ValueError:
+        return ""
 
 
 def _is_note_line(line: str) -> bool:

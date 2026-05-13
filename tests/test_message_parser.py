@@ -88,6 +88,7 @@ def test_parse_bracketed_time_range_with_title_after() -> None:
     assert result.clips[0].title == "اسم الله الوهاب"
     assert result.clips[0].start == "00:20:10"
     assert result.clips[0].end == "00:26:11"
+    assert result.clips[0].exclusions == ""
 
 
 def test_parse_title_before_bracketed_time_range() -> None:
@@ -188,6 +189,46 @@ def test_extra_internal_range_in_parentheses_is_not_a_second_clip() -> None:
     assert result.clips[0].start == "00:26:56"
     assert result.clips[0].end == "00:29:14"
     assert result.clips[0].title == "مقطع 01"
+    assert result.clips[0].exclusions == "00:27:40-00:28:20"
+
+
+def test_pasted_text_with_parenthesized_exclusion() -> None:
+    result = parse_clip_message("26:56 - 29:14 ما بين القوسين يقطع (27:40 - 28:20)")
+
+    assert result.warnings == []
+    assert len(result.clips) == 1
+    assert result.clips[0].start == "00:26:56"
+    assert result.clips[0].end == "00:29:14"
+    assert result.clips[0].exclusions == "00:27:40-00:28:20"
+
+
+def test_pasted_text_with_arabic_note_mabin_parentheses_exclusion() -> None:
+    result = parse_clip_message("26:56 - 29:14 مابين القوسين يقطع (27:40 - 28:20)")
+
+    assert result.warnings == []
+    assert result.clips[0].exclusions == "00:27:40-00:28:20"
+
+
+def test_pasted_text_with_delete_exclusion_note() -> None:
+    result = parse_clip_message("26:56 - 29:14 احذف 27:40 - 28:20")
+
+    assert result.warnings == []
+    assert result.clips[0].exclusions == "00:27:40-00:28:20"
+
+
+def test_pasted_text_with_cut_exclusion_note() -> None:
+    result = parse_clip_message("26:56 - 29:14 يقطع 27:40 - 28:20")
+
+    assert result.warnings == []
+    assert result.clips[0].exclusions == "00:27:40-00:28:20"
+
+
+def test_pasted_text_with_no_exclusion_keeps_empty_exclusions() -> None:
+    result = parse_clip_message("26:56 - 29:14 عنوان المقطع")
+
+    assert result.warnings == []
+    assert result.clips[0].title == "عنوان المقطع"
+    assert result.clips[0].exclusions == ""
 
 
 def test_auto_numbering_when_no_number_exists() -> None:
