@@ -26,9 +26,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.export_utils import ExportError, validate_output_folder_path
 from src.validation import ClipRowInput, validate_clip_rows, validate_required_text
 from src.video_processor import (
-    AR_PREPARING_VIDEO,
     VideoProcessor,
     VideoProcessingError,
     VideoSourceError,
@@ -69,24 +69,18 @@ class ProcessingWorker(QObject):
     @Slot()
     def run(self) -> None:
         try:
-            self.progress.emit(AR_PREPARING_VIDEO)
-            prepared_video = self.video_processor.prepare_source(
+            processing_result = self.video_processor.process_project(
                 self.source_request,
                 self.project_name,
+                self.clip_rows,
                 progress_callback=self.progress.emit,
             )
-            clips = self.video_processor.build_clip_definitions(self.clip_rows)
-            self.video_processor.cut_clips(
-                prepared_video,
-                clips,
-                progress_callback=self.progress.emit,
-            )
-        except (VideoSourceError, VideoProcessingError) as error:
+        except (VideoSourceError, VideoProcessingError, ExportError) as error:
             self.failed.emit(str(error))
         except Exception as error:
             self.failed.emit(f"خطأ: {error}")
         else:
-            self.succeeded.emit(str(prepared_video.project_output_folder))
+            self.succeeded.emit(str(processing_result.project_output_folder))
         finally:
             self.finished.emit()
 
@@ -100,6 +94,7 @@ class MainWindow(QMainWindow):
         self.video_processor = VideoProcessor(self.output_root)
         self._processing_thread: QThread | None = None
         self._processing_worker: ProcessingWorker | None = None
+        self._last_output_folder: Path | None = None
 
         self.setWindowTitle("Educational Video Clipper")
         self.setLayoutDirection(Qt.RightToLeft)
@@ -123,6 +118,7 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self.add_clip_row()
         self._update_source_inputs()
+        self.open_output_button.setEnabled(False)
 
     def _build_ui(self) -> QWidget:
         central = QWidget()
@@ -265,6 +261,7 @@ class MainWindow(QMainWindow):
             return
 
         self.log_area.clear()
+        self._last_output_folder = None
         self._set_processing_enabled(False)
         self._start_processing_worker(
             source_request=self._current_video_source(),
@@ -274,13 +271,15 @@ class MainWindow(QMainWindow):
 
     def open_output_folder(self) -> None:
         try:
-            project_name = validate_required_text(self.project_name_input.text(), "Project name")
-        except ValueError:
-            self._append_log("أدخل اسم المشروع.")
+            output_dir = validate_output_folder_path(self._last_output_folder)
+        except ExportError as error:
+            self._append_log(str(error))
             return
 
-        output_dir = self.video_processor.get_project_output_folder(project_name)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(output_dir)))
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(output_dir))):
+            self._append_log("خطأ: فشل فتح مجلد الإخراج")
+            return
+
         self._append_log(f"تم فتح مجلد الإخراج: {output_dir}")
 
     def _browse_local_video(self) -> None:
@@ -395,10 +394,12 @@ class MainWindow(QMainWindow):
 
     @Slot(str)
     def _handle_processing_success(self, output_folder: str) -> None:
+        self._last_output_folder = Path(output_folder)
         self._append_log(f"تم حفظ النتائج داخل: {output_folder}")
 
     @Slot(str)
     def _handle_processing_failure(self, message: str) -> None:
+        self._last_output_folder = None
         self._append_log(message or "حدث خطأ أثناء المعالجة.")
 
     @Slot()
@@ -430,3 +431,5 @@ class MainWindow(QMainWindow):
 
         if enabled:
             self._update_source_inputs()
+
+        self.open_output_button.setEnabled(enabled and self._last_output_folder is not None)

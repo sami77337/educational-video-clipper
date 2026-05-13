@@ -6,12 +6,24 @@ import shutil
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from yt_dlp import YoutubeDL
 
+from src.export_utils import (
+    AR_PROCESSING_SUCCESS,
+    AR_REPORT_CREATED,
+    BENEFITS_FOLDER_NAME,
+    ExportArtifacts,
+    ProcessingReportData,
+    REELS_FOLDER_NAME,
+    create_result_zips,
+    ensure_result_folders,
+    write_processing_report,
+)
 from src.file_utils import ensure_directory, sanitize_filename
 from src.models import ClipRequest
 from src.time_utils import parse_timestamp
@@ -20,8 +32,6 @@ from src.validation import ClipRowInput
 
 INPUT_VIDEO_NAME = "input.mp4"
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
-REELS_FOLDER_NAME = "ريلز"
-BENEFITS_FOLDER_NAME = "فوائد"
 LONG_CLIP_THRESHOLD_SECONDS = 180
 
 AR_PREPARING_VIDEO = "جاري تجهيز الفيديو"
@@ -86,6 +96,16 @@ class CutClipResult:
     clip: ClipDefinition
     output_path: Path
     destination_folder_name: str
+
+
+@dataclass(frozen=True)
+class ProcessingResult:
+    """Final result of a successful processing run."""
+
+    project_output_folder: Path
+    prepared_video: PreparedVideoSource
+    cut_results: list[CutClipResult]
+    export_artifacts: ExportArtifacts
 
 
 class VideoSourceError(ValueError):
@@ -197,6 +217,75 @@ class VideoProcessor:
 
         return cut_clips(prepared_video, clips, progress_callback, runner)
 
+    def process_project(
+        self,
+        source_request: VideoSourceRequest,
+        project_name: str,
+        clip_rows: list[ClipRowInput],
+        progress_callback: ProgressCallback | None = None,
+        runner: SubprocessRunner = subprocess.run,
+    ) -> ProcessingResult:
+        """Prepare, cut, sort, ZIP, and report one project."""
+
+        started_at = datetime.now().astimezone()
+        _emit(progress_callback, AR_PREPARING_VIDEO)
+        prepared_video = self.prepare_source(source_request, project_name, progress_callback)
+        clips = self.build_clip_definitions(clip_rows)
+        cut_results = self.cut_clips(prepared_video, clips, progress_callback, runner)
+        export_artifacts = self.export_results(
+            project_output_folder=prepared_video.project_output_folder,
+            project_name=project_name,
+            source_type=source_request.source_type,
+            cut_results=cut_results,
+            started_at=started_at,
+            ended_at=None,
+            progress_callback=progress_callback,
+        )
+        _emit(progress_callback, AR_PROCESSING_SUCCESS)
+
+        return ProcessingResult(
+            project_output_folder=prepared_video.project_output_folder,
+            prepared_video=prepared_video,
+            cut_results=cut_results,
+            export_artifacts=export_artifacts,
+        )
+
+    def export_results(
+        self,
+        project_output_folder: str | Path,
+        project_name: str,
+        source_type: VideoSourceType,
+        cut_results: list[CutClipResult],
+        started_at: datetime,
+        ended_at: datetime | None,
+        progress_callback: ProgressCallback | None = None,
+    ) -> ExportArtifacts:
+        """Create ZIP files and a final report after successful clipping."""
+
+        project_folder = Path(project_output_folder)
+        reels_folder, benefits_folder = ensure_result_folders(project_folder)
+        zip_result = create_result_zips(project_folder, progress_callback)
+        report_data = ProcessingReportData(
+            project_name=project_name,
+            source_type=source_type_label(source_type),
+            total_clips_count=len(cut_results),
+            reels_count=count_results_in_folder(cut_results, REELS_FOLDER_NAME),
+            benefits_count=count_results_in_folder(cut_results, BENEFITS_FOLDER_NAME),
+            output_folders=[reels_folder, benefits_folder],
+            zip_files=zip_result.zip_files,
+            started_at=started_at,
+            ended_at=ended_at or datetime.now().astimezone(),
+            skipped_or_failed_items=[],
+        )
+        report_path = write_processing_report(project_folder, report_data)
+        _emit(progress_callback, AR_REPORT_CREATED)
+
+        return ExportArtifacts(
+            zip_folder=zip_result.zip_folder,
+            zip_files=zip_result.zip_files,
+            report_path=report_path,
+        )
+
     def create_clip(self, request: ClipRequest) -> None:
         raise NotImplementedError("Video clipping is not implemented yet.")
 
@@ -288,6 +377,21 @@ def classify_clip_folder(duration_seconds: int) -> str:
         return BENEFITS_FOLDER_NAME
 
     return REELS_FOLDER_NAME
+
+
+def source_type_label(source_type: VideoSourceType) -> str:
+    """Return the report label for the selected source type."""
+
+    if source_type is VideoSourceType.YOUTUBE:
+        return "YouTube"
+
+    return "local file"
+
+
+def count_results_in_folder(results: list[CutClipResult], folder_name: str) -> int:
+    """Count cut results saved in a sorted folder."""
+
+    return sum(1 for result in results if result.destination_folder_name == folder_name)
 
 
 def build_clip_filename(clip: ClipDefinition) -> str:
