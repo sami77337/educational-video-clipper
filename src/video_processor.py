@@ -28,14 +28,21 @@ from src.export_utils import (
     BENEFITS_FOLDER_NAME,
     ExportArtifacts,
     ProcessingReportData,
+    ProcessingReportClipData,
     REELS_FOLDER_NAME,
     create_result_zips,
     ensure_result_folders,
     write_processing_report,
 )
+from src.exclusions import (
+    ExclusionError,
+    calculate_kept_segments,
+    format_exclusions,
+    validate_exclusions,
+)
 from src.file_utils import ensure_directory, sanitize_filename
 from src.models import ClipRequest
-from src.time_utils import parse_timestamp
+from src.time_utils import format_seconds, parse_timestamp
 from src.validation import ClipRowInput
 
 
@@ -56,6 +63,14 @@ AR_CUTTING_COMPLETE = "تم الانتهاء من القص والفرز"
 AR_INPUT_VIDEO_MISSING = "خطأ: لم يتم العثور على input.mp4"
 AR_CLASSIFICATION_RULES_INVALID = "خطأ في قواعد التصنيف"
 AR_NO_CLASSIFICATION_RULE_FOR_CLIP = "لا توجد قاعدة تصنيف مناسبة للمقطع رقم"
+AR_EXCLUSIONS_INVALID = "خطأ في الاستثناءات"
+AR_CHECKING_EXCLUSIONS = "جاري فحص الاستثناءات"
+AR_CUTTING_EXCLUDED_PARTS = "جاري حذف الأجزاء المستثناة من المقطع"
+AR_MERGED_CLIP_PARTS = "تم دمج أجزاء المقطع"
+AR_NO_EXCLUSIONS_FOR_CLIP = "لا توجد استثناءات للمقطع"
+AR_CUT_WITHOUT_EXCLUSIONS = "تم قص المقطع بدون استثناءات"
+AR_CONCAT_FAILED = "فشل دمج أجزاء المقطع رقم"
+TEMP_SEGMENTS_FOLDER_NAME = "_temp_segments"
 
 ProgressCallback = Callable[[str], None]
 SubprocessRunner = Callable[..., subprocess.CompletedProcess[str]]
@@ -94,10 +109,23 @@ class ClipDefinition:
     title: str
     start_seconds: int
     end_seconds: int
+    exclusions: str = ""
 
     @property
     def duration_seconds(self) -> int:
         return calculate_clip_duration(self.start_seconds, self.end_seconds)
+
+    @property
+    def start_timestamp(self) -> str:
+        return format_seconds(self.start_seconds)
+
+    @property
+    def end_timestamp(self) -> str:
+        return format_seconds(self.end_seconds)
+
+    @property
+    def normalized_exclusions(self) -> str:
+        return format_exclusions(self.exclusions)
 
 
 @dataclass(frozen=True)
@@ -246,6 +274,10 @@ class VideoProcessor:
         started_at = datetime.now().astimezone()
         active_rules = self._active_classification_rules(classification_rules)
         clips = self.build_clip_definitions(clip_rows)
+        exclusion_errors = validate_exclusions_for_clips(clips)
+        if exclusion_errors:
+            raise VideoProcessingError(f"{AR_EXCLUSIONS_INVALID}:\n" + "\n".join(exclusion_errors))
+
         classification_errors = validate_classification_rules_for_clips(clips, active_rules)
         if classification_errors:
             raise VideoProcessingError(f"{AR_CLASSIFICATION_RULES_INVALID}:\n" + "\n".join(classification_errors))
@@ -304,6 +336,7 @@ class VideoProcessor:
             skipped_or_failed_items=[],
             classification_rules=list(active_rules),
             clip_counts_by_folder=clip_counts,
+            clip_details=build_report_clip_details(cut_results),
         )
         report_path = write_processing_report(project_folder, report_data)
         _emit(progress_callback, AR_REPORT_CREATED)
@@ -395,6 +428,7 @@ def build_clip_definition(row: ClipRowInput) -> ClipDefinition:
         title=row.title.strip(),
         start_seconds=parse_timestamp(row.start),
         end_seconds=parse_timestamp(row.end),
+        exclusions=row.exclusions.strip() if row.exclusions else "",
     )
 
 
@@ -465,6 +499,38 @@ def validate_classification_rules_for_clips(
     return errors
 
 
+def validate_exclusions_for_clips(clips: Sequence[ClipDefinition]) -> list[str]:
+    """Validate clip exclusions before any ffmpeg work starts."""
+
+    errors: list[str] = []
+    for clip in clips:
+        if not clip.exclusions.strip():
+            continue
+        try:
+            exclusion_errors = validate_exclusions(clip.start_timestamp, clip.end_timestamp, clip.exclusions)
+        except (ExclusionError, ValueError) as error:
+            exclusion_errors = [str(error)]
+        errors.extend(f"{error} في المقطع رقم {clip.number}" for error in exclusion_errors)
+
+    return errors
+
+
+def build_report_clip_details(results: Sequence[CutClipResult]) -> list[ProcessingReportClipData]:
+    """Build final report rows for processed clips."""
+
+    return [
+        ProcessingReportClipData(
+            number=result.clip.number,
+            title=result.clip.title,
+            start=result.clip.start_timestamp,
+            end=result.clip.end_timestamp,
+            exclusions=result.clip.normalized_exclusions,
+            folder_name=result.destination_folder_name,
+        )
+        for result in results
+    ]
+
+
 def build_clip_filename(clip: ClipDefinition) -> str:
     """Build a safe output filename that keeps the clip number and title."""
 
@@ -519,6 +585,27 @@ def build_ffmpeg_command(
     ]
 
 
+def build_ffmpeg_concat_command(
+    file_list_path: str | Path,
+    output_video_path: str | Path,
+) -> list[str]:
+    """Build the ffmpeg concat command used to merge kept segments."""
+
+    return [
+        "ffmpeg",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(file_list_path),
+        "-c",
+        "copy",
+        str(output_video_path),
+    ]
+
+
 def cut_clip(
     input_video_path: str | Path,
     output_video_path: str | Path,
@@ -547,6 +634,112 @@ def cut_clip(
     return output_path
 
 
+def cut_clip_with_exclusions(
+    input_video_path: str | Path,
+    output_video_path: str | Path,
+    clip: ClipDefinition,
+    temp_root: str | Path,
+    progress_callback: ProgressCallback | None = None,
+    runner: SubprocessRunner = subprocess.run,
+) -> Path:
+    """Cut kept segments for a clip with exclusions and merge them into one mp4."""
+
+    temp_folder = _prepare_temp_clip_folder(temp_root, clip.number)
+    output_path = Path(output_video_path)
+    try:
+        kept_segments = calculate_kept_segments(clip.start_timestamp, clip.end_timestamp, clip.exclusions)
+        segment_paths: list[Path] = []
+        for index, (segment_start, segment_end) in enumerate(kept_segments, start=1):
+            segment_start_seconds = parse_timestamp(segment_start)
+            segment_end_seconds = parse_timestamp(segment_end)
+            segment_path = temp_folder / f"segment_{index:03d}.mp4"
+            segment_paths.append(
+                cut_clip(
+                    input_video_path,
+                    segment_path,
+                    segment_start_seconds,
+                    calculate_clip_duration(segment_start_seconds, segment_end_seconds),
+                    runner,
+                )
+            )
+
+        for exclusion in format_exclusions(clip.exclusions).split(", "):
+            if exclusion:
+                exclusion_start, exclusion_end = exclusion.split("-", maxsplit=1)
+                _emit(progress_callback, f"تم حذف الجزء {exclusion_start} - {exclusion_end}")
+
+        file_list_path = write_concat_file_list(segment_paths, temp_folder / "segments.txt")
+        try:
+            concat_clip_segments(file_list_path, output_path, runner)
+        except ClipCutError as error:
+            raise ClipCutError(f"{AR_CONCAT_FAILED} {clip.number}: {error}") from error
+        _emit(progress_callback, f"{AR_MERGED_CLIP_PARTS} {clip.number:02d}")
+        return output_path
+    except FfmpegNotFoundError:
+        raise
+    except VideoProcessingError:
+        raise
+    except ExclusionError as error:
+        raise ClipCutError(str(error)) from error
+    except Exception as error:
+        raise ClipCutError(f"{AR_CONCAT_FAILED} {clip.number}: {error}") from error
+    finally:
+        _cleanup_temp_folder(temp_folder)
+
+
+def concat_clip_segments(
+    file_list_path: str | Path,
+    output_video_path: str | Path,
+    runner: SubprocessRunner = subprocess.run,
+) -> Path:
+    """Concatenate already-cut segment files into one mp4."""
+
+    output_path = Path(output_video_path)
+    ensure_directory(output_path.parent)
+    command = build_ffmpeg_concat_command(file_list_path, output_path)
+
+    try:
+        runner(command, check=True, capture_output=True, text=True)
+    except FileNotFoundError as error:
+        raise FfmpegNotFoundError(AR_FFMPEG_NOT_FOUND) from error
+    except subprocess.CalledProcessError as error:
+        detail = error.stderr or error.stdout or str(error)
+        raise ClipCutError(detail.strip()) from error
+
+    return output_path
+
+
+def write_concat_file_list(segment_paths: Sequence[Path], file_list_path: str | Path) -> Path:
+    """Write an ffmpeg concat demuxer file list."""
+
+    list_path = Path(file_list_path)
+    ensure_directory(list_path.parent)
+    lines = [f"file '{_escape_concat_path(path)}'" for path in segment_paths]
+    list_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return list_path
+
+
+def _prepare_temp_clip_folder(temp_root: str | Path, clip_number: int) -> Path:
+    temp_folder = Path(temp_root) / f"clip_{clip_number:03d}"
+    if temp_folder.exists():
+        shutil.rmtree(temp_folder)
+    return ensure_directory(temp_folder)
+
+
+def _cleanup_temp_folder(temp_folder: str | Path) -> None:
+    folder = Path(temp_folder)
+    parent = folder.parent
+    shutil.rmtree(folder, ignore_errors=True)
+    try:
+        parent.rmdir()
+    except OSError:
+        pass
+
+
+def _escape_concat_path(path: Path) -> str:
+    return str(path.resolve()).replace("\\", "/").replace("'", "'\\''")
+
+
 def cut_clips(
     prepared_video: PreparedVideoSource,
     clips: list[ClipDefinition],
@@ -559,6 +752,11 @@ def cut_clips(
     if not prepared_video.input_video_path.is_file():
         raise VideoProcessingError(AR_INPUT_VIDEO_MISSING)
 
+    exclusion_errors = validate_exclusions_for_clips(clips)
+    if exclusion_errors:
+        raise VideoProcessingError(f"{AR_EXCLUSIONS_INVALID}:\n" + "\n".join(exclusion_errors))
+
+    _emit(progress_callback, AR_CHECKING_EXCLUSIONS)
     results: list[CutClipResult] = []
     for clip in clips:
         _emit(progress_callback, f"جاري قص المقطع {clip.number}")
@@ -577,13 +775,26 @@ def cut_clips(
         )
 
         try:
-            cut_clip(
-                prepared_video.input_video_path,
-                output_path,
-                clip.start_seconds,
-                clip.duration_seconds,
-                runner,
-            )
+            if clip.exclusions.strip():
+                _emit(progress_callback, f"{AR_CUTTING_EXCLUDED_PARTS} {clip.number:02d}")
+                cut_clip_with_exclusions(
+                    prepared_video.input_video_path,
+                    output_path,
+                    clip,
+                    Path(prepared_video.project_output_folder) / TEMP_SEGMENTS_FOLDER_NAME,
+                    progress_callback,
+                    runner,
+                )
+            else:
+                _emit(progress_callback, f"{AR_NO_EXCLUSIONS_FOR_CLIP} {clip.number:02d}")
+                cut_clip(
+                    prepared_video.input_video_path,
+                    output_path,
+                    clip.start_seconds,
+                    clip.duration_seconds,
+                    runner,
+                )
+                _emit(progress_callback, AR_CUT_WITHOUT_EXCLUSIONS)
         except FfmpegNotFoundError:
             _emit(progress_callback, f"فشل قص المقطع رقم {clip.number}")
             raise

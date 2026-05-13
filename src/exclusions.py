@@ -10,9 +10,9 @@ from src.time_utils import format_seconds, normalize_time_symbols, parse_timesta
 
 AR_INVALID_EXCLUSION_FORMAT = "صيغة الاستثناء غير صحيحة"
 AR_EXCLUSION_START_AFTER_END = "بداية الاستثناء يجب أن تكون قبل نهايته"
-AR_EXCLUSION_OUTSIDE_MAIN_RANGE = "الاستثناء يجب أن يكون داخل المقطع الرئيسي"
-AR_EXCLUSIONS_OVERLAP = "الاستثناءات لا يجب أن تتداخل"
-AR_EXCLUSION_REMOVES_ENTIRE_CLIP = "الاستثناءات تحذف المقطع كاملًا"
+AR_EXCLUSION_OUTSIDE_MAIN_RANGE = "الاستثناء خارج حدود المقطع"
+AR_EXCLUSIONS_OVERLAP = "الاستثناءات متداخلة"
+AR_EXCLUSION_REMOVES_ENTIRE_CLIP = "الاستثناء يحذف المقطع كاملًا"
 
 _TIME_PATTERN = r"\d{1,3}:\d{1,2}(?::\d{1,2})?"
 _RANGE_PATTERN = re.compile(rf"({_TIME_PATTERN})\s*[-–—]\s*({_TIME_PATTERN})")

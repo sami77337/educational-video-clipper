@@ -60,3 +60,18 @@ def test_validate_clip_rows_reports_end_before_start() -> None:
 
     assert errors[0].field == "end"
     assert "بعد وقت البداية" in errors[0].message_ar
+
+
+def test_validate_clip_rows_accepts_empty_exclusions() -> None:
+    rows = [ClipRowInput(row_number=1, title="درس", start="00:10", end="00:30", exclusions="   ")]
+
+    assert validate_clip_rows(rows) == []
+
+
+def test_validate_clip_rows_reports_invalid_exclusions() -> None:
+    rows = [ClipRowInput(row_number=1, title="درس", start="00:10", end="00:30", exclusions="00:05-00:06")]
+
+    errors = validate_clip_rows(rows)
+
+    assert errors[0].field == "exclusions"
+    assert "الاستثناء خارج حدود المقطع" in errors[0].message_ar

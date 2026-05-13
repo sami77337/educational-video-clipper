@@ -67,6 +67,19 @@ class ProcessingReportData:
     skipped_or_failed_items: list[str]
     classification_rules: list[ClassificationRule] = field(default_factory=list)
     clip_counts_by_folder: dict[str, int] = field(default_factory=dict)
+    clip_details: list["ProcessingReportClipData"] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ProcessingReportClipData:
+    """One processed clip line for the final report."""
+
+    number: int
+    title: str
+    start: str
+    end: str
+    exclusions: str
+    folder_name: str
 
 
 @dataclass(frozen=True)
@@ -148,6 +161,10 @@ def build_processing_report(data: ProcessingReportData) -> str:
     lines.extend(_format_classification_rule(rule) for rule in classification_rules)
     lines.append("Clip counts by folder:")
     lines.extend(f"- {folder_name}: {count}" for folder_name, count in clip_counts.items())
+    if data.clip_details:
+        lines.append("Clip details:")
+        for clip in data.clip_details:
+            lines.extend(_format_clip_detail(clip))
     lines.append("Output folders:")
     lines.extend(f"- {folder}" for folder in data.output_folders)
     lines.append("ZIP files created:")
@@ -231,6 +248,18 @@ def _report_clip_counts(data: ProcessingReportData) -> Mapping[str, int]:
         REELS_FOLDER_NAME: data.reels_count,
         BENEFITS_FOLDER_NAME: data.benefits_count,
     }
+
+
+def _format_clip_detail(clip: ProcessingReportClipData) -> list[str]:
+    lines = [
+        f"{clip.number:02d} - {clip.title}",
+        f"البداية: {clip.start}",
+        f"النهاية: {clip.end}",
+    ]
+    if clip.exclusions:
+        lines.append(f"الاستثناءات: {clip.exclusions}")
+    lines.append(f"المجلد: {clip.folder_name}")
+    return lines
 
 
 def _create_folder_zip(project_folder: Path, folder: Path, zip_path: Path) -> Path:

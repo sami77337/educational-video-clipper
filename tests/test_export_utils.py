@@ -13,6 +13,7 @@ from src.export_utils import (
     COMPLETE_RESULT_ZIP_NAME,
     ExportError,
     ProcessingReportData,
+    ProcessingReportClipData,
     REELS_FOLDER_NAME,
     REELS_ZIP_NAME,
     REPORT_FILE_NAME,
@@ -134,6 +135,40 @@ def test_build_processing_report_includes_dynamic_rules_and_counts(tmp_path) -> 
     assert "- دروس: 1" in report
 
 
+def test_build_processing_report_includes_clip_exclusions() -> None:
+    timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
+    data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+        clip_details=[
+            ProcessingReportClipData(
+                number=1,
+                title="عنوان المقطع",
+                start="00:26:56",
+                end="00:29:14",
+                exclusions="00:27:40-00:28:20",
+                folder_name=REELS_FOLDER_NAME,
+            )
+        ],
+    )
+
+    report = build_processing_report(data)
+
+    assert "01 - عنوان المقطع" in report
+    assert "البداية: 00:26:56" in report
+    assert "النهاية: 00:29:14" in report
+    assert "الاستثناءات: 00:27:40-00:28:20" in report
+    assert f"المجلد: {REELS_FOLDER_NAME}" in report
+
+
 def test_export_results_creates_full_result_folder_structure(tmp_path) -> None:
     project_folder = tmp_path / "project"
     reels_folder = project_folder / REELS_FOLDER_NAME
@@ -150,7 +185,13 @@ def test_export_results_creates_full_result_folder_structure(tmp_path) -> None:
             destination_folder_name=REELS_FOLDER_NAME,
         ),
         CutClipResult(
-            clip=ClipDefinition(number=2, title="benefit", start_seconds=0, end_seconds=181),
+            clip=ClipDefinition(
+                number=2,
+                title="benefit",
+                start_seconds=0,
+                end_seconds=181,
+                exclusions="00:01:00-00:01:10",
+            ),
             output_path=benefits_folder / "2_benefit.mp4",
             destination_folder_name=BENEFITS_FOLDER_NAME,
         ),
@@ -174,6 +215,7 @@ def test_export_results_creates_full_result_folder_structure(tmp_path) -> None:
     assert project_folder.joinpath(ZIP_FOLDER_NAME, COMPLETE_RESULT_ZIP_NAME).is_file()
     assert project_folder.joinpath(REPORT_FILE_NAME).is_file()
     assert artifacts.report_path == project_folder / REPORT_FILE_NAME
+    assert "الاستثناءات: 00:01:00-00:01:10" in artifacts.report_path.read_text(encoding="utf-8")
 
 
 def test_validate_output_folder_path_accepts_existing_folder(tmp_path) -> None:

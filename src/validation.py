@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+from src.exclusions import ExclusionError, format_exclusions, validate_exclusions
 from src.time_utils import AR_INVALID_TIME_FORMAT, parse_timestamp
 
 
@@ -16,6 +17,7 @@ class ClipRowInput:
     title: str
     start: str
     end: str
+    exclusions: str = ""
 
 
 @dataclass(frozen=True)
@@ -112,7 +114,38 @@ def _validate_clip_row(row: ClipRowInput) -> list[ValidationErrorDetail]:
             )
         )
 
+    if start_seconds is not None and end_seconds is not None and end_seconds > start_seconds:
+        exclusions_text = row.exclusions.strip() if row.exclusions else ""
+        if exclusions_text:
+            try:
+                exclusion_errors = validate_exclusions(start, end, exclusions_text)
+            except (ExclusionError, ValueError) as error:
+                exclusion_errors = [str(error)]
+
+            for error in exclusion_errors:
+                errors.append(
+                    ValidationErrorDetail(
+                        row_number=row.row_number,
+                        field="exclusions",
+                        message="Clip exclusions are invalid.",
+                        message_ar=f"{error} في الصف {row.row_number}.",
+                    )
+                )
+
     return errors
+
+
+def normalize_clip_exclusions(start: str, end: str, exclusions: str | None) -> str:
+    """Normalize optional exclusions after validating against a clip range."""
+
+    if exclusions is None or not exclusions.strip():
+        return ""
+
+    errors = validate_exclusions(start, end, exclusions)
+    if errors:
+        raise ValueError("\n".join(errors))
+
+    return format_exclusions(exclusions)
 
 
 def _parse_row_timestamp(

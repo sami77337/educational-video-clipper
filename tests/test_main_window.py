@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication
 
 from src.main_window import (
     END_COLUMN,
+    EXCLUSIONS_COLUMN,
     RULE_FOLDER_COLUMN,
     RULE_MAX_COLUMN,
     RULE_MIN_COLUMN,
@@ -30,9 +31,11 @@ def test_table_starts_empty_and_add_row_creates_blank_row() -> None:
     window.add_clip_row()
 
     assert window.clips_table.rowCount() == 1
+    assert window.clips_table.columnCount() == 5
     assert window.clips_table.item(0, TITLE_COLUMN).text() == ""
     assert window.clips_table.item(0, START_COLUMN).text() == ""
     assert window.clips_table.item(0, END_COLUMN).text() == ""
+    assert window.clips_table.item(0, EXCLUSIONS_COLUMN).text() == ""
 
     window.close()
     app.processEvents()
@@ -64,6 +67,60 @@ def test_successful_validation_normalizes_table_times() -> None:
     assert window.validate_inputs() is True
     assert window.clips_table.item(0, START_COLUMN).text() == "00:04:15"
     assert window.clips_table.item(0, END_COLUMN).text() == "00:06:35"
+
+    window.close()
+    app.processEvents()
+
+
+def test_empty_exclusions_validate_successfully() -> None:
+    app = _app()
+    window = MainWindow()
+    window.project_name_input.setText("مشروع")
+    window.youtube_input.setText("https://youtube.com/watch?v=test")
+    window.add_clip_row()
+    window.clips_table.item(0, TITLE_COLUMN).setText("مقطع")
+    window.clips_table.item(0, START_COLUMN).setText("4:15")
+    window.clips_table.item(0, END_COLUMN).setText("6:35")
+    window.clips_table.item(0, EXCLUSIONS_COLUMN).setText("   ")
+
+    assert window.validate_inputs() is True
+    assert window.clips_table.item(0, EXCLUSIONS_COLUMN).text() == ""
+
+    window.close()
+    app.processEvents()
+
+
+def test_validation_normalizes_exclusions_column() -> None:
+    app = _app()
+    window = MainWindow()
+    window.project_name_input.setText("مشروع")
+    window.youtube_input.setText("https://youtube.com/watch?v=test")
+    window.add_clip_row()
+    window.clips_table.item(0, TITLE_COLUMN).setText("مقطع")
+    window.clips_table.item(0, START_COLUMN).setText("26:56")
+    window.clips_table.item(0, END_COLUMN).setText("29:14")
+    window.clips_table.item(0, EXCLUSIONS_COLUMN).setText("٢٧ : ٤٠ - ٢٨ : ٢٠")
+
+    assert window.validate_inputs() is True
+    assert window.clips_table.item(0, EXCLUSIONS_COLUMN).text() == "00:27:40-00:28:20"
+
+    window.close()
+    app.processEvents()
+
+
+def test_invalid_exclusions_show_arabic_error() -> None:
+    app = _app()
+    window = MainWindow()
+    window.project_name_input.setText("مشروع")
+    window.youtube_input.setText("https://youtube.com/watch?v=test")
+    window.add_clip_row()
+    window.clips_table.item(0, TITLE_COLUMN).setText("مقطع")
+    window.clips_table.item(0, START_COLUMN).setText("26:56")
+    window.clips_table.item(0, END_COLUMN).setText("29:14")
+    window.clips_table.item(0, EXCLUSIONS_COLUMN).setText("25:00 - 26:00")
+
+    assert window.validate_inputs() is False
+    assert "الاستثناء خارج حدود المقطع" in window.log_area.toPlainText()
 
     window.close()
     app.processEvents()
@@ -110,6 +167,46 @@ def test_clear_table_asks_confirmation_before_clearing() -> None:
 
     assert window.clips_table.rowCount() == 0
     assert "تم مسح الجدول" in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
+def test_pasted_text_fills_exclusions_column() -> None:
+    app = _app()
+    window = MainWindow()
+    window.paste_message_input.setPlainText("26:56 - 29:14 مابين القوسين يقطع (27:40 - 28:20)")
+
+    window.convert_pasted_text_to_table()
+
+    assert window.clips_table.rowCount() == 1
+    assert window.clips_table.item(0, START_COLUMN).text() == "00:26:56"
+    assert window.clips_table.item(0, END_COLUMN).text() == "00:29:14"
+    assert window.clips_table.item(0, EXCLUSIONS_COLUMN).text() == "00:27:40-00:28:20"
+
+    window.close()
+    app.processEvents()
+
+
+def test_imported_rows_fill_exclusions_column() -> None:
+    app = _app()
+    window = MainWindow()
+    from src.import_utils import ImportedClipRow
+
+    window._insert_clip_lines(
+        [
+            ImportedClipRow(
+                number=1,
+                title="مع حذف",
+                start="00:26:56",
+                end="00:29:14",
+                exclusions="00:27:40-00:28:20",
+            )
+        ],
+        append=False,
+    )
+
+    assert window.clips_table.item(0, EXCLUSIONS_COLUMN).text() == "00:27:40-00:28:20"
 
     window.close()
     app.processEvents()

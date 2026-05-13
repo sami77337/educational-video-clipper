@@ -41,7 +41,7 @@ from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.message_parser import ParsedClipLine, parse_clip_message
 from src.time_utils import normalize_timestamp_text
-from src.validation import ClipRowInput, validate_clip_rows, validate_required_text
+from src.validation import ClipRowInput, normalize_clip_exclusions, validate_clip_rows, validate_required_text
 from src.video_processor import (
     VideoProcessor,
     VideoProcessingError,
@@ -57,6 +57,7 @@ NUMBER_COLUMN = 0
 TITLE_COLUMN = 1
 START_COLUMN = 2
 END_COLUMN = 3
+EXCLUSIONS_COLUMN = 4
 RULE_NAME_COLUMN = 0
 RULE_MIN_COLUMN = 1
 RULE_MAX_COLUMN = 2
@@ -131,7 +132,7 @@ class MainWindow(QMainWindow):
         self.project_name_input = QLineEdit()
         self.paste_message_input = QTextEdit()
         self.parse_message_button = QPushButton("تحويل النص إلى جدول")
-        self.clips_table = QTableWidget(0, 4)
+        self.clips_table = QTableWidget(0, 5)
         self.classification_rules_table = QTableWidget(0, 4)
         self.add_row_button = QPushButton("إضافة مقطع")
         self.import_excel_button = QPushButton("استيراد من Excel")
@@ -272,7 +273,7 @@ class MainWindow(QMainWindow):
         group = QGroupBox("جدول المقاطع")
         layout = QVBoxLayout(group)
 
-        self.clips_table.setHorizontalHeaderLabels(["الرقم", "العنوان", "البداية", "النهاية"])
+        self.clips_table.setHorizontalHeaderLabels(["الرقم", "العنوان", "البداية", "النهاية", "استثناءات"])
         self.clips_table.verticalHeader().setVisible(False)
         self.clips_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.clips_table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -282,6 +283,7 @@ class MainWindow(QMainWindow):
         self.clips_table.horizontalHeader().setSectionResizeMode(TITLE_COLUMN, QHeaderView.Stretch)
         self.clips_table.horizontalHeader().setSectionResizeMode(START_COLUMN, QHeaderView.ResizeToContents)
         self.clips_table.horizontalHeader().setSectionResizeMode(END_COLUMN, QHeaderView.ResizeToContents)
+        self.clips_table.horizontalHeader().setSectionResizeMode(EXCLUSIONS_COLUMN, QHeaderView.Stretch)
 
         table_buttons = QHBoxLayout()
         table_buttons.addWidget(self.add_row_button)
@@ -339,10 +341,11 @@ class MainWindow(QMainWindow):
             title="",
             start="",
             end="",
+            exclusions="",
         )
         self.clips_table.setCurrentCell(self.clips_table.rowCount() - 1, TITLE_COLUMN)
 
-    def _insert_clip_row(self, number: int, title: str, start: str, end: str) -> None:
+    def _insert_clip_row(self, number: int, title: str, start: str, end: str, exclusions: str = "") -> None:
         row = self.clips_table.rowCount()
         self.clips_table.insertRow(row)
 
@@ -354,6 +357,7 @@ class MainWindow(QMainWindow):
         self.clips_table.setItem(row, TITLE_COLUMN, QTableWidgetItem(title))
         self.clips_table.setItem(row, START_COLUMN, QTableWidgetItem(start))
         self.clips_table.setItem(row, END_COLUMN, QTableWidgetItem(end))
+        self.clips_table.setItem(row, EXCLUSIONS_COLUMN, QTableWidgetItem(exclusions))
 
     def add_classification_rule(self) -> None:
         self._insert_classification_rule(
@@ -592,6 +596,7 @@ class MainWindow(QMainWindow):
                     title=self._cell_text(row, TITLE_COLUMN),
                     start=self._cell_text(row, START_COLUMN),
                     end=self._cell_text(row, END_COLUMN),
+                    exclusions=self._cell_text(row, EXCLUSIONS_COLUMN),
                 )
             )
 
@@ -711,6 +716,7 @@ class MainWindow(QMainWindow):
                 title=clip.title,
                 start=clip.start,
                 end=clip.end,
+                exclusions=clip.exclusions,
             )
 
     def _normalize_clip_table_times(self) -> None:
@@ -720,12 +726,23 @@ class MainWindow(QMainWindow):
                 if item is not None:
                     item.setText(normalize_timestamp_text(item.text()))
 
+            exclusions_item = self.clips_table.item(row, EXCLUSIONS_COLUMN)
+            if exclusions_item is not None:
+                exclusions_item.setText(
+                    normalize_clip_exclusions(
+                        self._cell_text(row, START_COLUMN),
+                        self._cell_text(row, END_COLUMN),
+                        exclusions_item.text(),
+                    )
+                )
+
     def _table_has_clip_data(self) -> bool:
         for row in range(self.clips_table.rowCount()):
             if (
                 self._cell_text(row, TITLE_COLUMN)
                 or self._cell_text(row, START_COLUMN)
                 or self._cell_text(row, END_COLUMN)
+                or self._cell_text(row, EXCLUSIONS_COLUMN)
             ):
                 return True
 
