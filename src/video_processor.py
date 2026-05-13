@@ -13,7 +13,15 @@ from typing import Any
 
 from yt_dlp import YoutubeDL
 
-from src.classification import ClassificationRule, classify_duration, get_default_classification_rules
+from src.classification import (
+    ClassificationRule,
+    ClassificationRuleError,
+    classification_folder_names,
+    classify_duration,
+    format_classification_errors_ar,
+    get_default_classification_rules,
+    validate_classification_rules,
+)
 from src.export_utils import (
     AR_PROCESSING_SUCCESS,
     AR_REPORT_CREATED,
@@ -46,6 +54,8 @@ AR_LOCAL_VIDEO_NOT_FOUND = "خطأ: ملف الفيديو المحلي غير م
 AR_FFMPEG_NOT_FOUND = "لم يتم العثور على ffmpeg"
 AR_CUTTING_COMPLETE = "تم الانتهاء من القص والفرز"
 AR_INPUT_VIDEO_MISSING = "خطأ: لم يتم العثور على input.mp4"
+AR_CLASSIFICATION_RULES_INVALID = "خطأ في قواعد التصنيف"
+AR_NO_CLASSIFICATION_RULE_FOR_CLIP = "لا توجد قاعدة تصنيف مناسبة للمقطع رقم"
 
 ProgressCallback = Callable[[str], None]
 SubprocessRunner = Callable[..., subprocess.CompletedProcess[str]]
@@ -215,10 +225,12 @@ class VideoProcessor:
         clips: list[ClipDefinition],
         progress_callback: ProgressCallback | None = None,
         runner: SubprocessRunner = subprocess.run,
+        classification_rules: Sequence[ClassificationRule] | None = None,
     ) -> list[CutClipResult]:
         """Cut all clips from the prepared input video and sort them automatically."""
 
-        return cut_clips(prepared_video, clips, progress_callback, runner, self.classification_rules)
+        active_rules = self._active_classification_rules(classification_rules)
+        return cut_clips(prepared_video, clips, progress_callback, runner, active_rules)
 
     def process_project(
         self,
@@ -227,14 +239,20 @@ class VideoProcessor:
         clip_rows: list[ClipRowInput],
         progress_callback: ProgressCallback | None = None,
         runner: SubprocessRunner = subprocess.run,
+        classification_rules: Sequence[ClassificationRule] | None = None,
     ) -> ProcessingResult:
         """Prepare, cut, sort, ZIP, and report one project."""
 
         started_at = datetime.now().astimezone()
+        active_rules = self._active_classification_rules(classification_rules)
+        clips = self.build_clip_definitions(clip_rows)
+        classification_errors = validate_classification_rules_for_clips(clips, active_rules)
+        if classification_errors:
+            raise VideoProcessingError(f"{AR_CLASSIFICATION_RULES_INVALID}:\n" + "\n".join(classification_errors))
+
         _emit(progress_callback, AR_PREPARING_VIDEO)
         prepared_video = self.prepare_source(source_request, project_name, progress_callback)
-        clips = self.build_clip_definitions(clip_rows)
-        cut_results = self.cut_clips(prepared_video, clips, progress_callback, runner)
+        cut_results = self.cut_clips(prepared_video, clips, progress_callback, runner, active_rules)
         export_artifacts = self.export_results(
             project_output_folder=prepared_video.project_output_folder,
             project_name=project_name,
@@ -243,6 +261,7 @@ class VideoProcessor:
             started_at=started_at,
             ended_at=None,
             progress_callback=progress_callback,
+            classification_rules=active_rules,
         )
         _emit(progress_callback, AR_PROCESSING_SUCCESS)
 
@@ -262,23 +281,29 @@ class VideoProcessor:
         started_at: datetime,
         ended_at: datetime | None,
         progress_callback: ProgressCallback | None = None,
+        classification_rules: Sequence[ClassificationRule] | None = None,
     ) -> ExportArtifacts:
         """Create ZIP files and a final report after successful clipping."""
 
         project_folder = Path(project_output_folder)
-        reels_folder, benefits_folder = ensure_result_folders(project_folder)
-        zip_result = create_result_zips(project_folder, progress_callback)
+        active_rules = self._active_classification_rules(classification_rules)
+        folder_names = classification_folder_names(active_rules)
+        output_folders = list(ensure_result_folders(project_folder, folder_names))
+        zip_result = create_result_zips(project_folder, progress_callback, folder_names)
+        clip_counts = count_results_by_folder(cut_results, folder_names)
         report_data = ProcessingReportData(
             project_name=project_name,
             source_type=source_type_label(source_type),
             total_clips_count=len(cut_results),
-            reels_count=count_results_in_folder(cut_results, REELS_FOLDER_NAME),
-            benefits_count=count_results_in_folder(cut_results, BENEFITS_FOLDER_NAME),
-            output_folders=[reels_folder, benefits_folder],
+            reels_count=clip_counts.get(REELS_FOLDER_NAME, 0),
+            benefits_count=clip_counts.get(BENEFITS_FOLDER_NAME, 0),
+            output_folders=output_folders,
             zip_files=zip_result.zip_files,
             started_at=started_at,
             ended_at=ended_at or datetime.now().astimezone(),
             skipped_or_failed_items=[],
+            classification_rules=list(active_rules),
+            clip_counts_by_folder=clip_counts,
         )
         report_path = write_processing_report(project_folder, report_data)
         _emit(progress_callback, AR_REPORT_CREATED)
@@ -291,6 +316,16 @@ class VideoProcessor:
 
     def create_clip(self, request: ClipRequest) -> None:
         raise NotImplementedError("Video clipping is not implemented yet.")
+
+    def _active_classification_rules(
+        self,
+        rules: Sequence[ClassificationRule] | None = None,
+    ) -> list[ClassificationRule]:
+        if rules is not None:
+            return list(rules)
+        if self.classification_rules is not None:
+            return list(self.classification_rules)
+        return get_default_classification_rules()
 
 
 def create_project_output_folder(project_name: str, output_root: str | Path) -> Path:
@@ -398,6 +433,38 @@ def count_results_in_folder(results: list[CutClipResult], folder_name: str) -> i
     return sum(1 for result in results if result.destination_folder_name == folder_name)
 
 
+def count_results_by_folder(
+    results: list[CutClipResult],
+    folder_names: Sequence[str],
+) -> dict[str, int]:
+    """Count cut results for each configured output folder."""
+
+    counts = {folder_name: 0 for folder_name in folder_names}
+    for result in results:
+        counts[result.destination_folder_name] = counts.get(result.destination_folder_name, 0) + 1
+
+    return counts
+
+
+def validate_classification_rules_for_clips(
+    clips: Sequence[ClipDefinition],
+    rules: Sequence[ClassificationRule],
+) -> list[str]:
+    """Validate rules and ensure every clip can be classified."""
+
+    errors = format_classification_errors_ar(validate_classification_rules(rules))
+    if errors:
+        return errors
+
+    for clip in clips:
+        try:
+            classify_clip_folder(clip.duration_seconds, rules)
+        except ClassificationRuleError:
+            errors.append(f"{AR_NO_CLASSIFICATION_RULE_FOR_CLIP} {clip.number}")
+
+    return errors
+
+
 def build_clip_filename(clip: ClipDefinition) -> str:
     """Build a safe output filename that keeps the clip number and title."""
 
@@ -409,10 +476,14 @@ def build_clip_output_path(
     project_output_folder: str | Path,
     clip: ClipDefinition,
     classification_rules: Sequence[ClassificationRule] | None = None,
+    destination_folder_name: str | None = None,
 ) -> Path:
     """Build and create the sorted output path for a clip."""
 
-    destination_folder_name = classify_clip_folder(clip.duration_seconds, classification_rules)
+    destination_folder_name = destination_folder_name or classify_clip_folder(
+        clip.duration_seconds,
+        classification_rules,
+    )
     destination_folder = ensure_directory(Path(project_output_folder) / destination_folder_name)
     return destination_folder / build_clip_filename(clip)
 
@@ -491,8 +562,19 @@ def cut_clips(
     results: list[CutClipResult] = []
     for clip in clips:
         _emit(progress_callback, f"جاري قص المقطع {clip.number}")
-        output_path = build_clip_output_path(prepared_video.project_output_folder, clip, classification_rules)
-        destination_folder_name = classify_clip_folder(clip.duration_seconds, classification_rules)
+        try:
+            destination_folder_name = classify_clip_folder(clip.duration_seconds, classification_rules)
+        except ClassificationRuleError as error:
+            _emit(progress_callback, f"{AR_NO_CLASSIFICATION_RULE_FOR_CLIP} {clip.number}")
+            raise ClipCutError(f"{AR_NO_CLASSIFICATION_RULE_FOR_CLIP} {clip.number}: {error}") from error
+
+        _emit(progress_callback, f"تم تصنيف المقطع {clip.number:02d} إلى مجلد {destination_folder_name}")
+        output_path = build_clip_output_path(
+            prepared_video.project_output_folder,
+            clip,
+            classification_rules,
+            destination_folder_name,
+        )
 
         try:
             cut_clip(

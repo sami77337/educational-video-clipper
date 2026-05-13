@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from src.classification import (
+    ClassificationRule,
+    classification_folder_names,
+    format_rule_minutes,
+    get_default_classification_rules,
+    sanitize_classification_folder_name,
+)
 from src.file_utils import ensure_directory
 
 
@@ -58,6 +65,8 @@ class ProcessingReportData:
     started_at: datetime
     ended_at: datetime
     skipped_or_failed_items: list[str]
+    classification_rules: list[ClassificationRule] = field(default_factory=list)
+    clip_counts_by_folder: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -69,18 +78,20 @@ class ExportArtifacts:
     report_path: Path
 
 
-def ensure_result_folders(project_output_folder: str | Path) -> tuple[Path, Path]:
-    """Ensure the project has both sorted result folders."""
+def ensure_result_folders(
+    project_output_folder: str | Path,
+    folder_names: Sequence[str] | None = None,
+) -> tuple[Path, ...]:
+    """Ensure the project has sorted result folders."""
 
     project_folder = Path(project_output_folder)
-    reels_folder = ensure_directory(project_folder / REELS_FOLDER_NAME)
-    benefits_folder = ensure_directory(project_folder / BENEFITS_FOLDER_NAME)
-    return reels_folder, benefits_folder
+    return tuple(ensure_directory(project_folder / folder_name) for folder_name in _safe_folder_names(folder_names))
 
 
 def create_result_zips(
     project_output_folder: str | Path,
     progress_callback: ProgressCallback | None = None,
+    folder_names: Sequence[str] | None = None,
 ) -> ZipExportResult:
     """Create result ZIP files inside the project's ZIP folder."""
 
@@ -88,19 +99,22 @@ def create_result_zips(
     zip_files: list[Path] = []
 
     try:
-        reels_folder, benefits_folder = ensure_result_folders(project_folder)
+        result_folders = ensure_result_folders(project_folder, folder_names)
         zip_folder = ensure_directory(project_folder / ZIP_FOLDER_NAME)
-        if folder_contains_clips(reels_folder):
-            _emit(progress_callback, AR_ZIPPING_REELS)
-            zip_files.append(_create_folder_zip(project_folder, reels_folder, zip_folder / REELS_ZIP_NAME))
-
-        if folder_contains_clips(benefits_folder):
-            _emit(progress_callback, AR_ZIPPING_BENEFITS)
-            zip_files.append(_create_folder_zip(project_folder, benefits_folder, zip_folder / BENEFITS_ZIP_NAME))
+        for result_folder in result_folders:
+            if folder_contains_clips(result_folder):
+                _emit(progress_callback, _folder_zip_progress_message(result_folder.name))
+                zip_files.append(
+                    _create_folder_zip(
+                        project_folder,
+                        result_folder,
+                        zip_folder / f"{result_folder.name}.zip",
+                    )
+                )
 
         _emit(progress_callback, AR_CREATING_COMPLETE_ZIP)
         complete_zip = zip_folder / COMPLETE_RESULT_ZIP_NAME
-        _create_zip_from_folders(project_folder, [reels_folder, benefits_folder], complete_zip)
+        _create_zip_from_folders(project_folder, result_folders, complete_zip)
         zip_files.append(complete_zip)
     except Exception as error:
         raise ExportError(f"{AR_ZIP_CREATION_FAILED}: {error}") from error
@@ -119,6 +133,8 @@ def folder_contains_clips(folder: str | Path) -> bool:
 def build_processing_report(data: ProcessingReportData) -> str:
     """Build the final processing report text."""
 
+    classification_rules = data.classification_rules or get_default_classification_rules()
+    clip_counts = _report_clip_counts(data)
     lines = [
         "تقرير القص",
         "",
@@ -127,8 +143,12 @@ def build_processing_report(data: ProcessingReportData) -> str:
         f"Total clips count: {data.total_clips_count}",
         f"Reels count: {data.reels_count}",
         f"Benefits count: {data.benefits_count}",
-        "Output folders:",
+        "Classification rules:",
     ]
+    lines.extend(_format_classification_rule(rule) for rule in classification_rules)
+    lines.append("Clip counts by folder:")
+    lines.extend(f"- {folder_name}: {count}" for folder_name, count in clip_counts.items())
+    lines.append("Output folders:")
     lines.extend(f"- {folder}" for folder in data.output_folders)
     lines.append("ZIP files created:")
     if data.zip_files:
@@ -174,6 +194,43 @@ def validate_output_folder_path(folder_path: str | Path | None) -> Path:
         raise ExportError(AR_OUTPUT_FOLDER_MISSING)
 
     return path
+
+
+def _safe_folder_names(folder_names: Sequence[str] | None) -> list[str]:
+    names = list(folder_names) if folder_names is not None else classification_folder_names()
+    safe_names: list[str] = []
+    for name in names:
+        safe_name = sanitize_classification_folder_name(name)
+        if safe_name not in safe_names:
+            safe_names.append(safe_name)
+
+    return safe_names
+
+
+def _folder_zip_progress_message(folder_name: str) -> str:
+    if folder_name == REELS_FOLDER_NAME:
+        return AR_ZIPPING_REELS
+    if folder_name == BENEFITS_FOLDER_NAME:
+        return AR_ZIPPING_BENEFITS
+    return f"جاري ضغط ملفات {folder_name}"
+
+
+def _format_classification_rule(rule: ClassificationRule) -> str:
+    max_minutes = format_rule_minutes(rule.max_minutes)
+    return (
+        f"- {rule.name}: من {format_rule_minutes(rule.min_minutes)} "
+        f"إلى {max_minutes} دقيقة -> {sanitize_classification_folder_name(rule.folder_name)}"
+    )
+
+
+def _report_clip_counts(data: ProcessingReportData) -> Mapping[str, int]:
+    if data.clip_counts_by_folder:
+        return data.clip_counts_by_folder
+
+    return {
+        REELS_FOLDER_NAME: data.reels_count,
+        BENEFITS_FOLDER_NAME: data.benefits_count,
+    }
 
 
 def _create_folder_zip(project_folder: Path, folder: Path, zip_path: Path) -> Path:

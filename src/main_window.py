@@ -28,6 +28,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.classification import (
+    ClassificationRule,
+    ClassificationRuleError,
+    classify_duration,
+    format_classification_errors_ar,
+    format_rule_minutes,
+    get_default_classification_rules,
+    validate_classification_rules,
+)
 from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.message_parser import ParsedClipLine, parse_clip_message
@@ -48,6 +57,11 @@ NUMBER_COLUMN = 0
 TITLE_COLUMN = 1
 START_COLUMN = 2
 END_COLUMN = 3
+RULE_NAME_COLUMN = 0
+RULE_MIN_COLUMN = 1
+RULE_MAX_COLUMN = 2
+RULE_FOLDER_COLUMN = 3
+AR_OPEN_MINUTES = "مفتوح"
 
 
 class ProcessingWorker(QObject):
@@ -64,12 +78,14 @@ class ProcessingWorker(QObject):
         source_request: VideoSourceRequest,
         project_name: str,
         clip_rows: list[ClipRowInput],
+        classification_rules: list[ClassificationRule],
     ) -> None:
         super().__init__()
         self.video_processor = video_processor
         self.source_request = source_request
         self.project_name = project_name
         self.clip_rows = clip_rows
+        self.classification_rules = classification_rules
 
     @Slot()
     def run(self) -> None:
@@ -79,6 +95,7 @@ class ProcessingWorker(QObject):
                 self.project_name,
                 self.clip_rows,
                 progress_callback=self.progress.emit,
+                classification_rules=self.classification_rules,
             )
         except (VideoSourceError, VideoProcessingError, ExportError) as error:
             self.failed.emit(str(error))
@@ -115,10 +132,14 @@ class MainWindow(QMainWindow):
         self.paste_message_input = QTextEdit()
         self.parse_message_button = QPushButton("تحويل النص إلى جدول")
         self.clips_table = QTableWidget(0, 4)
+        self.classification_rules_table = QTableWidget(0, 4)
         self.add_row_button = QPushButton("إضافة مقطع")
         self.import_excel_button = QPushButton("استيراد من Excel")
         self.delete_row_button = QPushButton("حذف المحدد")
         self.clear_table_button = QPushButton("مسح الجدول")
+        self.add_classification_button = QPushButton("إضافة تصنيف")
+        self.delete_classification_button = QPushButton("حذف التصنيف المحدد")
+        self.reset_classification_button = QPushButton("استعادة الافتراضي")
         self.validate_button = QPushButton("فحص الجدول")
         self.start_button = QPushButton("بدء القص")
         self.open_output_button = QPushButton("فتح مجلد النتائج")
@@ -127,6 +148,7 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(self._build_ui())
         self._connect_signals()
+        self._reset_classification_rules(log=False)
         self._update_source_inputs()
         self.open_output_button.setEnabled(False)
 
@@ -140,6 +162,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_project_section())
         layout.addWidget(self._build_help_section())
         layout.addWidget(self._build_clips_section(), stretch=1)
+        layout.addWidget(self._build_classification_section())
         layout.addWidget(self._build_paste_section())
         layout.addWidget(self._build_action_section())
         layout.addWidget(self._build_log_section(), stretch=1)
@@ -190,11 +213,41 @@ class MainWindow(QMainWindow):
             "اختر مصدر الفيديو، ثم أدخل اسم المشروع.\n"
             "أضف المقاطع يدويًا، أو استورد Excel، أو الصق رسالة.\n"
             "اضغط بدء القص عند جاهزية الجدول.\n"
-            "المقاطع 3 دقائق أو أقل تذهب إلى ريلز.\n"
-            "المقاطع أكثر من 3 دقائق تذهب إلى فوائد."
+            "يمكن إنشاء أكثر من مجلد حسب مدة المقطع.\n"
+            "مثال: من 0 إلى 3 دقائق = ريلز.\n"
+            "مثال: من 3 إلى مفتوح = فوائد.\n"
+            "يمكن إضافة تصنيفات أكثر مثل Shorts أو فوائد طويلة أو دروس."
         )
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
+
+        return group
+
+    def _build_classification_section(self) -> QGroupBox:
+        group = QGroupBox("إعدادات التصنيف والمجلدات")
+        layout = QVBoxLayout(group)
+
+        self.classification_rules_table.setHorizontalHeaderLabels(
+            ["اسم التصنيف", "من دقيقة", "إلى دقيقة", "اسم المجلد"]
+        )
+        self.classification_rules_table.verticalHeader().setVisible(False)
+        self.classification_rules_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.classification_rules_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.classification_rules_table.setAlternatingRowColors(True)
+        self.classification_rules_table.setMinimumHeight(110)
+        self.classification_rules_table.horizontalHeader().setSectionResizeMode(RULE_NAME_COLUMN, QHeaderView.Stretch)
+        self.classification_rules_table.horizontalHeader().setSectionResizeMode(RULE_MIN_COLUMN, QHeaderView.ResizeToContents)
+        self.classification_rules_table.horizontalHeader().setSectionResizeMode(RULE_MAX_COLUMN, QHeaderView.ResizeToContents)
+        self.classification_rules_table.horizontalHeader().setSectionResizeMode(RULE_FOLDER_COLUMN, QHeaderView.Stretch)
+
+        button_row = QHBoxLayout()
+        button_row.addWidget(self.add_classification_button)
+        button_row.addWidget(self.delete_classification_button)
+        button_row.addWidget(self.reset_classification_button)
+        button_row.addStretch(1)
+
+        layout.addWidget(self.classification_rules_table)
+        layout.addLayout(button_row)
 
         return group
 
@@ -272,6 +325,9 @@ class MainWindow(QMainWindow):
         self.import_excel_button.clicked.connect(self.import_from_excel)
         self.delete_row_button.clicked.connect(self.delete_selected_row)
         self.clear_table_button.clicked.connect(self.clear_table)
+        self.add_classification_button.clicked.connect(self.add_classification_rule)
+        self.delete_classification_button.clicked.connect(self.delete_selected_classification_rule)
+        self.reset_classification_button.clicked.connect(self.reset_classification_rules)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
         self.validate_button.clicked.connect(self.validate_inputs)
         self.start_button.clicked.connect(self.start_processing)
@@ -298,6 +354,58 @@ class MainWindow(QMainWindow):
         self.clips_table.setItem(row, TITLE_COLUMN, QTableWidgetItem(title))
         self.clips_table.setItem(row, START_COLUMN, QTableWidgetItem(start))
         self.clips_table.setItem(row, END_COLUMN, QTableWidgetItem(end))
+
+    def add_classification_rule(self) -> None:
+        self._insert_classification_rule(
+            ClassificationRule(
+                name="",
+                min_minutes=0,
+                max_minutes=None,
+                folder_name="",
+            )
+        )
+        self.classification_rules_table.setCurrentCell(
+            self.classification_rules_table.rowCount() - 1,
+            RULE_NAME_COLUMN,
+        )
+
+    def delete_selected_classification_rule(self) -> None:
+        selected_rows = self.classification_rules_table.selectionModel().selectedRows()
+        if not selected_rows:
+            self._write_log("اختر تصنيفًا من الجدول أولًا.")
+            return
+
+        for row_index in sorted((index.row() for index in selected_rows), reverse=True):
+            self.classification_rules_table.removeRow(row_index)
+
+        self._write_log("تم حذف التصنيف المحدد.")
+
+    def reset_classification_rules(self) -> None:
+        self._reset_classification_rules(log=True)
+
+    def _reset_classification_rules(self, log: bool) -> None:
+        self.classification_rules_table.setRowCount(0)
+        for rule in get_default_classification_rules():
+            self._insert_classification_rule(rule)
+
+        if log:
+            self._write_log("تمت استعادة قواعد التصنيف الافتراضية.")
+
+    def _insert_classification_rule(self, rule: ClassificationRule) -> None:
+        row = self.classification_rules_table.rowCount()
+        self.classification_rules_table.insertRow(row)
+        self.classification_rules_table.setItem(row, RULE_NAME_COLUMN, QTableWidgetItem(rule.name))
+        self.classification_rules_table.setItem(
+            row,
+            RULE_MIN_COLUMN,
+            QTableWidgetItem(format_rule_minutes(rule.min_minutes)),
+        )
+        self.classification_rules_table.setItem(
+            row,
+            RULE_MAX_COLUMN,
+            QTableWidgetItem(format_rule_minutes(rule.max_minutes)),
+        )
+        self.classification_rules_table.setItem(row, RULE_FOLDER_COLUMN, QTableWidgetItem(rule.folder_name))
 
     def delete_selected_row(self) -> None:
         selected_rows = self.clips_table.selectionModel().selectedRows()
@@ -403,12 +511,14 @@ class MainWindow(QMainWindow):
             self._append_log("المعالجة قيد التشغيل بالفعل.")
             return
 
-        errors = self._collect_validation_errors()
+        errors = self._collect_base_validation_errors()
         if errors:
             self._write_validation_errors(errors)
             return
 
         self._normalize_clip_table_times()
+        clip_rows = self._collect_clip_rows()
+        classification_rules = self._collect_classification_rules()
 
         try:
             project_name = validate_required_text(self.project_name_input.text(), "Project name")
@@ -417,13 +527,23 @@ class MainWindow(QMainWindow):
             return
 
         self.log_area.clear()
-        self._write_log("بدأ القص. يرجى الانتظار حتى تنتهي المعالجة.")
+        self._write_log("جاري فحص قواعد التصنيف")
+        classification_errors = self._collect_classification_validation_errors(clip_rows, classification_rules)
+        if classification_errors:
+            self._append_log(
+                "تعذر فحص قواعد التصنيف:\n" + "\n".join(f"- {error}" for error in classification_errors)
+            )
+            return
+
+        self._append_log("تم قبول قواعد التصنيف")
+        self._append_log("بدأ القص. يرجى الانتظار حتى تنتهي المعالجة.")
         self._last_output_folder = None
         self._set_processing_enabled(False)
         self._start_processing_worker(
             source_request=self._current_video_source(),
             project_name=project_name,
-            clip_rows=self._collect_clip_rows(),
+            clip_rows=clip_rows,
+            classification_rules=classification_rules,
         )
 
     def open_output_folder(self) -> None:
@@ -478,6 +598,17 @@ class MainWindow(QMainWindow):
         return rows
 
     def _collect_validation_errors(self) -> list[str]:
+        errors = self._collect_base_validation_errors()
+        clip_rows = self._collect_clip_rows()
+        errors.extend(
+            self._collect_classification_validation_errors(
+                clip_rows,
+                self._collect_classification_rules(),
+            )
+        )
+        return errors
+
+    def _collect_base_validation_errors(self) -> list[str]:
         errors: list[str] = []
 
         try:
@@ -496,6 +627,48 @@ class MainWindow(QMainWindow):
         errors.extend(error.message_ar for error in validate_clip_rows(self._collect_clip_rows()))
         return errors
 
+    def _collect_classification_rules(self) -> list[ClassificationRule]:
+        rules: list[ClassificationRule] = []
+        for row in range(self.classification_rules_table.rowCount()):
+            rules.append(
+                ClassificationRule(
+                    name=self._classification_cell_text(row, RULE_NAME_COLUMN),
+                    min_minutes=self._parse_rule_minutes(
+                        self._classification_cell_text(row, RULE_MIN_COLUMN),
+                        allow_open=False,
+                    ),
+                    max_minutes=self._parse_rule_minutes(
+                        self._classification_cell_text(row, RULE_MAX_COLUMN),
+                        allow_open=True,
+                    ),
+                    folder_name=self._classification_cell_text(row, RULE_FOLDER_COLUMN),
+                )
+            )
+
+        return rules
+
+    def _collect_classification_validation_errors(
+        self,
+        clip_rows: list[ClipRowInput],
+        classification_rules: list[ClassificationRule],
+    ) -> list[str]:
+        errors = format_classification_errors_ar(validate_classification_rules(classification_rules))
+        if errors:
+            return errors
+
+        try:
+            clip_definitions = self.video_processor.build_clip_definitions(clip_rows)
+        except ValueError:
+            return []
+
+        for clip in clip_definitions:
+            try:
+                classify_duration(clip.duration_seconds, classification_rules)
+            except ClassificationRuleError:
+                errors.append(f"لا توجد قاعدة تصنيف مناسبة للمقطع رقم {clip.number}")
+
+        return errors
+
     def _current_video_source(self) -> VideoSourceRequest:
         if self.youtube_radio.isChecked():
             return VideoSourceRequest(VideoSourceType.YOUTUBE, self.youtube_input.text())
@@ -505,6 +678,20 @@ class MainWindow(QMainWindow):
     def _cell_text(self, row: int, column: int) -> str:
         item = self.clips_table.item(row, column)
         return item.text().strip() if item is not None else ""
+
+    def _classification_cell_text(self, row: int, column: int) -> str:
+        item = self.classification_rules_table.item(row, column)
+        return item.text().strip() if item is not None else ""
+
+    def _parse_rule_minutes(self, value: str, allow_open: bool) -> float | None | str:
+        text = value.strip()
+        if allow_open and (not text or text in {AR_OPEN_MINUTES, "open", "Open", "none", "None", "∞"}):
+            return None
+
+        try:
+            return float(text)
+        except ValueError:
+            return text
 
     def _row_number(self, row: int) -> int:
         try:
@@ -591,6 +778,7 @@ class MainWindow(QMainWindow):
         source_request: VideoSourceRequest,
         project_name: str,
         clip_rows: list[ClipRowInput],
+        classification_rules: list[ClassificationRule],
     ) -> None:
         thread = QThread(self)
         worker = ProcessingWorker(
@@ -598,6 +786,7 @@ class MainWindow(QMainWindow):
             source_request=source_request,
             project_name=project_name,
             clip_rows=clip_rows,
+            classification_rules=classification_rules,
         )
         worker.moveToThread(thread)
 
@@ -647,10 +836,14 @@ class MainWindow(QMainWindow):
             self.paste_message_input,
             self.parse_message_button,
             self.clips_table,
+            self.classification_rules_table,
             self.add_row_button,
             self.import_excel_button,
             self.delete_row_button,
             self.clear_table_button,
+            self.add_classification_button,
+            self.delete_classification_button,
+            self.reset_classification_button,
             self.validate_button,
             self.start_button,
             self.open_output_button,

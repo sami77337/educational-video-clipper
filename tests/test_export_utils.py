@@ -3,6 +3,7 @@ from zipfile import ZipFile
 
 import pytest
 
+from src.classification import ClassificationRule
 from src.export_utils import (
     AR_CREATING_COMPLETE_ZIP,
     AR_ZIP_FILES_CREATED,
@@ -48,6 +49,31 @@ def test_create_result_zips_creates_zip_folder_and_expected_archives(tmp_path) -
         assert BENEFITS_FOLDER_NAME + "/" in zip_file.namelist()
 
 
+def test_create_result_zips_generates_archives_for_dynamic_folders(tmp_path) -> None:
+    project_folder = tmp_path / "project"
+    shorts_folder = project_folder / "Shorts"
+    long_benefits_folder = project_folder / "فوائد طويلة"
+    lessons_folder = project_folder / "دروس"
+    shorts_folder.mkdir(parents=True)
+    long_benefits_folder.mkdir()
+    lessons_folder.mkdir()
+    (shorts_folder / "1_short.mp4").write_bytes(b"short")
+    (long_benefits_folder / "2_long.mp4").write_bytes(b"long")
+
+    result = create_result_zips(project_folder, folder_names=["Shorts", "فوائد طويلة", "دروس"])
+
+    assert project_folder.joinpath(ZIP_FOLDER_NAME, "Shorts.zip").is_file()
+    assert project_folder.joinpath(ZIP_FOLDER_NAME, "فوائد طويلة.zip").is_file()
+    assert not project_folder.joinpath(ZIP_FOLDER_NAME, "دروس.zip").exists()
+    assert project_folder.joinpath(ZIP_FOLDER_NAME, COMPLETE_RESULT_ZIP_NAME).is_file()
+    assert result.zip_files[-1] == project_folder / ZIP_FOLDER_NAME / COMPLETE_RESULT_ZIP_NAME
+
+    with ZipFile(project_folder / ZIP_FOLDER_NAME / COMPLETE_RESULT_ZIP_NAME) as zip_file:
+        assert "Shorts/" in zip_file.namelist()
+        assert "فوائد طويلة/2_long.mp4" in zip_file.namelist()
+        assert "دروس/" in zip_file.namelist()
+
+
 def test_build_processing_report_includes_required_content(tmp_path) -> None:
     started_at = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
     ended_at = datetime(2026, 5, 13, 10, 3, tzinfo=timezone.utc)
@@ -75,6 +101,37 @@ def test_build_processing_report_includes_required_content(tmp_path) -> None:
     assert "Start timestamp of processing: 2026-05-13 10:00:00+00:00" in report
     assert "End timestamp of processing: 2026-05-13 10:03:00+00:00" in report
     assert "Skipped or failed items:\n- None" in report
+
+
+def test_build_processing_report_includes_dynamic_rules_and_counts(tmp_path) -> None:
+    started_at = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
+    ended_at = datetime(2026, 5, 13, 10, 3, tzinfo=timezone.utc)
+    data = ProcessingReportData(
+        project_name="مشروع تعليمي",
+        source_type="local file",
+        total_clips_count=3,
+        reels_count=0,
+        benefits_count=0,
+        output_folders=[tmp_path / "Shorts", tmp_path / "دروس"],
+        zip_files=[tmp_path / ZIP_FOLDER_NAME / "Shorts.zip"],
+        started_at=started_at,
+        ended_at=ended_at,
+        skipped_or_failed_items=[],
+        classification_rules=[
+            ClassificationRule("Shorts", 0, 1, "Shorts"),
+            ClassificationRule("دروس", 1, None, "دروس"),
+        ],
+        clip_counts_by_folder={"Shorts": 2, "دروس": 1},
+    )
+
+    report = build_processing_report(data)
+
+    assert "Classification rules:" in report
+    assert "- Shorts: من 0 إلى 1 دقيقة -> Shorts" in report
+    assert "- دروس: من 1 إلى مفتوح دقيقة -> دروس" in report
+    assert "Clip counts by folder:" in report
+    assert "- Shorts: 2" in report
+    assert "- دروس: 1" in report
 
 
 def test_export_results_creates_full_result_folder_structure(tmp_path) -> None:

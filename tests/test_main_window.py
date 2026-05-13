@@ -5,7 +5,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
-from src.main_window import END_COLUMN, START_COLUMN, TITLE_COLUMN, MainWindow
+from src.main_window import (
+    END_COLUMN,
+    RULE_FOLDER_COLUMN,
+    RULE_MAX_COLUMN,
+    RULE_MIN_COLUMN,
+    RULE_NAME_COLUMN,
+    START_COLUMN,
+    TITLE_COLUMN,
+    MainWindow,
+)
 
 
 def _app() -> QApplication:
@@ -101,6 +110,70 @@ def test_clear_table_asks_confirmation_before_clearing() -> None:
 
     assert window.clips_table.rowCount() == 0
     assert "تم مسح الجدول" in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
+def test_default_ui_classification_rules_preserve_existing_behavior() -> None:
+    app = _app()
+    window = MainWindow()
+
+    assert window.classification_rules_table.rowCount() == 2
+    assert window.classification_rules_table.item(0, RULE_NAME_COLUMN).text() == "ريلز"
+    assert window.classification_rules_table.item(0, RULE_MIN_COLUMN).text() == "0"
+    assert window.classification_rules_table.item(0, RULE_MAX_COLUMN).text() == "3"
+    assert window.classification_rules_table.item(0, RULE_FOLDER_COLUMN).text() == "ريلز"
+    assert window.classification_rules_table.item(1, RULE_NAME_COLUMN).text() == "فوائد"
+    assert window.classification_rules_table.item(1, RULE_MAX_COLUMN).text() == "مفتوح"
+
+    window.close()
+    app.processEvents()
+
+
+def test_custom_three_rule_ui_classification_rules_are_collected() -> None:
+    app = _app()
+    window = MainWindow()
+    window.classification_rules_table.setRowCount(0)
+
+    for values in (
+        ("Shorts", "0", "1", "Shorts"),
+        ("ريلز", "1", "3", "ريلز"),
+        ("فوائد طويلة", "3", "مفتوح", "فوائد طويلة"),
+    ):
+        window.add_classification_rule()
+        row = window.classification_rules_table.rowCount() - 1
+        for column, value in enumerate(values):
+            window.classification_rules_table.item(row, column).setText(value)
+
+    rules = window._collect_classification_rules()
+
+    assert len(rules) == 3
+    assert rules[0].name == "Shorts"
+    assert rules[0].max_minutes == 1
+    assert rules[2].folder_name == "فوائد طويلة"
+    assert rules[2].max_minutes is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_invalid_ui_classification_rules_stop_processing() -> None:
+    app = _app()
+    window = MainWindow()
+    window.project_name_input.setText("مشروع")
+    window.youtube_input.setText("https://youtube.com/watch?v=test")
+    window.add_clip_row()
+    window.clips_table.item(0, TITLE_COLUMN).setText("مقطع")
+    window.clips_table.item(0, START_COLUMN).setText("00:00:00")
+    window.clips_table.item(0, END_COLUMN).setText("00:00:30")
+    window.classification_rules_table.item(0, RULE_NAME_COLUMN).setText("")
+
+    window.start_processing()
+
+    assert window._processing_thread is None
+    assert "جاري فحص قواعد التصنيف" in window.log_area.toPlainText()
+    assert "اسم التصنيف فارغ" in window.log_area.toPlainText()
 
     window.close()
     app.processEvents()

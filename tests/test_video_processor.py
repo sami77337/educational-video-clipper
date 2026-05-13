@@ -1,5 +1,6 @@
 import pytest
 
+from src.classification import ClassificationRule
 from src.video_processor import (
     AR_EMPTY_LOCAL_VIDEO,
     AR_EMPTY_YOUTUBE_URL,
@@ -164,3 +165,36 @@ def test_cut_clips_generates_reels_output_and_logs(tmp_path) -> None:
     assert commands[0][0] == "ffmpeg"
     assert "جاري قص المقطع 1" in messages
     assert "تم الانتهاء من القص والفرز" in messages
+
+
+def test_cut_clips_uses_custom_classification_folder_and_logs(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(number=3, title="درس طويل", start_seconds=0, end_seconds=400)
+    rules = [
+        ClassificationRule("Shorts", 0, 1, "Shorts"),
+        ClassificationRule("ريلز", 1, 3, "ريلز"),
+        ClassificationRule("دروس", 3, None, "دروس"),
+    ]
+    messages: list[str] = []
+
+    def fake_runner(command, **kwargs):
+        return None
+
+    results = cut_clips(
+        prepared_video,
+        [clip],
+        messages.append,
+        fake_runner,
+        classification_rules=rules,
+    )
+
+    assert results[0].destination_folder_name == "دروس"
+    assert results[0].output_path == input_path.parent / "دروس" / "3_درس طويل.mp4"
+    assert "تم تصنيف المقطع 03 إلى مجلد دروس" in messages

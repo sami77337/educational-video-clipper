@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from numbers import Real
@@ -104,6 +105,12 @@ def validate_classification_rules(rules: Sequence[ClassificationRule]) -> list[s
     return errors
 
 
+def format_classification_errors_ar(errors: Sequence[str]) -> list[str]:
+    """Translate backend rule validation errors into Arabic UI messages."""
+
+    return [_format_classification_error_ar(error) for error in errors]
+
+
 def classify_duration(
     duration_seconds: int | float,
     rules: Sequence[ClassificationRule] | None = None,
@@ -134,6 +141,31 @@ def sanitize_classification_folder_name(name: str) -> str:
     return sanitize_filename(str(name), default="category")
 
 
+def format_rule_minutes(value: float | None) -> str:
+    """Format rule minute values for UI and reports."""
+
+    if value is None:
+        return "مفتوح"
+
+    number = float(value)
+    if number.is_integer():
+        return str(int(number))
+    return f"{number:g}"
+
+
+def classification_folder_names(rules: Sequence[ClassificationRule] | None = None) -> list[str]:
+    """Return sanitized folder names for rules, preserving rule order."""
+
+    active_rules = get_default_classification_rules() if rules is None else list(rules)
+    folder_names: list[str] = []
+    for rule in active_rules:
+        folder_name = sanitize_classification_folder_name(rule.folder_name)
+        if folder_name not in folder_names:
+            folder_names.append(folder_name)
+
+    return folder_names
+
+
 def _find_overlap_errors(ranges: list[tuple[int, float, float | None]]) -> list[str]:
     errors: list[str] = []
     for first_position, (first_index, first_min, first_max) in enumerate(ranges):
@@ -141,6 +173,47 @@ def _find_overlap_errors(ranges: list[tuple[int, float, float | None]]) -> list[
             if _ranges_overlap(first_min, first_max, second_min, second_max):
                 errors.append(f"Rule {second_index}: duration range overlaps with rule {first_index}.")
     return errors
+
+
+def _format_classification_error_ar(error: str) -> str:
+    row_number = _extract_rule_number(error)
+    prefix = f"الصف {row_number}: " if row_number is not None else ""
+
+    if "At least one classification rule" in error:
+        return "أضف قاعدة تصنيف واحدة على الأقل."
+    if "rule name is empty" in error:
+        return f"{prefix}اسم التصنيف فارغ."
+    if "folder name is empty" in error:
+        return f"{prefix}اسم المجلد فارغ أو غير صالح."
+    if "min_minutes is missing or invalid" in error:
+        return f"{prefix}قيمة (من دقيقة) غير صحيحة."
+    if "min_minutes cannot be negative" in error:
+        return f"{prefix}قيمة (من دقيقة) لا يمكن أن تكون سالبة."
+    if "max_minutes is invalid" in error:
+        return f"{prefix}قيمة (إلى دقيقة) غير صحيحة. اكتب رقمًا أو مفتوح."
+    if "max_minutes must be a positive number" in error:
+        return f"{prefix}قيمة (إلى دقيقة) يجب أن تكون رقمًا موجبًا أو مفتوح."
+    if "max_minutes is less than min_minutes" in error:
+        return f"{prefix}قيمة (إلى دقيقة) أقل من (من دقيقة)."
+    if "overlaps" in error:
+        other_row = _extract_overlap_rule_number(error)
+        if other_row is not None:
+            return f"{prefix}مدى الدقائق يتداخل مع الصف {other_row}."
+        return f"{prefix}مدى الدقائق يتداخل مع قاعدة أخرى."
+    if "duplicate sanitized folder name" in error:
+        return f"{prefix}اسم المجلد مكرر بعد تنظيفه ليكون صالحًا لويندوز."
+
+    return f"{prefix}{error}" if prefix else error
+
+
+def _extract_rule_number(error: str) -> int | None:
+    match = re.search(r"Rule (\d+)", error)
+    return int(match.group(1)) if match else None
+
+
+def _extract_overlap_rule_number(error: str) -> int | None:
+    match = re.search(r"rule (\d+)", error)
+    return int(match.group(1)) if match else None
 
 
 def _ranges_overlap(
