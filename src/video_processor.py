@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -13,6 +13,7 @@ from typing import Any
 
 from yt_dlp import YoutubeDL
 
+from src.classification import ClassificationRule, classify_duration, get_default_classification_rules
 from src.export_utils import (
     AR_PROCESSING_SUCCESS,
     AR_REPORT_CREATED,
@@ -131,9 +132,11 @@ class VideoProcessor:
         self,
         output_root: str | Path | None = None,
         youtube_dl_factory: YoutubeDlFactory = YoutubeDL,
+        classification_rules: Sequence[ClassificationRule] | None = None,
     ) -> None:
         self.output_root = Path(output_root) if output_root is not None else Path.cwd() / "output"
         self._youtube_dl_factory = youtube_dl_factory
+        self.classification_rules = None if classification_rules is None else list(classification_rules)
 
     def get_project_output_folder(self, project_name: str) -> Path:
         """Create and return the sanitized output folder for a project."""
@@ -215,7 +218,7 @@ class VideoProcessor:
     ) -> list[CutClipResult]:
         """Cut all clips from the prepared input video and sort them automatically."""
 
-        return cut_clips(prepared_video, clips, progress_callback, runner)
+        return cut_clips(prepared_video, clips, progress_callback, runner, self.classification_rules)
 
     def process_project(
         self,
@@ -370,13 +373,14 @@ def calculate_clip_duration(start_seconds: int, end_seconds: int) -> int:
     return duration
 
 
-def classify_clip_folder(duration_seconds: int) -> str:
-    """Return the Arabic output folder name for a clip duration."""
+def classify_clip_folder(
+    duration_seconds: int,
+    rules: Sequence[ClassificationRule] | None = None,
+) -> str:
+    """Return the output folder name for a clip duration."""
 
-    if duration_seconds > LONG_CLIP_THRESHOLD_SECONDS:
-        return BENEFITS_FOLDER_NAME
-
-    return REELS_FOLDER_NAME
+    active_rules = get_default_classification_rules() if rules is None else rules
+    return classify_duration(duration_seconds, active_rules)
 
 
 def source_type_label(source_type: VideoSourceType) -> str:
@@ -401,10 +405,14 @@ def build_clip_filename(clip: ClipDefinition) -> str:
     return f"{clip.number}_{title}.mp4"
 
 
-def build_clip_output_path(project_output_folder: str | Path, clip: ClipDefinition) -> Path:
+def build_clip_output_path(
+    project_output_folder: str | Path,
+    clip: ClipDefinition,
+    classification_rules: Sequence[ClassificationRule] | None = None,
+) -> Path:
     """Build and create the sorted output path for a clip."""
 
-    destination_folder_name = classify_clip_folder(clip.duration_seconds)
+    destination_folder_name = classify_clip_folder(clip.duration_seconds, classification_rules)
     destination_folder = ensure_directory(Path(project_output_folder) / destination_folder_name)
     return destination_folder / build_clip_filename(clip)
 
@@ -473,6 +481,7 @@ def cut_clips(
     clips: list[ClipDefinition],
     progress_callback: ProgressCallback | None = None,
     runner: SubprocessRunner = subprocess.run,
+    classification_rules: Sequence[ClassificationRule] | None = None,
 ) -> list[CutClipResult]:
     """Cut and sort all requested clips."""
 
@@ -482,8 +491,8 @@ def cut_clips(
     results: list[CutClipResult] = []
     for clip in clips:
         _emit(progress_callback, f"جاري قص المقطع {clip.number}")
-        output_path = build_clip_output_path(prepared_video.project_output_folder, clip)
-        destination_folder_name = classify_clip_folder(clip.duration_seconds)
+        output_path = build_clip_output_path(prepared_video.project_output_folder, clip, classification_rules)
+        destination_folder_name = classify_clip_folder(clip.duration_seconds, classification_rules)
 
         try:
             cut_clip(
