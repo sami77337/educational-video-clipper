@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.export_utils import ExportError, validate_output_folder_path
+from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.message_parser import ParsedClipLine, parse_clip_message
 from src.validation import ClipRowInput, validate_clip_rows, validate_required_text
 from src.video_processor import (
@@ -112,6 +113,7 @@ class MainWindow(QMainWindow):
         self.parse_message_button = QPushButton("تحويل النص إلى جدول")
         self.clips_table = QTableWidget(0, 4)
         self.add_row_button = QPushButton("إضافة صف")
+        self.import_excel_button = QPushButton("استيراد من Excel")
         self.delete_row_button = QPushButton("حذف الصف المحدد")
         self.validate_button = QPushButton("فحص الجدول")
         self.start_button = QPushButton("بدء المعالجة")
@@ -203,6 +205,7 @@ class MainWindow(QMainWindow):
 
         buttons = QHBoxLayout()
         buttons.addWidget(self.add_row_button)
+        buttons.addWidget(self.import_excel_button)
         buttons.addWidget(self.delete_row_button)
         buttons.addStretch(1)
         buttons.addWidget(self.validate_button)
@@ -229,6 +232,7 @@ class MainWindow(QMainWindow):
         self.local_file_radio.toggled.connect(self._update_source_inputs)
         self.browse_button.clicked.connect(self._browse_local_video)
         self.add_row_button.clicked.connect(self.add_clip_row)
+        self.import_excel_button.clicked.connect(self.import_from_excel)
         self.delete_row_button.clicked.connect(self.delete_selected_row)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
         self.validate_button.clicked.connect(self.validate_inputs)
@@ -282,16 +286,46 @@ class MainWindow(QMainWindow):
 
         import_mode = "replace"
         if self._table_has_clip_data():
-            import_mode = self._ask_table_import_mode()
+            import_mode = self._ask_table_import_mode("تحويل النص إلى جدول")
             if import_mode is None:
                 self._append_log("تم إلغاء تحويل النص.")
                 return
 
-        self._insert_parsed_clips(parse_result.clips, append=import_mode == "append")
+        self._insert_clip_lines(parse_result.clips, append=import_mode == "append")
 
         messages = [f"تم تحويل {len(parse_result.clips)} مقطع إلى الجدول."]
         messages.extend(warning.message_ar for warning in parse_result.warnings)
         self._write_log("\n".join(messages))
+
+    def import_from_excel(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "استيراد من Excel",
+            str(Path.home()),
+            "Excel and CSV files (*.xlsx *.xls *.csv);;All files (*.*)",
+        )
+        if not file_path:
+            return
+
+        try:
+            imported_rows = import_clip_rows(file_path)
+        except ClipImportError as error:
+            self._write_log(str(error))
+            return
+
+        if not imported_rows:
+            self._write_log("لم يتم العثور على مقاطع في الملف.")
+            return
+
+        import_mode = "replace"
+        if self._table_has_clip_data():
+            import_mode = self._ask_table_import_mode("استيراد من Excel")
+            if import_mode is None:
+                self._append_log("تم إلغاء الاستيراد.")
+                return
+
+        self._insert_clip_lines(imported_rows, append=import_mode == "append")
+        self._write_log(f"تم استيراد {len(imported_rows)} مقطع من Excel.")
 
     def validate_inputs(self) -> bool:
         errors = self._collect_validation_errors()
@@ -404,7 +438,7 @@ class MainWindow(QMainWindow):
         except ValueError:
             return row + 1
 
-    def _insert_parsed_clips(self, clips: list[ParsedClipLine], append: bool) -> None:
+    def _insert_clip_lines(self, clips: list[ParsedClipLine] | list[ImportedClipRow], append: bool) -> None:
         if not append:
             self.clips_table.setRowCount(0)
         elif not self._table_has_clip_data():
@@ -429,9 +463,9 @@ class MainWindow(QMainWindow):
 
         return False
 
-    def _ask_table_import_mode(self) -> str | None:
+    def _ask_table_import_mode(self, title: str = "استيراد") -> str | None:
         dialog = QMessageBox(self)
-        dialog.setWindowTitle("تحويل النص إلى جدول")
+        dialog.setWindowTitle(title)
         dialog.setText("الجدول يحتوي على بيانات. هل تريد استبدال الصفوف الحالية أم إضافة الصفوف الجديدة؟")
         replace_button = dialog.addButton("استبدال", QMessageBox.AcceptRole)
         append_button = dialog.addButton("إضافة", QMessageBox.ActionRole)
@@ -526,6 +560,7 @@ class MainWindow(QMainWindow):
             self.parse_message_button,
             self.clips_table,
             self.add_row_button,
+            self.import_excel_button,
             self.delete_row_button,
             self.validate_button,
             self.start_button,
