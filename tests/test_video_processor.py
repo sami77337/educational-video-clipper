@@ -2,6 +2,7 @@ import pytest
 
 from src.classification import ClassificationRule
 from src.video_processor import (
+    AR_PROJECT_NAME_CLEANED,
     AR_EMPTY_LOCAL_VIDEO,
     AR_EMPTY_YOUTUBE_URL,
     AR_UNSUPPORTED_LOCAL_VIDEO,
@@ -22,6 +23,7 @@ from src.video_processor import (
     create_project_output_folder,
     cut_clip_with_exclusions,
     cut_clips,
+    sanitize_project_name,
     validate_local_video_file,
     validate_youtube_url,
     write_concat_file_list,
@@ -33,6 +35,46 @@ def test_project_output_folder_sanitizes_project_name(tmp_path) -> None:
 
     assert folder == tmp_path / "Lesson- 1-2"
     assert folder.is_dir()
+
+
+def test_sanitize_project_name_supports_arabic_name() -> None:
+    assert sanitize_project_name("أسئلة دروس تأسيس ١") == "أسئلة دروس تأسيس ١"
+
+
+def test_sanitize_project_name_replaces_newlines() -> None:
+    project_name = "اسألة دروس تأسيس ١-\n (المجلس الخامس و العشرون)"
+
+    assert sanitize_project_name(project_name) == "اسألة دروس تأسيس ١- (المجلس الخامس و العشرون)"
+
+
+def test_sanitize_project_name_replaces_tabs() -> None:
+    assert sanitize_project_name("درس\tالتفسير\tالأول") == "درس التفسير الأول"
+
+
+def test_sanitize_project_name_replaces_invalid_windows_characters() -> None:
+    assert sanitize_project_name('a\\b/c:d*e?f"g<h>i|j') == "a-b-c-d-e-f-g-h-i-j"
+
+
+def test_sanitize_project_name_uses_arabic_default_for_empty_name() -> None:
+    assert sanitize_project_name(' \n\t <>:"/\\|?* .-') == "مشروع-بدون-اسم"
+
+
+def test_sanitize_project_name_limits_length() -> None:
+    sanitized = sanitize_project_name("أ" * 120)
+
+    assert sanitized == "أ" * 80
+
+
+def test_project_output_folder_logs_when_project_name_is_cleaned(tmp_path) -> None:
+    source_path = tmp_path / "source.mp4"
+    source_path.write_bytes(b"video")
+    processor = VideoProcessor(output_root=tmp_path / "output")
+    messages: list[str] = []
+
+    prepared_video = processor.prepare_local_video(str(source_path), "مشروع\nجديد", messages.append)
+
+    assert AR_PROJECT_NAME_CLEANED in messages
+    assert prepared_video.project_output_folder.name == "مشروع جديد"
 
 
 @pytest.mark.parametrize("suffix", [".mp4", ".mov", ".mkv", ".webm", ".MP4"])

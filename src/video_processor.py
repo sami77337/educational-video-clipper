@@ -49,6 +49,8 @@ from src.validation import ClipRowInput
 INPUT_VIDEO_NAME = "input.mp4"
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
 LONG_CLIP_THRESHOLD_SECONDS = 180
+DEFAULT_PROJECT_FOLDER_NAME = "مشروع-بدون-اسم"
+MAX_PROJECT_FOLDER_NAME_LENGTH = 80
 
 AR_PREPARING_VIDEO = "جاري تجهيز الفيديو"
 AR_DOWNLOADING_YOUTUBE = "جاري تنزيل الفيديو من يوتيوب"
@@ -70,6 +72,7 @@ AR_MERGED_CLIP_PARTS = "تم دمج أجزاء المقطع"
 AR_NO_EXCLUSIONS_FOR_CLIP = "لا توجد استثناءات للمقطع"
 AR_CUT_WITHOUT_EXCLUSIONS = "تم قص المقطع بدون استثناءات"
 AR_CONCAT_FAILED = "فشل دمج أجزاء المقطع رقم"
+AR_PROJECT_NAME_CLEANED = "تم تنظيف اسم المشروع ليكون مناسبًا للمجلدات"
 TEMP_SEGMENTS_FOLDER_NAME = "_temp_segments"
 
 ProgressCallback = Callable[[str], None]
@@ -206,6 +209,7 @@ class VideoProcessor:
         """Download a YouTube video into the project folder as input.mp4."""
 
         clean_url = validate_youtube_url(url)
+        _emit_project_name_cleanup(project_name, progress_callback)
         project_output_folder = self.get_project_output_folder(project_name)
         input_video_path = project_output_folder / INPUT_VIDEO_NAME
 
@@ -228,6 +232,7 @@ class VideoProcessor:
         """Copy a local video into the project folder as input.mp4."""
 
         source_path = validate_local_video_file(file_path)
+        _emit_project_name_cleanup(project_name, progress_callback)
         project_output_folder = self.get_project_output_folder(project_name)
         input_video_path = project_output_folder / INPUT_VIDEO_NAME
 
@@ -364,8 +369,26 @@ class VideoProcessor:
 def create_project_output_folder(project_name: str, output_root: str | Path) -> Path:
     """Create a project folder using a Windows-safe version of the project name."""
 
-    folder_name = sanitize_filename(project_name, default="project")
+    folder_name = sanitize_project_name(project_name)
     return ensure_directory(Path(output_root) / folder_name)
+
+
+def sanitize_project_name(project_name: str | None) -> str:
+    """Return a Windows-safe project output folder name."""
+
+    return sanitize_filename(
+        project_name,
+        default=DEFAULT_PROJECT_FOLDER_NAME,
+        max_length=MAX_PROJECT_FOLDER_NAME_LENGTH,
+    )
+
+
+def project_name_was_cleaned(project_name: str | None) -> bool:
+    """Return True when the project folder name differs from the entered name."""
+
+    original = "" if project_name is None else str(project_name)
+    comparable_original = original.strip(" .-")
+    return sanitize_project_name(project_name) != comparable_original
 
 
 def validate_youtube_url(url: str | None) -> str:
@@ -819,3 +842,8 @@ def cut_clips(
 def _emit(progress_callback: ProgressCallback | None, message: str) -> None:
     if progress_callback is not None:
         progress_callback(message)
+
+
+def _emit_project_name_cleanup(project_name: str | None, progress_callback: ProgressCallback | None) -> None:
+    if project_name_was_cleaned(project_name):
+        _emit(progress_callback, AR_PROJECT_NAME_CLEANED)
