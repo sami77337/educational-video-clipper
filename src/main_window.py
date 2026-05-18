@@ -4,23 +4,29 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import sys
 
 from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
+    QCheckBox,
+    QComboBox,
     QFileDialog,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
+    QApplication,
     QLabel,
     QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -41,6 +47,7 @@ from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.message_parser import ParsedClipLine, parse_clip_message
 from src.time_utils import normalize_timestamp_text
+from src.version import APP_NAME, APP_SUBTITLE
 from src.validation import ClipRowInput, normalize_clip_exclusions, validate_clip_rows, validate_required_text
 from src.video_processor import (
     VideoProcessor,
@@ -119,7 +126,7 @@ class MainWindow(QMainWindow):
         self._processing_worker: ProcessingWorker | None = None
         self._last_output_folder: Path | None = None
 
-        self.setWindowTitle("Educational Video Clipper")
+        self.setWindowTitle(APP_NAME)
         self.setLayoutDirection(Qt.RightToLeft)
         self.resize(1100, 820)
 
@@ -129,6 +136,9 @@ class MainWindow(QMainWindow):
         self.local_file_input = QLineEdit()
         self.browse_button = QPushButton("اختيار فيديو")
         self.source_status_label = QLabel()
+        self.use_browser_cookies_checkbox = QCheckBox("استخدام تسجيل الدخول من المتصفح")
+        self.browser_combo = QComboBox()
+        self.browser_cookies_help_label = QLabel()
         self.project_name_input = QLineEdit()
         self.paste_message_input = QTextEdit()
         self.parse_message_button = QPushButton("تحويل النص إلى جدول")
@@ -146,12 +156,23 @@ class MainWindow(QMainWindow):
         self.open_output_button = QPushButton("فتح مجلد النتائج")
         self.processing_status_label = QLabel("الحالة: جاهز")
         self.log_area = QTextEdit()
+        self.scroll_area = QScrollArea()
 
-        self.setCentralWidget(self._build_ui())
+        self._apply_branding()
+        self.setCentralWidget(self._build_scrollable_ui())
         self._connect_signals()
         self._reset_classification_rules(log=False)
         self._update_source_inputs()
         self.open_output_button.setEnabled(False)
+
+    def _build_scrollable_ui(self) -> QScrollArea:
+        content = self._build_ui()
+        self.scroll_area.setWidget(content)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        return self.scroll_area
 
     def _build_ui(self) -> QWidget:
         central = QWidget()
@@ -159,6 +180,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(14)
         layout.setContentsMargins(18, 18, 18, 18)
 
+        layout.addWidget(self._build_header_section())
         layout.addWidget(self._build_video_source_section())
         layout.addWidget(self._build_project_section())
         layout.addWidget(self._build_help_section())
@@ -169,6 +191,55 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_log_section(), stretch=1)
 
         return central
+
+
+    def _asset_path(self, filename: str) -> Path:
+        # Works both from source and from a PyInstaller bundle.
+        bundle_root = getattr(sys, "_MEIPASS", None)
+        if bundle_root:
+            return Path(bundle_root) / "assets" / filename
+        return Path(__file__).resolve().parent.parent / "assets" / filename
+
+    def _apply_branding(self) -> None:
+        icon_path = self._asset_path("icon.ico")
+        if not icon_path.exists():
+            icon_path = self._asset_path("icon.png")
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
+
+    def _build_header_section(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("appHeader")
+        frame.setFrameShape(QFrame.StyledPanel)
+        layout = QHBoxLayout(frame)
+        layout.setSpacing(12)
+
+        logo = QLabel()
+        logo.setObjectName("appLogo")
+        logo_path = self._asset_path("logo.png")
+        if not logo_path.exists():
+            logo_path = self._asset_path("icon.png")
+        if logo_path.exists():
+            pixmap = QPixmap(str(logo_path))
+            logo.setPixmap(pixmap.scaled(150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo.setFixedSize(160, 160)
+        logo.setAlignment(Qt.AlignCenter)
+
+        title_layout = QVBoxLayout()
+        title = QLabel(APP_NAME)
+        title.setObjectName("appTitle")
+        title.setStyleSheet("font-size: 24px; font-weight: 700;")
+        subtitle = QLabel(APP_SUBTITLE)
+        subtitle.setObjectName("appSubtitle")
+        subtitle.setStyleSheet("font-size: 13px; color: #555;")
+        subtitle.setWordWrap(True)
+        title_layout.addWidget(title)
+        title_layout.addWidget(subtitle)
+
+        layout.addWidget(logo)
+        layout.addLayout(title_layout, stretch=1)
+
+        return frame
 
     def _build_video_source_section(self) -> QGroupBox:
         group = QGroupBox("مصدر الفيديو")
@@ -183,6 +254,13 @@ class MainWindow(QMainWindow):
         self.local_file_input.setPlaceholderText("اختر ملف فيديو من جهازك")
         self.local_file_input.setReadOnly(True)
         self.source_status_label.setText("المصدر النشط: رابط يوتيوب")
+        self.browser_combo.addItems(["Chrome", "Edge", "Brave", "Firefox"])
+        self.browser_cookies_help_label.setText(
+            "إذا ظهر خطأ يوتيوب يطلب تسجيل الدخول أو التأكد أنك لست روبوتًا، "
+            "فعّل هذا الخيار واختر المتصفح الذي تستخدمه لتسجيل الدخول إلى يوتيوب. "
+            "يفضّل إغلاق المتصفح قبل بدء التنزيل."
+        )
+        self.browser_cookies_help_label.setWordWrap(True)
 
         layout.addWidget(self.youtube_radio, 0, 0)
         layout.addWidget(self.youtube_input, 0, 1, 1, 2)
@@ -190,6 +268,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.local_file_input, 1, 1)
         layout.addWidget(self.browse_button, 1, 2)
         layout.addWidget(self.source_status_label, 2, 0, 1, 3)
+        layout.addWidget(self.use_browser_cookies_checkbox, 3, 0)
+        layout.addWidget(QLabel("المتصفح"), 3, 1)
+        layout.addWidget(self.browser_combo, 3, 2)
+        layout.addWidget(self.browser_cookies_help_label, 4, 0, 1, 3)
         layout.setColumnStretch(1, 1)
 
         return group
@@ -322,6 +404,7 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         self.youtube_radio.toggled.connect(self._update_source_inputs)
         self.local_file_radio.toggled.connect(self._update_source_inputs)
+        self.use_browser_cookies_checkbox.toggled.connect(self._update_source_inputs)
         self.browse_button.clicked.connect(self._browse_local_video)
         self.add_row_button.clicked.connect(self.add_clip_row)
         self.import_excel_button.clicked.connect(self.import_from_excel)
@@ -334,6 +417,7 @@ class MainWindow(QMainWindow):
         self.validate_button.clicked.connect(self.validate_inputs)
         self.start_button.clicked.connect(self.start_processing)
         self.open_output_button.clicked.connect(self.open_output_folder)
+
 
     def add_clip_row(self) -> None:
         self._insert_clip_row(
@@ -542,6 +626,9 @@ class MainWindow(QMainWindow):
         self._append_log("تم قبول قواعد التصنيف")
         self._append_log("بدأ القص. يرجى الانتظار حتى تنتهي المعالجة.")
         self._last_output_folder = None
+        self.processing_status_label.setText("الحالة: جاري المعالجة...")
+        self.processing_status_label.repaint()
+        self._flush_log_update()
         self._set_processing_enabled(False)
         self._start_processing_worker(
             source_request=self._current_video_source(),
@@ -563,6 +650,20 @@ class MainWindow(QMainWindow):
 
         self._append_log(f"تم فتح مجلد الإخراج: {output_dir}")
 
+    def _open_output_folder_automatically(self) -> None:
+        """Open the output folder immediately after a successful run."""
+
+        try:
+            output_dir = validate_output_folder_path(self._last_output_folder)
+        except ExportError as error:
+            self._append_log(str(error))
+            return
+
+        if QDesktopServices.openUrl(QUrl.fromLocalFile(str(output_dir))):
+            self._append_log("تم فتح مجلد النتائج تلقائيًا")
+        else:
+            self._append_log("خطأ: فشل فتح مجلد النتائج تلقائيًا")
+
     def _browse_local_video(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -578,9 +679,13 @@ class MainWindow(QMainWindow):
 
     def _update_source_inputs(self) -> None:
         use_youtube = self.youtube_radio.isChecked()
+        use_browser_cookies = use_youtube and self.use_browser_cookies_checkbox.isChecked()
         self.youtube_input.setEnabled(use_youtube)
         self.local_file_input.setEnabled(not use_youtube)
         self.browse_button.setEnabled(not use_youtube)
+        self.use_browser_cookies_checkbox.setEnabled(use_youtube)
+        self.browser_combo.setEnabled(use_browser_cookies)
+        self.browser_cookies_help_label.setEnabled(use_youtube)
         self.source_status_label.setText(
             "المصدر النشط: رابط يوتيوب" if use_youtube else "المصدر النشط: فيديو من الجهاز"
         )
@@ -676,9 +781,23 @@ class MainWindow(QMainWindow):
 
     def _current_video_source(self) -> VideoSourceRequest:
         if self.youtube_radio.isChecked():
-            return VideoSourceRequest(VideoSourceType.YOUTUBE, self.youtube_input.text())
+            return VideoSourceRequest(
+                VideoSourceType.YOUTUBE,
+                self.youtube_input.text(),
+                use_browser_cookies=self.use_browser_cookies_checkbox.isChecked(),
+                browser=self._selected_browser_identifier(),
+            )
 
         return VideoSourceRequest(VideoSourceType.LOCAL_FILE, self.local_file_input.text())
+
+    def _selected_browser_identifier(self) -> str:
+        mapping = {
+            "Chrome": "chrome",
+            "Edge": "edge",
+            "Brave": "brave",
+            "Firefox": "firefox",
+        }
+        return mapping.get(self.browser_combo.currentText(), "chrome")
 
     def _cell_text(self, row: int, column: int) -> str:
         item = self.clips_table.item(row, column)
@@ -778,9 +897,18 @@ class MainWindow(QMainWindow):
 
     def _write_log(self, message: str) -> None:
         self.log_area.setPlainText(self._format_log_message(message))
+        self._flush_log_update()
 
     def _append_log(self, message: str) -> None:
         self.log_area.append(self._format_log_message(message))
+        self._flush_log_update()
+
+    def _flush_log_update(self) -> None:
+        scrollbar = self.log_area.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+        self.log_area.repaint()
+        self.processing_status_label.repaint()
+        QApplication.processEvents()
 
     def _write_validation_errors(self, errors: list[str]) -> None:
         self._write_log("تعذر فحص البيانات:\n" + "\n".join(f"- {error}" for error in errors))
@@ -825,13 +953,16 @@ class MainWindow(QMainWindow):
     def _handle_processing_success(self, output_folder: str) -> None:
         self._last_output_folder = Path(output_folder)
         self._append_log(f"تم حفظ النتائج داخل: {output_folder}")
-        self.processing_status_label.setText("الحالة: انتهى بنجاح")
+        self.processing_status_label.setText("الحالة: تم الانتهاء بنجاح")
+        self._flush_log_update()
+        self._open_output_folder_automatically()
 
     @Slot(str)
     def _handle_processing_failure(self, message: str) -> None:
         self._last_output_folder = None
         self._append_log(message or "حدث خطأ أثناء المعالجة.")
-        self.processing_status_label.setText("الحالة: فشل")
+        self.processing_status_label.setText("الحالة: فشل التنفيذ")
+        self._flush_log_update()
 
     @Slot()
     def _finish_processing(self) -> None:
@@ -849,6 +980,8 @@ class MainWindow(QMainWindow):
             self.youtube_input,
             self.local_file_input,
             self.browse_button,
+            self.use_browser_cookies_checkbox,
+            self.browser_combo,
             self.project_name_input,
             self.paste_message_input,
             self.parse_message_button,
@@ -872,7 +1005,10 @@ class MainWindow(QMainWindow):
             self._update_source_inputs()
             self.start_button.setText("بدء القص")
         else:
-            self.processing_status_label.setText("الحالة: جاري القص...")
-            self.start_button.setText("جاري القص...")
+            self.processing_status_label.setText("الحالة: جاري المعالجة...")
+            self.start_button.setText("جاري المعالجة...")
+
+        self.processing_status_label.repaint()
+        QApplication.processEvents()
 
         self.open_output_button.setEnabled(enabled and self._last_output_folder is not None)

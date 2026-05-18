@@ -3,7 +3,7 @@ import re
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QScrollArea
 
 from src.main_window import (
     END_COLUMN,
@@ -21,6 +21,50 @@ from src.main_window import (
 def _app() -> QApplication:
     return QApplication.instance() or QApplication([])
 
+
+
+def test_main_window_uses_scroll_area_for_tall_ui() -> None:
+    app = _app()
+    window = MainWindow()
+
+    assert isinstance(window.centralWidget(), QScrollArea)
+    assert window.centralWidget().widgetResizable()
+
+    window.close()
+    app.processEvents()
+
+
+def test_log_append_updates_text_immediately() -> None:
+    app = _app()
+    window = MainWindow()
+
+    window._write_log("بداية")
+    window._append_log("رسالة تقدم")
+    app.processEvents()
+
+    assert "بداية" in window.log_area.toPlainText()
+    assert "رسالة تقدم" in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
+def test_processing_status_label_uses_clear_running_and_finish_states() -> None:
+    app = _app()
+    window = MainWindow()
+
+    window._set_processing_enabled(False)
+    assert "جاري المعالجة" in window.processing_status_label.text()
+    assert not window.start_button.isEnabled()
+
+    window._handle_processing_success("C:/tmp/output")
+    assert "تم الانتهاء بنجاح" in window.processing_status_label.text()
+
+    window._handle_processing_failure("فشل تجريبي")
+    assert "فشل التنفيذ" in window.processing_status_label.text()
+
+    window.close()
+    app.processEvents()
 
 def test_table_starts_empty_and_add_row_creates_blank_row() -> None:
     app = _app()

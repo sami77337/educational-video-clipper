@@ -1,1 +1,1 @@
-"""Educational Video Clipper package."""
+"""حزمة تطبيق المقص البسيط."""

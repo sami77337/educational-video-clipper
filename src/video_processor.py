@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
+import sys
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -12,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from yt_dlp import YoutubeDL
+from yt_dlp.utils import DownloadError
 
 from src.classification import (
     ClassificationRule,
@@ -55,6 +59,11 @@ MAX_PROJECT_FOLDER_NAME_LENGTH = 80
 AR_PREPARING_VIDEO = "جاري تجهيز الفيديو"
 AR_DOWNLOADING_YOUTUBE = "جاري تنزيل الفيديو من يوتيوب"
 AR_YOUTUBE_DOWNLOADED = "تم تنزيل الفيديو"
+AR_YOUTUBE_READING_INFO = "جاري قراءة معلومات الفيديو"
+AR_YOUTUBE_DOWNLOAD_PROGRESS = "جاري تنزيل الفيديو"
+AR_YOUTUBE_DOWNLOAD_FINISHING = "اكتمل تنزيل الفيديو، جاري تجهيز الملف"
+AR_USING_BROWSER_COOKIES = "سيتم استخدام تسجيل الدخول من المتصفح لتنزيل يوتيوب"
+AR_BROWSER_COOKIES_FAILED = "تعذر قراءة تسجيل الدخول من المتصفح. أغلق المتصفح ثم حاول مرة أخرى، أو اختر فيديو من الجهاز."
 AR_LOCAL_VIDEO_COPIED = "تم نسخ الفيديو المحلي"
 AR_EMPTY_YOUTUBE_URL = "خطأ: رابط يوتيوب فارغ"
 AR_EMPTY_LOCAL_VIDEO = "خطأ: لم يتم اختيار فيديو محلي"
@@ -74,6 +83,8 @@ AR_CUT_WITHOUT_EXCLUSIONS = "تم قص المقطع بدون استثناءات"
 AR_CONCAT_FAILED = "فشل دمج أجزاء المقطع رقم"
 AR_PROJECT_NAME_CLEANED = "تم تنظيف اسم المشروع ليكون مناسبًا للمجلدات"
 TEMP_SEGMENTS_FOLDER_NAME = "_temp_segments"
+MIN_OUTPUT_BYTES = 1024
+OUTPUT_DURATION_TOLERANCE_SECONDS = 2.0
 
 ProgressCallback = Callable[[str], None]
 SubprocessRunner = Callable[..., subprocess.CompletedProcess[str]]
@@ -93,6 +104,8 @@ class VideoSourceRequest:
 
     source_type: VideoSourceType
     value: str
+    use_browser_cookies: bool = False
+    browser: str = "chrome"
 
 
 @dataclass(frozen=True)
@@ -193,7 +206,13 @@ class VideoProcessor:
         """Prepare the selected source video as input.mp4."""
 
         if request.source_type is VideoSourceType.YOUTUBE:
-            return self.prepare_youtube_video(request.value, project_name, progress_callback)
+            return self.prepare_youtube_video(
+                request.value,
+                project_name,
+                progress_callback,
+                use_browser_cookies=request.use_browser_cookies,
+                browser=request.browser,
+            )
 
         if request.source_type is VideoSourceType.LOCAL_FILE:
             return self.prepare_local_video(request.value, project_name, progress_callback)
@@ -205,6 +224,9 @@ class VideoProcessor:
         url: str,
         project_name: str,
         progress_callback: ProgressCallback | None = None,
+        *,
+        use_browser_cookies: bool = False,
+        browser: str = "chrome",
     ) -> PreparedVideoSource:
         """Download a YouTube video into the project folder as input.mp4."""
 
@@ -214,7 +236,14 @@ class VideoProcessor:
         input_video_path = project_output_folder / INPUT_VIDEO_NAME
 
         _emit(progress_callback, AR_DOWNLOADING_YOUTUBE)
-        download_youtube_video(clean_url, input_video_path, self._youtube_dl_factory)
+        download_youtube_video(
+            clean_url,
+            input_video_path,
+            self._youtube_dl_factory,
+            progress_callback,
+            use_browser_cookies=use_browser_cookies,
+            browser=browser,
+        )
         _emit(progress_callback, AR_YOUTUBE_DOWNLOADED)
 
         return PreparedVideoSource(
@@ -417,16 +446,46 @@ def validate_local_video_file(file_path: str | Path | None) -> Path:
     return path
 
 
+def normalize_browser_name(browser: str | None) -> str:
+    """Return a yt-dlp browser identifier supported by the UI."""
+
+    value = (browser or "chrome").strip().lower()
+    aliases = {
+        "chrome": "chrome",
+        "google chrome": "chrome",
+        "edge": "edge",
+        "microsoft edge": "edge",
+        "brave": "brave",
+        "firefox": "firefox",
+    }
+    return aliases.get(value, "chrome")
+
+
 def download_youtube_video(
     url: str,
     destination: str | Path,
     youtube_dl_factory: YoutubeDlFactory = YoutubeDL,
+    progress_callback: ProgressCallback | None = None,
+    *,
+    use_browser_cookies: bool = False,
+    browser: str = "chrome",
 ) -> Path:
-    """Download a YouTube video to the given destination using yt-dlp's Python API."""
+    """Download a YouTube video to the given destination using yt-dlp's Python API.
+
+    yt-dlp can spend noticeable time extracting metadata and downloading large
+    video/audio streams. Emit progress messages from yt-dlp hooks so the UI does
+    not look frozen while the worker is still active.
+    """
 
     destination_path = Path(destination)
     ensure_directory(destination_path.parent)
 
+    progress_hook = _build_youtube_progress_hook(progress_callback)
+    _emit(progress_callback, "يتم تنزيل أفضل جودة فيديو وأفضل جودة صوت")
+    _emit(progress_callback, AR_YOUTUBE_READING_INFO)
+
+    # Keep the highest available video quality and highest available audio quality.
+    # The options below only improve download behavior; they do not reduce quality.
     options = {
         "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "merge_output_format": "mp4",
@@ -435,13 +494,130 @@ def download_youtube_video(
         "overwrites": True,
         "quiet": True,
         "no_warnings": True,
+        "noprogress": True,
+        "retries": 10,
+        "fragment_retries": 10,
+        "socket_timeout": 30,
+        "continuedl": True,
+        # Speed up fragmented YouTube streams when available without changing
+        # selected video/audio formats. This only downloads multiple fragments
+        # at the same time; final quality remains bestvideo+bestaudio.
+        "concurrent_fragment_downloads": 8,
+        "progress_hooks": [progress_hook],
     }
 
-    with youtube_dl_factory(options) as ydl:
-        ydl.download([url])
+    ffmpeg_location = bundled_ffmpeg_location()
+    if ffmpeg_location:
+        options["ffmpeg_location"] = ffmpeg_location
+
+    if use_browser_cookies:
+        selected_browser = normalize_browser_name(browser)
+        options["cookiesfrombrowser"] = (selected_browser,)
+        _emit(progress_callback, f"{AR_USING_BROWSER_COOKIES}: {selected_browser}")
+
+    try:
+        with youtube_dl_factory(options) as ydl:
+            ydl.download([url])
+    except DownloadError as error:
+        error_text = str(error)
+        if use_browser_cookies and ("cookie" in error_text.lower() or "browser" in error_text.lower() or "database" in error_text.lower()):
+            raise VideoSourceError(AR_BROWSER_COOKIES_FAILED) from error
+        if "sign in to confirm" in error_text.lower() or "not a bot" in error_text.lower():
+            raise VideoSourceError(
+                "تعذر تنزيل الفيديو من يوتيوب بسبب تحقق يوتيوب. فعّل خيار استخدام تسجيل الدخول من المتصفح، أو اختر فيديو من الجهاز."
+            ) from error
+        raise
 
     return destination_path
 
+
+
+def _build_youtube_progress_hook(progress_callback: ProgressCallback | None) -> Callable[[dict[str, Any]], None]:
+    """Build a throttled yt-dlp progress hook with useful Arabic messages.
+
+    Some YouTube downloads report many early progress events with 0% because
+    yt-dlp has not yet received a reliable total size or because the file is
+    large. Showing repeated 0% messages makes the app look stuck. Instead,
+    throttle messages and show downloaded MB / speed when percentage is not yet
+    meaningful.
+    """
+
+    state: dict[str, Any] = {
+        "last_percent": -1,
+        "last_downloaded_mb": -1.0,
+        "last_emit_time": 0.0,
+        "last_message": "",
+        "sent_downloading": False,
+    }
+
+    def should_emit(message: str, force: bool = False) -> bool:
+        now = time.monotonic()
+        if force:
+            state["last_emit_time"] = now
+            state["last_message"] = message
+            return True
+        if message == state["last_message"]:
+            return False
+        if now - state["last_emit_time"] < 1.0:
+            return False
+        state["last_emit_time"] = now
+        state["last_message"] = message
+        return True
+
+    def hook(data: dict[str, Any]) -> None:
+        status = data.get("status")
+        if status == "downloading":
+            total = data.get("total_bytes") or data.get("total_bytes_estimate")
+            downloaded = data.get("downloaded_bytes") or 0
+            downloaded_mb = downloaded / (1024 * 1024) if downloaded else 0.0
+            speed = data.get("speed") or 0
+            speed_mb = speed / (1024 * 1024) if speed else 0.0
+            eta = data.get("eta")
+
+            if total:
+                total_mb = total / (1024 * 1024)
+                percent = int(min(100, max(0, (downloaded / total) * 100)))
+                state["sent_downloading"] = True
+
+                # Do not spam repeated 0%. At 0%, show MB progress instead.
+                if percent <= 0:
+                    message = f"{AR_YOUTUBE_DOWNLOAD_PROGRESS}: {downloaded_mb:.1f} MB"
+                elif total_mb >= 1:
+                    message = (
+                        f"{AR_YOUTUBE_DOWNLOAD_PROGRESS}: {percent}% "
+                        f"({downloaded_mb:.1f}/{total_mb:.1f} MB)"
+                    )
+                else:
+                    message = f"{AR_YOUTUBE_DOWNLOAD_PROGRESS}: {percent}%"
+
+                if speed_mb > 0:
+                    message += f" - {speed_mb:.1f} MB/s"
+                if eta is not None:
+                    message += f" - المتبقي: {eta} ثانية"
+
+                # Emit early once, then every meaningful percent change or MB jump.
+                percent_changed = percent > state["last_percent"] and (percent - state["last_percent"] >= 2)
+                mb_changed = downloaded_mb - state["last_downloaded_mb"] >= 5
+                if percent <= 0:
+                    percent_changed = False
+                if should_emit(message, force=(state["last_percent"] < 0 or percent == 100 or percent_changed or mb_changed)):
+                    state["last_percent"] = percent
+                    state["last_downloaded_mb"] = downloaded_mb
+                    _emit(progress_callback, message)
+            else:
+                message = f"{AR_YOUTUBE_DOWNLOAD_PROGRESS}: {downloaded_mb:.1f} MB"
+                if speed_mb > 0:
+                    message += f" - {speed_mb:.1f} MB/s"
+                if should_emit(message, force=not state["sent_downloading"]):
+                    state["sent_downloading"] = True
+                    state["last_downloaded_mb"] = downloaded_mb
+                    _emit(progress_callback, message)
+        elif status == "finished":
+            _emit(progress_callback, AR_YOUTUBE_DOWNLOAD_FINISHING)
+        elif status == "error":
+            _emit(progress_callback, "حدث خطأ أثناء تنزيل الفيديو من يوتيوب")
+
+    return hook
 
 def build_clip_definition(row: ClipRowInput) -> ClipDefinition:
     """Build clip timing data from a validated table row."""
@@ -629,6 +805,321 @@ def build_ffmpeg_concat_command(
     ]
 
 
+
+def _candidate_tool_roots() -> list[Path]:
+    """Return likely folders that may contain bundled external tools."""
+
+    roots: list[Path] = []
+    executable = Path(sys.executable).resolve()
+    if getattr(sys, "frozen", False):
+        roots.append(executable.parent)
+    roots.extend([
+        Path.cwd(),
+        Path(__file__).resolve().parent.parent,
+        Path(__file__).resolve().parent.parent.parent,
+    ])
+
+    unique: list[Path] = []
+    for root in roots:
+        try:
+            resolved = root.resolve()
+        except OSError:
+            resolved = root
+        if resolved not in unique:
+            unique.append(resolved)
+    return unique
+
+
+def resolve_external_tool(tool_name: str) -> str:
+    """Resolve a bundled or system external executable/cmd by name."""
+
+    if tool_name.lower().endswith((".exe", ".cmd", ".bat")):
+        names = [tool_name]
+    else:
+        names = [f"{tool_name}.exe", f"{tool_name}.cmd", f"{tool_name}.bat", tool_name]
+
+    subfolders = [Path(""), Path("bin"), Path("_internal"), Path("_internal") / "bin"]
+    for root in _candidate_tool_roots():
+        for subfolder in subfolders:
+            folder = root / subfolder
+            for name in names:
+                candidate = folder / name
+                if candidate.is_file():
+                    return str(candidate)
+
+    found = shutil.which(tool_name)
+    if found:
+        return found
+
+    raise FileNotFoundError(tool_name)
+
+
+def _resolve_command_for_real_execution(command: list[str], runner: SubprocessRunner) -> list[str]:
+    """Use bundled executable paths for real subprocesses only."""
+
+    if runner is not subprocess.run or not command:
+        return command
+
+    executable_name = Path(command[0]).name.lower()
+    if executable_name in {"ffmpeg", "ffmpeg.exe", "ffmpeg.cmd", "ffmpeg.bat"}:
+        return [resolve_external_tool("ffmpeg"), *command[1:]]
+    if executable_name in {"ffprobe", "ffprobe.exe", "ffprobe.cmd", "ffprobe.bat"}:
+        return [resolve_external_tool("ffprobe"), *command[1:]]
+    return command
+
+
+def bundled_ffmpeg_location() -> str | None:
+    """Return a directory usable by yt-dlp's ffmpeg_location option."""
+
+    try:
+        ffmpeg_path = Path(resolve_external_tool("ffmpeg"))
+    except FileNotFoundError:
+        return None
+    return str(ffmpeg_path.parent)
+
+def _run_ffmpeg_command(
+    command: list[str],
+    output_path: str | Path,
+    runner: SubprocessRunner = subprocess.run,
+) -> subprocess.CompletedProcess[str] | None:
+    """Run ffmpeg safely and require a clean successful exit.
+
+    FFmpeg writes normal progress and metadata to stderr, so stderr content alone
+    is not an error. However, a non-zero return code is a real failure even if a
+    partial output file exists. Accepting partial files caused short, corrupted,
+    or incomplete clips to be treated as successful, so this function is strict.
+    """
+
+    command_to_run = _resolve_command_for_real_execution(command, runner)
+    completed = runner(
+        command_to_run,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        **_hidden_subprocess_kwargs(),
+    )
+
+    # Unit tests often inject a simple fake runner that returns None and records
+    # commands only. Preserve that lightweight testing behavior.
+    if completed is None:
+        return None
+
+    return_code = getattr(completed, "returncode", 0)
+    if return_code == 0:
+        if _should_validate_media_duration(runner) and not _output_file_is_usable(output_path):
+            raise ClipCutError("فشل إنشاء ملف المقطع الناتج أو أن الملف الناتج فارغ")
+        return completed
+
+    combined_output = _combined_process_output(completed)
+    detail = _concise_ffmpeg_error(combined_output, return_code)
+    raise ClipCutError(detail)
+
+
+def _combined_process_output(completed: subprocess.CompletedProcess[str]) -> str:
+    stdout = completed.stdout or ""
+    stderr = completed.stderr or ""
+    return "\n".join(part for part in (stderr, stdout) if part).strip()
+
+
+def _hidden_subprocess_kwargs() -> dict[str, Any]:
+    """Return Windows-only subprocess options that prevent console windows.
+
+    FFmpeg is a console executable. When the app is packaged with a GUI
+    bootloader, Windows may show a black console window for each ffmpeg run
+    unless CREATE_NO_WINDOW is passed. Non-Windows systems ignore this helper.
+    """
+
+    creation_flag = getattr(subprocess, "CREATE_NO_WINDOW", None)
+    if creation_flag is None:
+        return {}
+    return {"creationflags": creation_flag}
+
+
+def _output_file_is_usable(path: str | Path) -> bool:
+    try:
+        output_path = Path(path)
+        return output_path.is_file() and output_path.stat().st_size >= MIN_OUTPUT_BYTES
+    except OSError:
+        return False
+
+
+def _should_validate_media_duration(runner: SubprocessRunner) -> bool:
+    """Only run ffprobe validation for real subprocess executions.
+
+    Unit tests use fake runners with dummy byte files, so ffprobe would fail on
+    those artificial files. The actual application uses subprocess.run.
+    """
+
+    return runner is subprocess.run
+
+
+def probe_media_duration_seconds(path: str | Path) -> float:
+    """Read media duration and return seconds as float.
+
+    Prefer ffprobe when it exists, but fall back to parsing ffmpeg's input
+    metadata. This makes the portable package work even when only ffmpeg.exe is
+    bundled.
+    """
+
+    output_path = Path(path)
+    ffprobe_command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(output_path),
+    ]
+
+    try:
+        completed = subprocess.run(
+            _resolve_command_for_real_execution(ffprobe_command, subprocess.run),
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            **_hidden_subprocess_kwargs(),
+        )
+        if completed.returncode == 0:
+            duration = float((completed.stdout or "").strip())
+            if duration > 0:
+                return duration
+    except (FileNotFoundError, ValueError):
+        pass
+
+    return _probe_media_duration_with_ffmpeg(output_path)
+
+
+def _probe_media_duration_with_ffmpeg(path: Path) -> float:
+    command = ["ffmpeg", "-hide_banner", "-i", str(path)]
+    try:
+        completed = subprocess.run(
+            _resolve_command_for_real_execution(command, subprocess.run),
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            **_hidden_subprocess_kwargs(),
+        )
+    except FileNotFoundError as error:
+        raise ClipCutError(AR_FFMPEG_NOT_FOUND) from error
+
+    combined = _combined_process_output(completed)
+    match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", combined)
+    if not match:
+        raise ClipCutError("تعذر التحقق من مدة المقطع الناتج")
+
+    hours = int(match.group(1))
+    minutes = int(match.group(2))
+    seconds = float(match.group(3))
+    duration = hours * 3600 + minutes * 60 + seconds
+    if duration <= 0:
+        raise ClipCutError("مدة المقطع الناتج غير صالحة")
+    return duration
+def verify_output_duration(
+    output_path: str | Path,
+    expected_duration_seconds: int | float,
+    *,
+    tolerance_seconds: float = OUTPUT_DURATION_TOLERANCE_SECONDS,
+) -> None:
+    """Ensure the resulting clip duration is close to the requested duration."""
+
+    actual = probe_media_duration_seconds(output_path)
+    expected = float(expected_duration_seconds)
+    lower_bound = max(0.1, expected - tolerance_seconds)
+    upper_bound = expected + tolerance_seconds
+    if actual < lower_bound:
+        raise ClipCutError(
+            "مدة المقطع الناتج أقصر من المطلوب: "
+            f"المطلوب تقريبًا {format_seconds(int(round(expected)))}، "
+            f"والناتج {format_seconds(int(round(actual)))}"
+        )
+    if actual > upper_bound:
+        raise ClipCutError(
+            "مدة المقطع الناتج أطول من المطلوب: "
+            f"المطلوب تقريبًا {format_seconds(int(round(expected)))}، "
+            f"والناتج {format_seconds(int(round(actual)))}"
+        )
+
+
+def _concise_ffmpeg_error(output: str, return_code: int | None = None) -> str:
+    """Return a short user-facing ffmpeg error instead of dumping full build logs."""
+
+    important_keywords = (
+        "error",
+        "failed",
+        "invalid",
+        "no such file",
+        "permission denied",
+        "conversion failed",
+        "unable",
+        "cannot",
+        "not found",
+    )
+    ignored_prefixes = (
+        "ffmpeg version",
+        "built with",
+        "configuration:",
+        "libav",
+        "libsw",
+        "libpostproc",
+        "input #",
+        "output #",
+        "metadata:",
+        "stream #",
+        "stream mapping:",
+        "press [q]",
+        "frame=",
+        "video:",
+        "audio:",
+        "subtitle:",
+        "side data:",
+        "handler_name",
+        "major_brand",
+        "minor_version",
+        "compatible_brands",
+        "encoder",
+        "duration:",
+        "bitrate",
+        "using sar",
+        "using cpu capabilities",
+        "profile high",
+        "264 - core",
+        "consecutive b-frames",
+        "mb ",
+        "8x8 transform",
+        "coded y",
+        "i16 ",
+        "i8 ",
+        "i4 ",
+        "i8c ",
+        "weighted p-frames",
+        "qavg",
+    )
+
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    important = [line for line in lines if any(keyword in line.lower() for keyword in important_keywords)]
+    candidates = important or [
+        line for line in lines
+        if not line.lower().startswith(ignored_prefixes)
+        and "late sei is not implemented" not in line.lower()
+        and "ffmpeg-devel" not in line.lower()
+        and "streams.videolan.org" not in line.lower()
+    ]
+    selected = candidates[-5:]
+    if selected:
+        return "\n".join(selected)
+    if return_code is not None:
+        return f"ffmpeg failed with exit code {return_code}"
+    return "ffmpeg failed"
+
+
 def cut_clip(
     input_video_path: str | Path,
     output_video_path: str | Path,
@@ -647,12 +1138,11 @@ def cut_clip(
     command = build_ffmpeg_command(input_path, output_path, start_seconds, duration_seconds)
 
     try:
-        runner(command, check=True, capture_output=True, text=True)
+        _run_ffmpeg_command(command, output_path, runner)
+        if _should_validate_media_duration(runner):
+            verify_output_duration(output_path, duration_seconds)
     except FileNotFoundError as error:
         raise FfmpegNotFoundError(AR_FFMPEG_NOT_FOUND) from error
-    except subprocess.CalledProcessError as error:
-        detail = error.stderr or error.stdout or str(error)
-        raise ClipCutError(detail.strip()) from error
 
     return output_path
 
@@ -691,9 +1181,10 @@ def cut_clip_with_exclusions(
                 exclusion_start, exclusion_end = exclusion.split("-", maxsplit=1)
                 _emit(progress_callback, f"تم حذف الجزء {exclusion_start} - {exclusion_end}")
 
+        expected_duration = sum(parse_timestamp(end) - parse_timestamp(start) for start, end in kept_segments)
         file_list_path = write_concat_file_list(segment_paths, temp_folder / "segments.txt")
         try:
-            concat_clip_segments(file_list_path, output_path, runner)
+            concat_clip_segments(file_list_path, output_path, runner, expected_duration)
         except ClipCutError as error:
             raise ClipCutError(f"{AR_CONCAT_FAILED} {clip.number}: {error}") from error
         _emit(progress_callback, f"{AR_MERGED_CLIP_PARTS} {clip.number:02d}")
@@ -714,6 +1205,7 @@ def concat_clip_segments(
     file_list_path: str | Path,
     output_video_path: str | Path,
     runner: SubprocessRunner = subprocess.run,
+    expected_duration_seconds: int | float | None = None,
 ) -> Path:
     """Concatenate already-cut segment files into one mp4."""
 
@@ -722,12 +1214,11 @@ def concat_clip_segments(
     command = build_ffmpeg_concat_command(file_list_path, output_path)
 
     try:
-        runner(command, check=True, capture_output=True, text=True)
+        _run_ffmpeg_command(command, output_path, runner)
+        if expected_duration_seconds is not None and _should_validate_media_duration(runner):
+            verify_output_duration(output_path, expected_duration_seconds)
     except FileNotFoundError as error:
         raise FfmpegNotFoundError(AR_FFMPEG_NOT_FOUND) from error
-    except subprocess.CalledProcessError as error:
-        detail = error.stderr or error.stdout or str(error)
-        raise ClipCutError(detail.strip()) from error
 
     return output_path
 

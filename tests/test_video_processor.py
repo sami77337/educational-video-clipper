@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 
 from src.classification import ClassificationRule
@@ -27,6 +29,9 @@ from src.video_processor import (
     validate_local_video_file,
     validate_youtube_url,
     write_concat_file_list,
+    cut_clip,
+    download_youtube_video,
+    verify_output_duration,
 )
 
 
@@ -393,3 +398,136 @@ def test_dynamic_classification_still_works_with_exclusions(tmp_path) -> None:
 
     assert results[0].destination_folder_name == "دروس"
     assert results[0].output_path == input_path.parent / "دروس" / "5_درس.mp4"
+
+
+
+def test_cut_clip_passes_ffmpeg_arguments_as_list_and_uses_utf8(tmp_path) -> None:
+    input_path = tmp_path / "input.mp4"
+    output_path = tmp_path / "ريلز" / "مقطع.mp4"
+    input_path.write_bytes(b"video")
+    output_path.parent.mkdir()
+    output_path.write_bytes(b"output")
+    calls = []
+
+    def fake_runner(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="ffmpeg normal progress")
+
+    result = cut_clip(input_path, output_path, 0, 10, runner=fake_runner)
+
+    assert result == output_path
+    assert isinstance(calls[0][0], list)
+    assert calls[0][1]["check"] is False
+    assert calls[0][1]["capture_output"] is True
+    assert calls[0][1]["text"] is True
+    assert calls[0][1]["encoding"] == "utf-8"
+    assert calls[0][1]["errors"] == "replace"
+
+
+def test_cut_clip_does_not_fail_just_because_ffmpeg_writes_to_stderr(tmp_path) -> None:
+    input_path = tmp_path / "input.mp4"
+    output_path = tmp_path / "output.mp4"
+    input_path.write_bytes(b"video")
+    output_path.write_bytes(b"output")
+
+    def fake_runner(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="ffmpeg writes normal info to stderr")
+
+    assert cut_clip(input_path, output_path, 0, 10, runner=fake_runner) == output_path
+
+
+def test_cut_clip_rejects_signal_15_even_when_output_exists(tmp_path) -> None:
+    input_path = tmp_path / "input.mp4"
+    output_path = tmp_path / "output.mp4"
+    input_path.write_bytes(b"video")
+    output_path.write_bytes(b"partial but incomplete output")
+
+    def fake_runner(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command,
+            255,
+            stdout="",
+            stderr="Exiting normally, received signal 15",
+        )
+
+    with pytest.raises(Exception) as error:
+        cut_clip(input_path, output_path, 0, 10, runner=fake_runner)
+
+    assert "signal 15" in str(error.value).lower()
+
+
+def test_cut_clip_failure_error_is_concise(tmp_path) -> None:
+    input_path = tmp_path / "input.mp4"
+    output_path = tmp_path / "output.mp4"
+    input_path.write_bytes(b"video")
+    long_stderr = "\n".join([
+        "ffmpeg version 8.1.1-full_build-www.gyan.dev",
+        "configuration: lots of build flags",
+        "Input #0, mov, from input.mp4",
+        "Stream #0:0 Video",
+        "Conversion failed: Invalid argument",
+    ])
+
+    def fake_runner(command, **kwargs):
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr=long_stderr)
+
+    with pytest.raises(Exception) as error:
+        cut_clip(input_path, output_path, 0, 10, runner=fake_runner)
+
+    message = str(error.value)
+    assert "Invalid argument" in message
+    assert "configuration:" not in message
+    assert "ffmpeg version" not in message
+
+
+def test_download_youtube_video_emits_progress_messages(tmp_path) -> None:
+    destination = tmp_path / "input.mp4"
+    messages: list[str] = []
+    captured_options: dict = {}
+
+    class FakeYoutubeDL:
+        def __init__(self, options):
+            captured_options.update(options)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def download(self, urls):
+            hook = captured_options["progress_hooks"][0]
+            hook({"status": "downloading", "downloaded_bytes": 50, "total_bytes": 100})
+            hook({"status": "finished"})
+            destination.write_bytes(b"video")
+
+    result = download_youtube_video("https://youtu.be/example", destination, FakeYoutubeDL, messages.append)
+
+    assert result == destination
+    assert destination.read_bytes() == b"video"
+    assert "جاري قراءة معلومات الفيديو" in messages
+    assert "جاري تنزيل الفيديو: 50%" in messages
+    assert "اكتمل تنزيل الفيديو، جاري تجهيز الملف" in messages
+    assert captured_options["progress_hooks"]
+    assert captured_options["socket_timeout"] == 30
+
+
+def test_verify_output_duration_rejects_short_partial_clip(tmp_path, monkeypatch) -> None:
+    output_path = tmp_path / "partial.mp4"
+    output_path.write_bytes(b"not a real video but probe is mocked")
+
+    monkeypatch.setattr("src.video_processor.probe_media_duration_seconds", lambda path: 10.0)
+
+    with pytest.raises(Exception) as error:
+        verify_output_duration(output_path, 80)
+
+    assert "أقصر من المطلوب" in str(error.value)
+
+
+def test_verify_output_duration_accepts_near_expected_duration(tmp_path, monkeypatch) -> None:
+    output_path = tmp_path / "ok.mp4"
+    output_path.write_bytes(b"not a real video but probe is mocked")
+
+    monkeypatch.setattr("src.video_processor.probe_media_duration_seconds", lambda path: 79.2)
+
+    verify_output_duration(output_path, 80)

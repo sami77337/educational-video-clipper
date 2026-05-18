@@ -1,6 +1,18 @@
-# Educational Video Clipper
+# المقص البسيط
 
-A Windows desktop app for turning educational videos into sorted short clips. The app supports YouTube URLs, local video files, pasted Arabic clip lists, Excel/CSV imports, automatic clip cutting with ffmpeg, ZIP export, and a final processing report.
+**المقص البسيط** تطبيق Windows عربي-friendly لقص المقاطع التعليمية من فيديو محلي أو من رابط YouTube، مع دعم تحويل الرسائل النصية إلى جدول، واستيراد Excel/CSV، والتصنيف حسب المدة، والاستثناءات من وسط المقطع، والتصدير المضغوط ZIP، وتقرير نهائي.
+
+## الميزات الأساسية
+
+- اختيار فيديو من الجهاز أو تنزيل فيديو من رابط YouTube.
+- جدول مقاطع يدعم العناوين العربية.
+- تحويل رسائل واتساب/تلغرام إلى جدول مقاطع.
+- استيراد المقاطع من Excel أو CSV.
+- دعم أوقات مرنة مثل `4:15` و `00:04:15` و `٤:١٥`.
+- دعم الاستثناءات داخل المقطع، مثل حذف جزء من الوسط.
+- قواعد تصنيف قابلة للتخصيص لإنشاء عدة مجلدات حسب مدة المقطع.
+- إنشاء ملفات ZIP تلقائيًا لكل مجلد نتائج.
+- إنشاء تقرير قص نهائي.
 
 ## Windows Setup
 
@@ -136,6 +148,115 @@ If the app cannot create folders or write files:
 - Check antivirus or controlled folder access settings
 - Run Command Prompt normally first; use administrator mode only if you understand why it is needed
 
+## Branding Assets
+
+The application icon and logo assets live in:
+
+```text
+assets/icon.svg
+assets/icon.png
+assets/icon.ico
+```
+
+They show a scissors-and-video-strip concept for **المقص البسيط**.
+
 ## Packaging
 
 This project is not packaged as an EXE yet.
+
+
+## ملاحظة مهمة حول خطأ Windows Long Path
+
+إذا ظهر خطأ أثناء تثبيت `PySide6` متعلقًا بطول المسار، فهذه النسخة تستخدم بيئة افتراضية قصيرة خارج مجلد المشروع:
+
+```text
+%USERPROFILE%\almiqs-albaseet-venv
+```
+
+لذلك شغّل التطبيق دائمًا عبر:
+
+```text
+run_app.bat
+```
+
+ولا تنشئ بيئة `.venv` داخل مجلد المشروع يدويًا.
+
+## إصدار التطبيق كبرنامج Windows
+
+لإنشاء نسخة تطبيق عادية تعمل من ملف `.exe`:
+
+1. افتح مجلد المشروع.
+2. شغّل الملف:
+
+```bat
+build_app.bat
+```
+
+3. بعد انتهاء البناء ستجد التطبيق هنا:
+
+```text
+dist\AlmiqsAlBaseet\AlmiqsAlBaseet.exe
+```
+
+هذه نسخة محمولة Portable. يمكن نسخ مجلد `dist\AlmiqsAlBaseet` كاملًا إلى أي جهاز Windows. يظهر الاختصار على سطح المكتب باسم **المقص البسيط**، بينما تبقى أسماء الملفات الداخلية إنجليزية لتجنب مشاكل ترميز Windows.
+
+> ملاحظة مهمة: يعتمد التطبيق عند القص على وجود `ffmpeg` في الجهاز أو ضمن PATH. إذا ظهر خطأ ffmpeg، ثبّت FFmpeg أو أضفه إلى PATH قبل استخدام القص.
+
+
+
+## تشغيل البرنامج من سطح المكتب
+
+إذا أردت أن يظهر البرنامج على سطح المكتب باسم **المقص البسيط**:
+
+1. فك الضغط عن المجلد في مكان ثابت، مثل `C:\app` أو على سطح المكتب.
+2. شغّل الملف:
+
+```bat
+install_desktop.bat
+```
+
+سيتم إنشاء اختصار على سطح المكتب باسم **المقص البسيط** مع الأيقونة.
+
+> لا تنقل ملف `.exe` وحده إلى سطح المكتب إذا بنيت نسخة `dist`؛ يجب إبقاء مجلد التطبيق كاملًا مع ملفاته، أو استخدم الاختصار الذي ينشئه البرنامج.
+
+## بناء نسخة تطبيق Windows
+
+لإنشاء نسخة تطبيق قابلة للتشغيل مثل البرامج العادية، شغّل:
+
+```bat
+build_app.bat
+```
+
+سينتج مجلد:
+
+```text
+dist\AlmiqsAlBaseet
+```
+
+وسيتم إنشاء اختصار على سطح المكتب باسم **المقص البسيط** يشغّل التطبيق من هذا المجلد.
+
+
+## حل مشكلة يوتيوب: Sign in to confirm you're not a bot
+
+أضيف خيار داخل واجهة البرنامج باسم **استخدام تسجيل الدخول من المتصفح**.
+عند ظهور خطأ يوتيوب الذي يطلب تسجيل الدخول أو التأكد أنك لست روبوتًا:
+
+1. سجّل دخولك إلى يوتيوب من المتصفح.
+2. يفضّل إغلاق المتصفح قبل بدء التنزيل.
+3. فعّل خيار **استخدام تسجيل الدخول من المتصفح** داخل البرنامج.
+4. اختر المتصفح المناسب: Chrome أو Edge أو Brave أو Firefox.
+5. ابدأ القص من رابط يوتيوب.
+
+البرنامج لا يحفظ Cookies ولا يطبعها في السجل؛ يستخدمها محليًا أثناء التنزيل فقط.
+الجودة تبقى أفضل جودة فيديو وأفضل جودة صوت.
+
+## تشغيل نسخة المصدر بدون نافذة CMD
+
+إذا كنت تختبر نسخة المصدر ولا تريد ظهور نافذة CMD السوداء، شغّل:
+
+```text
+START_APP_NO_CONSOLE.vbs
+```
+
+أما `run_app.bat` فهو للتشخيص فقط، وسيُظهر نافذة CMD طبيعيًا.
+
