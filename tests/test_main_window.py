@@ -18,7 +18,13 @@ from src.main_window import (
     SmartPasteImportDialog,
 )
 from src.readiness import STATUS_READY, ReadinessCheckItem, ReadinessReport
-from src.smart_paste_parser import SmartPasteClip, SmartPasteExclusion, SmartPastePreview, SmartPasteWarning
+from src.smart_paste_parser import (
+    SmartPasteClip,
+    SmartPasteExclusion,
+    SmartPastePart,
+    SmartPastePreview,
+    SmartPasteWarning,
+)
 from src.smart_validation import SmartValidationReport
 
 
@@ -153,9 +159,26 @@ def test_smart_paste_preview_dialog_shows_exclusions_and_notes() -> None:
     preview = dialog.generate_preview()
 
     assert len(preview.clips) == 1
-    assert dialog.clips_preview_table.item(0, 3).text() == "00:27:40-00:28:20"
-    assert "ملاحظة بداية المقطع" in dialog.clips_preview_table.item(0, 4).text()
-    assert "ملاحظة نهاية المقطع" in dialog.clips_preview_table.item(0, 4).text()
+    assert dialog.clips_preview_table.item(0, 4).text() == "00:27:40-00:28:20"
+    assert "ملاحظة بداية المقطع" in dialog.clips_preview_table.item(0, 5).text()
+    assert "ملاحظة نهاية المقطع" in dialog.clips_preview_table.item(0, 5).text()
+
+    dialog.close()
+    app.processEvents()
+
+
+def test_smart_paste_preview_dialog_shows_multi_part_clips() -> None:
+    app = _app()
+    dialog = SmartPasteImportDialog()
+    dialog.message_input.setPlainText("10:12 - 11:35 + 12:33 - 17:51 (title)")
+
+    preview = dialog.generate_preview()
+
+    assert len(preview.clips) == 1
+    assert preview.clips[0].multi_part
+    assert "00:10:12 - 00:11:35" in dialog.clips_preview_table.item(0, 3).text()
+    assert "00:12:33 - 00:17:51" in dialog.clips_preview_table.item(0, 3).text()
+    assert "مقطع مركب" in dialog.warnings_area.toPlainText()
 
     dialog.close()
     app.processEvents()
@@ -297,6 +320,38 @@ def test_smart_paste_applies_exclusions_to_existing_table_column() -> None:
 
     assert window._apply_smart_paste_preview(preview) is True
     assert window.clips_table.item(0, EXCLUSIONS_COLUMN).text() == "00:27:40-00:28:20"
+
+    window.close()
+    app.processEvents()
+
+
+def test_smart_paste_keeps_multi_part_clips_preview_only() -> None:
+    app = _app()
+    window = MainWindow()
+    preview = SmartPastePreview(
+        video_urls=[],
+        project_title="",
+        clips=[
+            SmartPasteClip(
+                1,
+                "title",
+                "00:10:12",
+                "00:17:51",
+                1,
+                "10:12 - 11:35 + 12:33 - 17:51 (title)",
+                parts=[
+                    SmartPastePart("00:10:12", "00:11:35"),
+                    SmartPastePart("00:12:33", "00:17:51"),
+                ],
+            )
+        ],
+        warnings=[],
+        unparsed_lines=[],
+    )
+
+    assert window._apply_smart_paste_preview(preview) is True
+    assert window.clips_table.rowCount() == 0
+    assert "مقطع مركب في المعاينة فقط" in window.log_area.toPlainText()
 
     window.close()
     app.processEvents()

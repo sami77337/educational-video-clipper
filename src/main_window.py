@@ -97,8 +97,10 @@ class SmartPasteImportDialog(QDialog):
         self.summary_label = QLabel("الصق الرسالة ثم اضغط فحص الرسالة.")
         self.summary_label.setWordWrap(True)
 
-        self.clips_preview_table = QTableWidget(0, 5)
-        self.clips_preview_table.setHorizontalHeaderLabels(["العنوان", "البداية", "النهاية", "الاستثناءات", "الملاحظات"])
+        self.clips_preview_table = QTableWidget(0, 6)
+        self.clips_preview_table.setHorizontalHeaderLabels(
+            ["العنوان", "البداية", "النهاية", "الأجزاء", "الاستثناءات", "الملاحظات"]
+        )
         self.clips_preview_table.verticalHeader().setVisible(False)
         self.clips_preview_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.clips_preview_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -107,6 +109,7 @@ class SmartPasteImportDialog(QDialog):
         self.clips_preview_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.clips_preview_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.clips_preview_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.clips_preview_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
 
         self.warnings_area = QTextEdit()
         self.warnings_area.setReadOnly(True)
@@ -171,8 +174,9 @@ class SmartPasteImportDialog(QDialog):
             self.clips_preview_table.setItem(row, 0, QTableWidgetItem(clip.title))
             self.clips_preview_table.setItem(row, 1, QTableWidgetItem(clip.start))
             self.clips_preview_table.setItem(row, 2, QTableWidgetItem(clip.end))
-            self.clips_preview_table.setItem(row, 3, QTableWidgetItem(clip.exclusions_text))
-            self.clips_preview_table.setItem(row, 4, QTableWidgetItem(clip.notes_text))
+            self.clips_preview_table.setItem(row, 3, QTableWidgetItem(clip.parts_text))
+            self.clips_preview_table.setItem(row, 4, QTableWidgetItem(clip.exclusions_text))
+            self.clips_preview_table.setItem(row, 5, QTableWidgetItem(clip.notes_text))
 
         self.warnings_area.setPlainText(
             "\n".join(warning.message_ar for warning in preview.warnings) or "لا توجد تحذيرات."
@@ -1025,12 +1029,19 @@ class MainWindow(QMainWindow):
         elif len(preview.video_urls) > 1:
             applied_messages.append("تم اكتشاف أكثر من رابط فيديو. لم يتم تطبيق أي رابط تلقائيًا.")
 
-        if clip_mode in {"append", "replace"} and preview.clips:
+        regular_clips = [clip for clip in preview.clips if not clip.multi_part]
+        multi_part_clips = [clip for clip in preview.clips if clip.multi_part]
+
+        if clip_mode in {"append", "replace"} and regular_clips:
             self._insert_clip_lines(
-                [self._smart_paste_clip_to_parsed_clip(clip) for clip in preview.clips],
+                [self._smart_paste_clip_to_parsed_clip(clip) for clip in regular_clips],
                 append=clip_mode == "append",
             )
-            applied_messages.append(f"تم تطبيق {len(preview.clips)} مقطع من الاستيراد الذكي.")
+            applied_messages.append(f"تم تطبيق {len(regular_clips)} مقطع من الاستيراد الذكي.")
+        if multi_part_clips:
+            applied_messages.append(
+                f"تم إبقاء {len(multi_part_clips)} مقطع مركب في المعاينة فقط لأن الجدول الحالي لا يدعم أكثر من جزء."
+            )
 
         if preview.warnings:
             applied_messages.append(f"تم التطبيق مع {len(preview.warnings)} تحذير.")

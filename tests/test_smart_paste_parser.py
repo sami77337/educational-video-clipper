@@ -171,12 +171,64 @@ def test_smart_paste_warns_about_exclusion_outside_clip_boundaries() -> None:
     assert any("الاستثناء خارج حدود المقطع" in warning.message_ar for warning in result.warnings)
 
 
-def test_smart_paste_warns_about_plus_joined_ranges_and_leaves_line_unparsed() -> None:
-    result = parse_smart_paste_message("1:00 - 2:00 + 3:00 - 4:00 عنوان")
+def test_smart_paste_parses_english_plus_joined_multi_part_clip() -> None:
+    result = parse_smart_paste_message("10:12 - 11:35 + 12:33 - 17:51 (title)")
 
-    assert result.clips == []
-    assert len(result.unparsed_lines) == 1
-    assert any("هذا المقطع يحتوي على أكثر من جزء ويحتاج دعم الدمج لاحقًا" in warning.message_ar for warning in result.warnings)
+    assert result.unparsed_lines == []
+    assert len(result.clips) == 1
+    clip = result.clips[0]
+    assert clip.multi_part
+    assert clip.title == "title"
+    assert [(part.start, part.end) for part in clip.parts] == [
+        ("00:10:12", "00:11:35"),
+        ("00:12:33", "00:17:51"),
+    ]
+    assert any("تم العثور على مقطع مركب من أكثر من جزء" in warning.message_ar for warning in result.warnings)
+    assert any("هذا المقطع يحتوي على أكثر من جزء. سيتم دعمه في القص لاحقًا." in warning.message_ar for warning in result.warnings)
+
+
+def test_smart_paste_parses_arabic_numeral_plus_joined_multi_part_clip() -> None:
+    result = parse_smart_paste_message("١٠:١٢ - ١١:٣٥ + ١٢:٣٣ - ١٧:٥١ (العنوان)")
+
+    assert len(result.clips) == 1
+    clip = result.clips[0]
+    assert clip.multi_part
+    assert clip.title == "العنوان"
+    assert [(part.start, part.end) for part in clip.parts] == [
+        ("00:10:12", "00:11:35"),
+        ("00:12:33", "00:17:51"),
+    ]
+
+
+def test_smart_paste_parses_compact_plus_joined_separator() -> None:
+    result = parse_smart_paste_message("10:12-11:35 + 12:33-17:51")
+
+    assert result.clips[0].multi_part
+    assert result.clips[0].parts_text == "الجزء 1: 00:10:12 - 00:11:35 | الجزء 2: 00:12:33 - 00:17:51"
+
+
+def test_smart_paste_parses_arabic_plus_joined_separator() -> None:
+    result = parse_smart_paste_message("10:12 إلى 11:35 + 12:33 إلى 17:51")
+
+    assert result.clips[0].multi_part
+    assert [(part.start, part.end) for part in result.clips[0].parts] == [
+        ("00:10:12", "00:11:35"),
+        ("00:12:33", "00:17:51"),
+    ]
+
+
+def test_smart_paste_warns_about_invalid_multi_part_second_part() -> None:
+    result = parse_smart_paste_message("10:12 - 11:35 + 12:33 - 12:00")
+
+    assert result.clips[0].multi_part
+    assert any("أحد أجزاء المقطع المركب غير صحيح" in warning.message_ar for warning in result.warnings)
+
+
+def test_smart_paste_warns_about_overlapping_multi_part_ranges() -> None:
+    result = parse_smart_paste_message("10:12 - 12:00 + 11:50 - 13:00")
+
+    assert result.clips[0].multi_part
+    assert any("يوجد تداخل بين أجزاء المقطع المركب" in warning.message_ar for warning in result.warnings)
 
 
 def test_smart_paste_preserves_first_word_last_word_markers_as_notes() -> None:

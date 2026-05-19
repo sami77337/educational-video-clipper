@@ -78,6 +78,15 @@ class SmartPasteExclusion:
 
 
 @dataclass(frozen=True)
+class SmartPastePart:
+    """One part of a multi-part clip."""
+
+    start: str
+    end: str
+    raw_text: str = ""
+
+
+@dataclass(frozen=True)
 class SmartPasteClip:
     """One parsed clip candidate for preview."""
 
@@ -88,6 +97,7 @@ class SmartPasteClip:
     line_number: int
     raw_line: str
     exclusions: list[SmartPasteExclusion] = field(default_factory=list)
+    parts: list[SmartPastePart] = field(default_factory=list)
     start_note: str = ""
     end_note: str = ""
     general_notes: list[str] = field(default_factory=list)
@@ -105,6 +115,19 @@ class SmartPasteClip:
             notes.append(f"ملاحظة نهاية المقطع: {self.end_note}")
         notes.extend(self.general_notes)
         return " | ".join(notes)
+
+    @property
+    def multi_part(self) -> bool:
+        return len(self.parts) > 1
+
+    @property
+    def parts_text(self) -> str:
+        if not self.parts:
+            return ""
+        return " | ".join(
+            f"الجزء {index}: {part.start} - {part.end}"
+            for index, part in enumerate(self.parts, start=1)
+        )
 
 
 @dataclass(frozen=True)
@@ -148,6 +171,7 @@ class _ClipCandidate:
     start: str
     end: str
     exclusions: list[SmartPasteExclusion] = field(default_factory=list)
+    parts: list[SmartPastePart] = field(default_factory=list)
     invalid_exclusions: list[SmartPasteExclusion] = field(default_factory=list)
     start_note: str = ""
     end_note: str = ""
@@ -188,15 +212,34 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
 
         context = _LineContext(context.line_number, context.raw_line, line_without_urls)
         unsupported_warnings = _detect_unsupported_patterns(context)
-        if _has_plus_joined_ranges(context.text):
-            warnings.extend(unsupported_warnings)
-            unparsed_lines.append(SmartPasteUnparsedLine(context.line_number, context.raw_line))
-            continue
 
-        candidate = _parse_begin_end_clip(context.text) or _parse_range_clip(context.text)
+        candidate = _parse_multi_part_clip(context.text) or _parse_begin_end_clip(context.text) or _parse_range_clip(context.text)
         if candidate is not None:
             warnings.extend(unsupported_warnings)
             warnings.extend(_validate_candidate_exclusions(candidate, context))
+            warnings.extend(_validate_candidate_parts(candidate, context))
+            if candidate.parts:
+                warnings.append(
+                    SmartPasteWarning(
+                        context.line_number,
+                        "تم العثور على مقطع مركب من أكثر من جزء",
+                        context.raw_line,
+                    )
+                )
+                warnings.append(
+                    SmartPasteWarning(
+                        context.line_number,
+                        "هذا المقطع يحتوي على أكثر من جزء. سيتم دعمه في القص لاحقًا.",
+                        context.raw_line,
+                    )
+                )
+                warnings.append(
+                    SmartPasteWarning(
+                        context.line_number,
+                        "هذا المقطع يحتاج دعم الدمج لاحقًا قبل القص",
+                        context.raw_line,
+                    )
+                )
             if candidate.exclusions:
                 warnings.append(
                     SmartPasteWarning(
@@ -231,6 +274,7 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
                     line_number=context.line_number,
                     raw_line=context.raw_line,
                     exclusions=candidate.exclusions,
+                    parts=candidate.parts,
                     start_note=candidate.start_note,
                     end_note=candidate.end_note,
                     general_notes=candidate.general_notes,
@@ -285,6 +329,38 @@ def _remove_urls(text: str) -> str:
 
 def _clean_url(url: str) -> str:
     return url.rstrip(".,،؛:)]}؟")
+
+
+def _parse_multi_part_clip(text: str) -> _ClipCandidate | None:
+    if not _has_plus_joined_ranges(text):
+        return None
+
+    range_matches = list(_RANGE_PATTERN.finditer(text))
+    if len(range_matches) < 2:
+        return None
+
+    parts: list[SmartPastePart] = []
+    for match in range_matches:
+        start = _normalize_time(match.group(1))
+        end = _normalize_time(match.group(2))
+        if start is None or end is None:
+            continue
+        parts.append(SmartPastePart(start=start, end=end, raw_text=text[match.start() : match.end()]))
+
+    if len(parts) < 2:
+        return None
+
+    title_source = _strip_number_prefix(_RANGE_PATTERN.sub(" ", text).replace("+", " "))
+    notes = _extract_notes_from_text(title_source)
+    return _ClipCandidate(
+        title=notes.title,
+        start=parts[0].start,
+        end=parts[-1].end,
+        parts=parts,
+        start_note=notes.start_note,
+        end_note=notes.end_note,
+        general_notes=notes.general_notes,
+    )
 
 
 def _parse_range_clip(text: str) -> _ClipCandidate | None:
@@ -461,6 +537,53 @@ def _validate_candidate_exclusions(
     return warnings
 
 
+def _validate_candidate_parts(
+    candidate: _ClipCandidate,
+    context: _LineContext,
+) -> list[SmartPasteWarning]:
+    if len(candidate.parts) <= 1:
+        return []
+
+    warnings: list[SmartPasteWarning] = []
+    seconds_ranges: list[tuple[int, int]] = []
+    for part in candidate.parts:
+        start_seconds = parse_timestamp(part.start)
+        end_seconds = parse_timestamp(part.end)
+        seconds_ranges.append((start_seconds, end_seconds))
+        if start_seconds >= end_seconds:
+            warnings.append(
+                SmartPasteWarning(
+                    context.line_number,
+                    "تحذير: أحد أجزاء المقطع المركب غير صحيح",
+                    context.raw_line,
+                )
+            )
+            break
+
+    if any(seconds_ranges[index][0] < seconds_ranges[index - 1][0] for index in range(1, len(seconds_ranges))):
+        warnings.append(
+            SmartPasteWarning(
+                context.line_number,
+                "تحذير: أجزاء المقطع المركب غير مرتبة",
+                context.raw_line,
+            )
+        )
+
+    for index, current_range in enumerate(seconds_ranges[:-1]):
+        next_range = seconds_ranges[index + 1]
+        if current_range[1] > next_range[0]:
+            warnings.append(
+                SmartPasteWarning(
+                    context.line_number,
+                    "تحذير: يوجد تداخل بين أجزاء المقطع المركب",
+                    context.raw_line,
+                )
+            )
+            break
+
+    return warnings
+
+
 def _exclusion_has_valid_order(exclusion: SmartPasteExclusion) -> bool:
     return parse_timestamp(exclusion.start) < parse_timestamp(exclusion.end)
 
@@ -478,19 +601,7 @@ def _clean_note_text(value: str) -> str:
 
 
 def _detect_unsupported_patterns(context: _LineContext) -> list[SmartPasteWarning]:
-    warnings: list[SmartPasteWarning] = []
-    text = context.text
-
-    if _has_plus_joined_ranges(text):
-        warnings.append(
-            SmartPasteWarning(
-                context.line_number,
-                f"تحذير في السطر {context.line_number}: هذا المقطع يحتوي على أكثر من جزء ويحتاج دعم الدمج لاحقًا",
-                context.raw_line,
-            )
-        )
-
-    return warnings
+    return []
 
 
 def _has_internal_cut_pattern(text: str) -> bool:
