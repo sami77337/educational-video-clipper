@@ -239,6 +239,12 @@ build_app_ci.bat
 python scripts\check_release_package.py
 ```
 
+ولتشغيل الاختبارات وفحص تشغيل التطبيق والبناء وفحص الحزمة دفعة واحدة:
+
+```bat
+verify_release.bat
+```
+
 سينتج مجلد:
 
 ```text
