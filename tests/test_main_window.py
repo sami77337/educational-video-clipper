@@ -23,7 +23,7 @@ from src.main_window import (
     MainWindow,
     SmartPasteImportDialog,
 )
-from src.job_queue import JobStatus, VideoSourceType as QueueVideoSourceType
+from src.job_queue import ClipJob, JobStatus, VideoSourceType as QueueVideoSourceType
 from src.readiness import STATUS_READY, ReadinessCheckItem, ReadinessReport
 from src.smart_paste_parser import (
     SmartPasteClip,
@@ -86,6 +86,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.queue_table.rowCount() == 0
     assert window.add_queue_local_video_button.text() == "إضافة فيديو محلي"
     assert window.add_queue_url_button.text() == "إضافة رابط"
+    assert window.save_queue_clips_button.text() == "حفظ المقاطع للمهمة المحددة"
     assert window.run_selected_queue_job_button.text() == "تشغيل المحدد فقط"
     assert window.validate_queue_job_button.text() == "إعادة فحص المحدد"
     assert window.delete_queue_job_button.text() == "إزالة المهمة المحددة"
@@ -171,6 +172,95 @@ def test_queue_delete_and_clear_are_passive() -> None:
     assert window.queue_table.rowCount() == 0
     assert window._processing_thread is None
     assert "تم مسح قائمة الانتظار" in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_save_current_clip_rows_to_selected_job() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://youtu.be/abc123", title="درس")
+    window._insert_clip_row(1, "المقطع الأول", "00:01:00", "00:02:00", "00:01:20-00:01:30")
+    window._insert_clip_row(2, "المقطع الثاني", "00:03:00", "00:04:00", "")
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.save_clips_to_selected_queue_job()
+
+    assert len(job.clips) == 2
+    assert job.clips[0].title == "المقطع الأول"
+    assert job.clips[0].start == "00:01:00"
+    assert job.clips[0].end == "00:02:00"
+    assert job.clips[0].exclusions == "00:01:20-00:01:30"
+    assert job.clips[0].notes == []
+    assert job.clips[1].title == "المقطع الثاني"
+    assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "2"
+    assert "تم حفظ المقاطع للمهمة المحددة" in window.log_area.toPlainText()
+    assert "تم تحديث عدد المقاطع" in window.log_area.toPlainText()
+    assert "لم يتم بدء أي قص أو تحميل" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_save_clips_without_selection_shows_feedback() -> None:
+    app = _app()
+    window = MainWindow()
+    window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00")
+
+    window.save_clips_to_selected_queue_job()
+
+    assert "لا توجد مهمة محددة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_save_clips_empty_table_shows_feedback() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://youtu.be/abc123", title="درس")
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.save_clips_to_selected_queue_job()
+
+    assert job.clips == []
+    assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "0"
+    assert "لا توجد مقاطع لحفظها" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_save_clips_replacing_existing_requires_confirmation() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://youtu.be/abc123", title="درس")
+    job.clips = [ClipJob(title="قديم", start="00:00:01", end="00:00:02")]
+    window._refresh_queue_job_row(0)
+    window._insert_clip_row(1, "جديد", "00:01:00", "00:02:00")
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+
+    window._ask_replace_queue_clips_confirmation = lambda: False
+    window.save_clips_to_selected_queue_job()
+
+    assert [clip.title for clip in job.clips] == ["قديم"]
+    assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "1"
+
+    window._ask_replace_queue_clips_confirmation = lambda: True
+    window.save_clips_to_selected_queue_job()
+
+    assert [clip.title for clip in job.clips] == ["جديد"]
+    assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "1"
+    assert "تم حفظ المقاطع للمهمة المحددة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
 
     window.close()
     app.processEvents()
