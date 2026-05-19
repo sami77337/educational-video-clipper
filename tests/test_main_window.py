@@ -18,7 +18,7 @@ from src.main_window import (
     SmartPasteImportDialog,
 )
 from src.readiness import STATUS_READY, ReadinessCheckItem, ReadinessReport
-from src.smart_paste_parser import SmartPasteClip, SmartPastePreview, SmartPasteWarning
+from src.smart_paste_parser import SmartPasteClip, SmartPasteExclusion, SmartPastePreview, SmartPasteWarning
 from src.smart_validation import SmartValidationReport
 
 
@@ -145,6 +145,22 @@ def test_smart_paste_preview_dialog_generates_summary_and_clip_table() -> None:
     app.processEvents()
 
 
+def test_smart_paste_preview_dialog_shows_exclusions_and_notes() -> None:
+    app = _app()
+    dialog = SmartPasteImportDialog()
+    dialog.message_input.setPlainText("26:56 - 29:14 عنوان (27:40 - 28:20) أول كلمة: بداية آخر كلمة: نهاية")
+
+    preview = dialog.generate_preview()
+
+    assert len(preview.clips) == 1
+    assert dialog.clips_preview_table.item(0, 3).text() == "00:27:40-00:28:20"
+    assert "ملاحظة بداية المقطع" in dialog.clips_preview_table.item(0, 4).text()
+    assert "ملاحظة نهاية المقطع" in dialog.clips_preview_table.item(0, 4).text()
+
+    dialog.close()
+    app.processEvents()
+
+
 def test_smart_paste_apply_empty_url_and_table_without_processing() -> None:
     app = _app()
     window = MainWindow()
@@ -253,6 +269,34 @@ def test_smart_paste_can_keep_existing_url_and_append_clips_with_warnings() -> N
     assert window.clips_table.rowCount() == 2
     assert window.clips_table.item(1, TITLE_COLUMN).text() == "جديد"
     assert "تم التطبيق مع 1 تحذير" in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
+def test_smart_paste_applies_exclusions_to_existing_table_column() -> None:
+    app = _app()
+    window = MainWindow()
+    preview = SmartPastePreview(
+        video_urls=[],
+        project_title="",
+        clips=[
+            SmartPasteClip(
+                1,
+                "مع استثناء",
+                "00:26:56",
+                "00:29:14",
+                1,
+                "26:56 - 29:14 (27:40 - 28:20)",
+                exclusions=[SmartPasteExclusion("00:27:40", "00:28:20")],
+            )
+        ],
+        warnings=[],
+        unparsed_lines=[],
+    )
+
+    assert window._apply_smart_paste_preview(preview) is True
+    assert window.clips_table.item(0, EXCLUSIONS_COLUMN).text() == "00:27:40-00:28:20"
 
     window.close()
     app.processEvents()

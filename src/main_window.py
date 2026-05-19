@@ -97,14 +97,16 @@ class SmartPasteImportDialog(QDialog):
         self.summary_label = QLabel("الصق الرسالة ثم اضغط فحص الرسالة.")
         self.summary_label.setWordWrap(True)
 
-        self.clips_preview_table = QTableWidget(0, 3)
-        self.clips_preview_table.setHorizontalHeaderLabels(["العنوان", "البداية", "النهاية"])
+        self.clips_preview_table = QTableWidget(0, 5)
+        self.clips_preview_table.setHorizontalHeaderLabels(["العنوان", "البداية", "النهاية", "الاستثناءات", "الملاحظات"])
         self.clips_preview_table.verticalHeader().setVisible(False)
         self.clips_preview_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.clips_preview_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.clips_preview_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.clips_preview_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.clips_preview_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.clips_preview_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.clips_preview_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
 
         self.warnings_area = QTextEdit()
         self.warnings_area.setReadOnly(True)
@@ -169,6 +171,8 @@ class SmartPasteImportDialog(QDialog):
             self.clips_preview_table.setItem(row, 0, QTableWidgetItem(clip.title))
             self.clips_preview_table.setItem(row, 1, QTableWidgetItem(clip.start))
             self.clips_preview_table.setItem(row, 2, QTableWidgetItem(clip.end))
+            self.clips_preview_table.setItem(row, 3, QTableWidgetItem(clip.exclusions_text))
+            self.clips_preview_table.setItem(row, 4, QTableWidgetItem(clip.notes_text))
 
         self.warnings_area.setPlainText(
             "\n".join(warning.message_ar for warning in preview.warnings) or "لا توجد تحذيرات."
@@ -1092,7 +1096,7 @@ class MainWindow(QMainWindow):
             title=clip.title,
             start=clip.start,
             end=clip.end,
-            exclusions="",
+            exclusions=clip.exclusions_text,
         )
 
     def _normalize_clip_table_times(self) -> None:

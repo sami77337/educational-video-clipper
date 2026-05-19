@@ -100,13 +100,75 @@ def test_smart_paste_strips_whatsapp_metadata_before_parsing() -> None:
     assert result.unparsed_lines == []
 
 
-def test_smart_paste_warns_about_internal_cut_notes_without_parsing_them() -> None:
+def test_smart_paste_parses_parenthesized_internal_exclusion() -> None:
+    result = parse_smart_paste_message("26:56 - 29:14 (27:40 - 28:20)")
+
+    assert len(result.clips) == 1
+    assert result.clips[0].start == "00:26:56"
+    assert result.clips[0].end == "00:29:14"
+    assert result.clips[0].exclusions_text == "00:27:40-00:28:20"
+    assert any("تم العثور على استثناء داخل المقطع" in warning.message_ar for warning in result.warnings)
+
+
+def test_smart_paste_parses_arabic_numeral_internal_exclusion() -> None:
+    result = parse_smart_paste_message("٢٦:٥٦ - ٢٩:١٤ (٢٧:٤٠ - ٢٨:٢٠)")
+
+    assert result.clips[0].start == "00:26:56"
+    assert result.clips[0].end == "00:29:14"
+    assert result.clips[0].exclusions_text == "00:27:40-00:28:20"
+
+
+def test_smart_paste_keeps_title_parentheses_when_not_time_range() -> None:
+    result = parse_smart_paste_message("01:00 - 02:00 (عنوان المقطع)")
+
+    assert result.clips[0].title == "عنوان المقطع"
+    assert result.clips[0].exclusions == []
+    assert result.warnings == []
+
+
+def test_smart_paste_detects_mabin_parentheses_cut_as_exclusion() -> None:
     result = parse_smart_paste_message("26:56 - 29:14 مابين القوسين يقطع (27:40 - 28:20)")
 
     assert len(result.clips) == 1
     assert result.clips[0].start == "00:26:56"
     assert result.clips[0].end == "00:29:14"
-    assert any("حذف داخلي" in warning.message_ar for warning in result.warnings)
+    assert result.clips[0].exclusions_text == "00:27:40-00:28:20"
+    assert any("تم العثور على استثناء داخل المقطع" in warning.message_ar for warning in result.warnings)
+
+
+def test_smart_paste_detects_explicit_exclusion_cue() -> None:
+    result = parse_smart_paste_message("26:56 - 29:14 استثناء: 27:40 - 28:20")
+
+    assert result.clips[0].exclusions_text == "00:27:40-00:28:20"
+
+
+def test_smart_paste_detects_delete_cue_for_internal_cut() -> None:
+    result = parse_smart_paste_message("26:56 - 29:14 حذف: 27:40 - 28:20")
+
+    assert result.clips[0].exclusions_text == "00:27:40-00:28:20"
+
+
+def test_smart_paste_preserves_internal_cut_note() -> None:
+    result = parse_smart_paste_message("26:56 - 29:14 يحتاج قص من الداخل (27:40 - 28:20)")
+
+    assert result.clips[0].exclusions_text == "00:27:40-00:28:20"
+    assert "يحتاج قص من الداخل" in result.clips[0].general_notes
+
+
+def test_smart_paste_warns_about_invalid_exclusion_range() -> None:
+    result = parse_smart_paste_message("10:00 - 12:00 (11:30 - 11:00)")
+
+    assert len(result.clips) == 1
+    assert result.clips[0].exclusions == []
+    assert any("وقت الاستثناء غير صحيح" in warning.message_ar for warning in result.warnings)
+
+
+def test_smart_paste_warns_about_exclusion_outside_clip_boundaries() -> None:
+    result = parse_smart_paste_message("10:00 - 12:00 (12:30 - 13:00)")
+
+    assert len(result.clips) == 1
+    assert result.clips[0].exclusions == []
+    assert any("الاستثناء خارج حدود المقطع" in warning.message_ar for warning in result.warnings)
 
 
 def test_smart_paste_warns_about_plus_joined_ranges_and_leaves_line_unparsed() -> None:
@@ -114,14 +176,17 @@ def test_smart_paste_warns_about_plus_joined_ranges_and_leaves_line_unparsed() -
 
     assert result.clips == []
     assert len(result.unparsed_lines) == 1
-    assert any("متعددة الأجزاء" in warning.message_ar for warning in result.warnings)
+    assert any("هذا المقطع يحتوي على أكثر من جزء ويحتاج دعم الدمج لاحقًا" in warning.message_ar for warning in result.warnings)
 
 
-def test_smart_paste_warns_about_first_word_last_word_markers() -> None:
-    result = parse_smart_paste_message("01:00 - 02:00 عنوان أول كلمة كذا آخر كلمة كذا")
+def test_smart_paste_preserves_first_word_last_word_markers_as_notes() -> None:
+    result = parse_smart_paste_message("01:00 - 02:00 عنوان اول كلمة: كذا اخر كلمة: كذا")
 
     assert len(result.clips) == 1
-    assert any("أول كلمة وآخر كلمة" in warning.message_ar for warning in result.warnings)
+    assert result.clips[0].start_note == "كذا"
+    assert result.clips[0].end_note == "كذا"
+    assert any("ملاحظة بداية المقطع" in warning.message_ar for warning in result.warnings)
+    assert any("ملاحظة نهاية المقطع" in warning.message_ar for warning in result.warnings)
 
 
 def test_smart_paste_returns_unparsed_lines() -> None:
