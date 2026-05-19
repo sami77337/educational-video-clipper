@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -47,6 +48,7 @@ from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.message_parser import ParsedClipLine, parse_clip_message
 from src.readiness import format_readiness_report_ar, run_readiness_check
+from src.smart_paste_parser import SmartPasteClip, SmartPastePreview, parse_smart_paste_message
 from src.smart_validation import format_smart_validation_report_ar, validate_clips_before_cutting
 from src.time_utils import normalize_timestamp_text
 from src.version import APP_NAME, APP_SUBTITLE
@@ -75,6 +77,116 @@ RULE_MIN_COLUMN = 1
 RULE_MAX_COLUMN = 2
 RULE_FOLDER_COLUMN = 3
 AR_OPEN_MINUTES = "مفتوح"
+
+
+class SmartPasteImportDialog(QDialog):
+    """Preview-only dialog for smart paste imports."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.preview: SmartPastePreview | None = None
+
+        self.setWindowTitle("استيراد ذكي من رسالة")
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.resize(760, 620)
+
+        self.message_input = QTextEdit()
+        self.message_input.setPlaceholderText("الصق الرسالة كاملة هنا، بما في ذلك رابط الفيديو والمقاطع.")
+        self.message_input.setMinimumHeight(120)
+
+        self.summary_label = QLabel("الصق الرسالة ثم اضغط فحص الرسالة.")
+        self.summary_label.setWordWrap(True)
+
+        self.clips_preview_table = QTableWidget(0, 3)
+        self.clips_preview_table.setHorizontalHeaderLabels(["العنوان", "البداية", "النهاية"])
+        self.clips_preview_table.verticalHeader().setVisible(False)
+        self.clips_preview_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.clips_preview_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.clips_preview_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.clips_preview_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.clips_preview_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+
+        self.warnings_area = QTextEdit()
+        self.warnings_area.setReadOnly(True)
+        self.warnings_area.setMaximumHeight(95)
+
+        self.unparsed_area = QTextEdit()
+        self.unparsed_area.setReadOnly(True)
+        self.unparsed_area.setMaximumHeight(95)
+
+        self.parse_button = QPushButton("فحص الرسالة")
+        self.apply_button = QPushButton("تطبيق النتائج")
+        self.cancel_button = QPushButton("إلغاء")
+        self.apply_button.setEnabled(False)
+
+        self._build_ui()
+        self.parse_button.clicked.connect(self.generate_preview)
+        self.apply_button.clicked.connect(self._accept_preview)
+        self.cancel_button.clicked.connect(self.reject)
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        layout.addWidget(QLabel("الصق الرسالة هنا"))
+        layout.addWidget(self.message_input)
+        layout.addWidget(self.parse_button)
+        layout.addWidget(self.summary_label)
+        layout.addWidget(QLabel("المقاطع المكتشفة"))
+        layout.addWidget(self.clips_preview_table, stretch=1)
+        layout.addWidget(QLabel("التحذيرات"))
+        layout.addWidget(self.warnings_area)
+        layout.addWidget(QLabel("الأسطر التي لم يتم فهمها"))
+        layout.addWidget(self.unparsed_area)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        button_row.addWidget(self.apply_button)
+        button_row.addWidget(self.cancel_button)
+        layout.addLayout(button_row)
+
+    def generate_preview(self) -> SmartPastePreview:
+        self.preview = parse_smart_paste_message(self.message_input.toPlainText())
+        self._show_preview(self.preview)
+        return self.preview
+
+    def _show_preview(self, preview: SmartPastePreview) -> None:
+        self.summary_label.setText(
+            "\n".join(
+                [
+                    f"عدد الروابط: {len(preview.video_urls)}",
+                    f"عدد المقاطع: {len(preview.clips)}",
+                    f"عدد التحذيرات: {len(preview.warnings)}",
+                    f"الأسطر التي لم يتم فهمها: {len(preview.unparsed_lines)}",
+                ]
+            )
+        )
+
+        self.clips_preview_table.setRowCount(0)
+        for clip in preview.clips:
+            row = self.clips_preview_table.rowCount()
+            self.clips_preview_table.insertRow(row)
+            self.clips_preview_table.setItem(row, 0, QTableWidgetItem(clip.title))
+            self.clips_preview_table.setItem(row, 1, QTableWidgetItem(clip.start))
+            self.clips_preview_table.setItem(row, 2, QTableWidgetItem(clip.end))
+
+        self.warnings_area.setPlainText(
+            "\n".join(warning.message_ar for warning in preview.warnings) or "لا توجد تحذيرات."
+        )
+        self.unparsed_area.setPlainText(
+            "\n".join(
+                f"السطر {line.line_number}: {line.raw_line}"
+                for line in preview.unparsed_lines
+            )
+            or "لا توجد أسطر غير مفهومة."
+        )
+        self.apply_button.setEnabled(bool(preview.video_urls or preview.clips))
+
+    def _accept_preview(self) -> None:
+        if self.preview is None:
+            self.generate_preview()
+        if self.preview is not None and (self.preview.video_urls or self.preview.clips):
+            self.accept()
 
 
 class ProcessingWorker(QObject):
@@ -146,6 +258,7 @@ class MainWindow(QMainWindow):
         self.browser_cookies_help_label = QLabel()
         self.project_name_input = QLineEdit()
         self.paste_message_input = QTextEdit()
+        self.smart_paste_button = QPushButton("استيراد ذكي من رسالة")
         self.parse_message_button = QPushButton("تحويل النص إلى جدول")
         self.clips_table = QTableWidget(0, 5)
         self.classification_rules_table = QTableWidget(0, 4)
@@ -351,6 +464,7 @@ class MainWindow(QMainWindow):
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
+        button_row.addWidget(self.smart_paste_button)
         button_row.addWidget(self.parse_message_button)
 
         layout.addWidget(self.paste_message_input)
@@ -422,6 +536,7 @@ class MainWindow(QMainWindow):
         self.add_classification_button.clicked.connect(self.add_classification_rule)
         self.delete_classification_button.clicked.connect(self.delete_selected_classification_rule)
         self.reset_classification_button.clicked.connect(self.reset_classification_rules)
+        self.smart_paste_button.clicked.connect(self.import_smart_paste_message)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
         self.readiness_button.clicked.connect(self.check_readiness)
         self.smart_validation_button.clicked.connect(self.run_smart_pre_cut_validation)
@@ -564,6 +679,14 @@ class MainWindow(QMainWindow):
         messages = [f"تم تحويل {len(parse_result.clips)} مقطع إلى الجدول."]
         messages.extend(warning.message_ar for warning in parse_result.warnings)
         self._write_log("\n".join(messages))
+
+    def import_smart_paste_message(self) -> None:
+        dialog = SmartPasteImportDialog(self)
+        if dialog.exec() != QDialog.Accepted or dialog.preview is None:
+            self._append_log("تم إلغاء الاستيراد الذكي من الرسالة.")
+            return
+
+        self._apply_smart_paste_preview(dialog.preview)
 
     def import_from_excel(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -879,6 +1002,99 @@ class MainWindow(QMainWindow):
                 exclusions=clip.exclusions,
             )
 
+    def _apply_smart_paste_preview(self, preview: SmartPastePreview) -> bool:
+        url_mode = self._resolve_smart_paste_url_mode(preview)
+        if url_mode is None:
+            self._append_log("تم إلغاء تطبيق نتائج الاستيراد الذكي.")
+            return False
+
+        clip_mode = self._resolve_smart_paste_clip_mode(preview)
+        if clip_mode is None:
+            self._append_log("تم إلغاء تطبيق نتائج الاستيراد الذكي.")
+            return False
+
+        applied_messages: list[str] = []
+        if url_mode in {"set", "replace"} and len(preview.video_urls) == 1:
+            self.youtube_radio.setChecked(True)
+            self.youtube_input.setText(preview.video_urls[0])
+            applied_messages.append("تم تطبيق رابط الفيديو المكتشف.")
+        elif len(preview.video_urls) > 1:
+            applied_messages.append("تم اكتشاف أكثر من رابط فيديو. لم يتم تطبيق أي رابط تلقائيًا.")
+
+        if clip_mode in {"append", "replace"} and preview.clips:
+            self._insert_clip_lines(
+                [self._smart_paste_clip_to_parsed_clip(clip) for clip in preview.clips],
+                append=clip_mode == "append",
+            )
+            applied_messages.append(f"تم تطبيق {len(preview.clips)} مقطع من الاستيراد الذكي.")
+
+        if preview.warnings:
+            applied_messages.append(f"تم التطبيق مع {len(preview.warnings)} تحذير.")
+        if preview.unparsed_lines:
+            applied_messages.append(f"بقي {len(preview.unparsed_lines)} سطر لم يتم فهمه.")
+        if not applied_messages:
+            applied_messages.append("لم يتم العثور على رابط أو مقاطع قابلة للتطبيق.")
+
+        self._write_log("\n".join(applied_messages))
+        return True
+
+    def _resolve_smart_paste_url_mode(self, preview: SmartPastePreview) -> str | None:
+        if len(preview.video_urls) != 1:
+            return "skip"
+        if not self.youtube_input.text().strip():
+            return "set"
+        return self._ask_smart_paste_url_mode()
+
+    def _resolve_smart_paste_clip_mode(self, preview: SmartPastePreview) -> str | None:
+        if not preview.clips:
+            return "skip"
+        if self._table_has_clip_data():
+            return self._ask_smart_paste_clip_mode()
+        return "replace"
+
+    def _ask_smart_paste_url_mode(self) -> str | None:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("استيراد ذكي من رسالة")
+        dialog.setText("حقل رابط يوتيوب يحتوي على رابط. هل تريد استبداله بالرابط المكتشف؟")
+        replace_button = dialog.addButton("استبدال", QMessageBox.AcceptRole)
+        keep_button = dialog.addButton("عدم استبدال", QMessageBox.ActionRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(keep_button)
+        dialog.exec()
+
+        clicked_button = dialog.clickedButton()
+        if clicked_button == replace_button:
+            return "replace"
+        if clicked_button == keep_button:
+            return "keep"
+        return None
+
+    def _ask_smart_paste_clip_mode(self) -> str | None:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("استيراد ذكي من رسالة")
+        dialog.setText("جدول المقاطع يحتوي على بيانات. كيف تريد تطبيق المقاطع المكتشفة؟")
+        append_button = dialog.addButton("إضافة المقاطع الجديدة", QMessageBox.AcceptRole)
+        replace_button = dialog.addButton("استبدال الجدول الحالي", QMessageBox.ActionRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(append_button)
+        dialog.exec()
+
+        clicked_button = dialog.clickedButton()
+        if clicked_button == append_button:
+            return "append"
+        if clicked_button == replace_button:
+            return "replace"
+        return None
+
+    def _smart_paste_clip_to_parsed_clip(self, clip: SmartPasteClip) -> ParsedClipLine:
+        return ParsedClipLine(
+            number=clip.number,
+            title=clip.title,
+            start=clip.start,
+            end=clip.end,
+            exclusions="",
+        )
+
     def _normalize_clip_table_times(self) -> None:
         for row in range(self.clips_table.rowCount()):
             for column in (START_COLUMN, END_COLUMN):
@@ -1025,6 +1241,7 @@ class MainWindow(QMainWindow):
             self.browser_combo,
             self.project_name_input,
             self.paste_message_input,
+            self.smart_paste_button,
             self.parse_message_button,
             self.clips_table,
             self.classification_rules_table,
