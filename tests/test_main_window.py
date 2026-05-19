@@ -89,6 +89,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.add_queue_url_button.text() == "إضافة رابط"
     assert window.save_queue_clips_button.text() == "حفظ المقاطع للمهمة المحددة"
     assert window.load_queue_clips_button.text() == "تحميل مقاطع المهمة المحددة"
+    assert window.load_queue_job_workspace_button.text() == "تحميل المهمة المحددة للتحرير"
     assert window.save_queue_state_button.text() == "حفظ قائمة الانتظار"
     assert window.load_queue_state_button.text() == "تحميل قائمة انتظار"
     assert window.run_selected_queue_job_button.text() == "تشغيل المحدد فقط"
@@ -391,6 +392,177 @@ def test_queue_save_clips_replacing_existing_requires_confirmation() -> None:
     assert [clip.title for clip in job.clips] == ["جديد"]
     assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "1"
     assert "تم حفظ المقاطع للمهمة المحددة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_selected_job_to_workspace_source_and_clips() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://youtu.be/abc123", title="درس محفوظ")
+    job.clips = [
+        ClipJob(title="المقطع", start="00:01:00", end="00:02:00", exclusions="00:01:20-00:01:30")
+    ]
+    window._refresh_queue_job_row(0)
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.load_selected_queue_job_to_workspace()
+
+    assert window.youtube_radio.isChecked()
+    assert window.youtube_input.text() == "https://youtu.be/abc123"
+    assert window.project_name_input.text() == "درس محفوظ"
+    assert window.clips_table.rowCount() == 1
+    assert window.clips_table.item(0, TITLE_COLUMN).text() == "المقطع"
+    assert window.clips_table.item(0, START_COLUMN).text() == "00:01:00"
+    assert window.clips_table.item(0, END_COLUMN).text() == "00:02:00"
+    assert window.clips_table.item(0, EXCLUSIONS_COLUMN).text() == "00:01:20-00:01:30"
+    assert "تم تحميل المهمة المحددة للتحرير" in window.log_area.toPlainText()
+    assert "لم يتم بدء أي قص أو تحميل" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_selected_local_job_to_workspace_source() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_job(
+        QueueVideoSourceType.LOCAL,
+        "C:/videos/lesson.mp4",
+        "درس محلي",
+        clips=[ClipJob(title="مقطع", start="00:01:00", end="00:02:00")],
+    )
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.load_selected_queue_job_to_workspace()
+
+    assert job.source_type == QueueVideoSourceType.LOCAL
+    assert window.local_file_radio.isChecked()
+    assert window.local_file_input.text().replace("\\", "/") == "C:/videos/lesson.mp4"
+    assert window.project_name_input.text() == "درس محلي"
+    assert window.clips_table.item(0, TITLE_COLUMN).text() == "مقطع"
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_selected_facebook_job_to_workspace_source() -> None:
+    app = _app()
+    window = MainWindow()
+    window._add_queue_job(
+        QueueVideoSourceType.FACEBOOK,
+        "https://facebook.com/watch/example",
+        "درس Facebook",
+        clips=[ClipJob(title="مقطع", start="00:01:00", end="00:02:00")],
+    )
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.load_selected_queue_job_to_workspace()
+
+    assert window.youtube_radio.isChecked()
+    assert window.youtube_input.text() == "https://facebook.com/watch/example"
+    assert window.project_name_input.text() == "درس Facebook"
+    assert window.clips_table.item(0, TITLE_COLUMN).text() == "مقطع"
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_selected_job_without_selection_or_source_shows_feedback() -> None:
+    app = _app()
+    window = MainWindow()
+
+    window.load_selected_queue_job_to_workspace()
+
+    assert "لا توجد مهمة محددة" in window.log_area.toPlainText()
+
+    window._add_queue_job(QueueVideoSourceType.YOUTUBE, "", "بدون مصدر")
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.load_selected_queue_job_to_workspace()
+
+    assert "لا يوجد مصدر محفوظ لهذه المهمة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_selected_job_without_saved_clips_loads_source_only() -> None:
+    app = _app()
+    window = MainWindow()
+    window._add_queue_url_job("https://youtu.be/abc123", title="درس بلا مقاطع")
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.load_selected_queue_job_to_workspace()
+
+    assert window.youtube_input.text() == "https://youtu.be/abc123"
+    assert window.project_name_input.text() == "درس بلا مقاطع"
+    assert window.clips_table.rowCount() == 0
+    assert "لا توجد مقاطع محفوظة لهذه المهمة" in window.log_area.toPlainText()
+    assert "تم تحميل المهمة المحددة للتحرير" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_selected_job_source_replacement_requires_confirmation() -> None:
+    app = _app()
+    window = MainWindow()
+    window.youtube_input.setText("https://youtu.be/current")
+    window._add_queue_url_job("https://youtu.be/saved", title="درس")
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+
+    window._ask_replace_workspace_source_confirmation = lambda: False
+    window.load_selected_queue_job_to_workspace()
+
+    assert window.youtube_input.text() == "https://youtu.be/current"
+
+    window._ask_replace_workspace_source_confirmation = lambda: True
+    window.load_selected_queue_job_to_workspace()
+
+    assert window.youtube_input.text() == "https://youtu.be/saved"
+    assert "تم استبدال مصدر الفيديو الحالي" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_selected_job_clip_table_replacement_requires_confirmation() -> None:
+    app = _app()
+    window = MainWindow()
+    window.youtube_input.setText("https://youtu.be/saved")
+    job = window._add_queue_url_job("https://youtu.be/saved", title="درس")
+    job.clips = [ClipJob(title="محفوظ", start="00:01:00", end="00:02:00")]
+    window._insert_clip_row(1, "حالي", "00:03:00", "00:04:00")
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+
+    window._ask_replace_current_clip_table_confirmation = lambda: False
+    window.load_selected_queue_job_to_workspace()
+
+    assert window.clips_table.rowCount() == 1
+    assert window.clips_table.item(0, TITLE_COLUMN).text() == "حالي"
+
+    window._ask_replace_current_clip_table_confirmation = lambda: True
+    window.load_selected_queue_job_to_workspace()
+
+    assert window.clips_table.rowCount() == 1
+    assert window.clips_table.item(0, TITLE_COLUMN).text() == "محفوظ"
+    assert "تم استبدال مقاطع الجدول" in window.log_area.toPlainText()
+    assert "تم تحميل المهمة المحددة للتحرير" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
 
