@@ -287,6 +287,7 @@ class MainWindow(QMainWindow):
         self.add_queue_local_video_button = QPushButton("إضافة فيديو محلي")
         self.add_queue_url_button = QPushButton("إضافة رابط")
         self.save_queue_clips_button = QPushButton("حفظ المقاطع للمهمة المحددة")
+        self.load_queue_clips_button = QPushButton("تحميل مقاطع المهمة المحددة")
         self.run_selected_queue_job_button = QPushButton("تشغيل المحدد فقط")
         self.validate_queue_job_button = QPushButton("إعادة فحص المحدد")
         self.delete_queue_job_button = QPushButton("إزالة المهمة المحددة")
@@ -463,6 +464,7 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.add_queue_local_video_button)
         button_row.addWidget(self.add_queue_url_button)
         button_row.addWidget(self.save_queue_clips_button)
+        button_row.addWidget(self.load_queue_clips_button)
         button_row.addWidget(self.run_selected_queue_job_button)
         button_row.addWidget(self.validate_queue_job_button)
         button_row.addWidget(self.delete_queue_job_button)
@@ -605,6 +607,7 @@ class MainWindow(QMainWindow):
         self.add_queue_local_video_button.clicked.connect(self.add_local_video_to_queue)
         self.add_queue_url_button.clicked.connect(self.add_url_to_queue)
         self.save_queue_clips_button.clicked.connect(self.save_clips_to_selected_queue_job)
+        self.load_queue_clips_button.clicked.connect(self.load_clips_from_selected_queue_job)
         self.run_selected_queue_job_button.clicked.connect(self.run_selected_queue_job)
         self.validate_queue_job_button.clicked.connect(self.validate_selected_queue_job)
         self.delete_queue_job_button.clicked.connect(self.delete_selected_queue_job)
@@ -801,6 +804,49 @@ class MainWindow(QMainWindow):
         dialog = QMessageBox(self)
         dialog.setWindowTitle("استبدال المقاطع المحفوظة")
         dialog.setText("هذه المهمة تحتوي على مقاطع محفوظة. هل تريد استبدالها؟")
+        replace_button = dialog.addButton("استبدال", QMessageBox.AcceptRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(replace_button)
+        dialog.exec()
+        return dialog.clickedButton() == replace_button
+
+    def load_clips_from_selected_queue_job(self) -> None:
+        row = self._selected_queue_row()
+        if row is None:
+            self._write_log("لا توجد مهمة محددة")
+            return
+
+        job = self.job_queue[row]
+        if not job.clips:
+            self._write_log("لا توجد مقاطع محفوظة لهذه المهمة")
+            return
+
+        replaced_existing = False
+        if self.clips_table.rowCount() > 0:
+            if not self._ask_replace_current_clip_table_confirmation():
+                return
+            replaced_existing = True
+
+        self.clips_table.setRowCount(0)
+        for index, clip in enumerate(job.clips, start=1):
+            self._insert_clip_row(
+                index,
+                clip.title,
+                clip.start,
+                clip.end,
+                clip.exclusions,
+            )
+
+        messages = []
+        if replaced_existing:
+            messages.append("تم استبدال مقاطع الجدول")
+        messages.extend(["تم تحميل مقاطع المهمة المحددة", "لم يتم بدء أي قص أو تحميل"])
+        self._write_log("\n".join(messages))
+
+    def _ask_replace_current_clip_table_confirmation(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("تحميل مقاطع المهمة المحددة")
+        dialog.setText("يوجد مقاطع حالية في الجدول. هل تريد استبدالها؟")
         replace_button = dialog.addButton("استبدال", QMessageBox.AcceptRole)
         dialog.addButton("إلغاء", QMessageBox.RejectRole)
         dialog.setDefaultButton(replace_button)
@@ -1581,6 +1627,7 @@ class MainWindow(QMainWindow):
             self.add_queue_local_video_button,
             self.add_queue_url_button,
             self.save_queue_clips_button,
+            self.load_queue_clips_button,
             self.run_selected_queue_job_button,
             self.validate_queue_job_button,
             self.delete_queue_job_button,

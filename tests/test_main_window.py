@@ -87,6 +87,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.add_queue_local_video_button.text() == "إضافة فيديو محلي"
     assert window.add_queue_url_button.text() == "إضافة رابط"
     assert window.save_queue_clips_button.text() == "حفظ المقاطع للمهمة المحددة"
+    assert window.load_queue_clips_button.text() == "تحميل مقاطع المهمة المحددة"
     assert window.run_selected_queue_job_button.text() == "تشغيل المحدد فقط"
     assert window.validate_queue_job_button.text() == "إعادة فحص المحدد"
     assert window.delete_queue_job_button.text() == "إزالة المهمة المحددة"
@@ -259,6 +260,93 @@ def test_queue_save_clips_replacing_existing_requires_confirmation() -> None:
     assert [clip.title for clip in job.clips] == ["جديد"]
     assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "1"
     assert "تم حفظ المقاطع للمهمة المحددة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_saved_clip_rows_into_current_table() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://youtu.be/abc123", title="درس")
+    job.clips = [
+        ClipJob(title="الأول", start="00:01:00", end="00:02:00", exclusions="00:01:20-00:01:30"),
+        ClipJob(title="الثاني", start="00:03:00", end="00:04:00"),
+    ]
+    window._refresh_queue_job_row(0)
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.load_clips_from_selected_queue_job()
+
+    assert window.clips_table.rowCount() == 2
+    assert window.clips_table.item(0, TITLE_COLUMN).text() == "الأول"
+    assert window.clips_table.item(0, START_COLUMN).text() == "00:01:00"
+    assert window.clips_table.item(0, END_COLUMN).text() == "00:02:00"
+    assert window.clips_table.item(0, EXCLUSIONS_COLUMN).text() == "00:01:20-00:01:30"
+    assert window.clips_table.item(1, TITLE_COLUMN).text() == "الثاني"
+    assert "تم تحميل مقاطع المهمة المحددة" in window.log_area.toPlainText()
+    assert "لم يتم بدء أي قص أو تحميل" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_saved_clips_without_selection_shows_feedback() -> None:
+    app = _app()
+    window = MainWindow()
+
+    window.load_clips_from_selected_queue_job()
+
+    assert "لا توجد مهمة محددة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_saved_clips_empty_job_shows_feedback() -> None:
+    app = _app()
+    window = MainWindow()
+    window._add_queue_url_job("https://youtu.be/abc123", title="درس")
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.load_clips_from_selected_queue_job()
+
+    assert window.clips_table.rowCount() == 0
+    assert "لا توجد مقاطع محفوظة لهذه المهمة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_saved_clips_replacing_table_requires_confirmation() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://youtu.be/abc123", title="درس")
+    job.clips = [ClipJob(title="محفوظ", start="00:01:00", end="00:02:00")]
+    window._insert_clip_row(1, "حالي", "00:03:00", "00:04:00")
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+
+    window._ask_replace_current_clip_table_confirmation = lambda: False
+    window.load_clips_from_selected_queue_job()
+
+    assert window.clips_table.rowCount() == 1
+    assert window.clips_table.item(0, TITLE_COLUMN).text() == "حالي"
+
+    window._ask_replace_current_clip_table_confirmation = lambda: True
+    window.load_clips_from_selected_queue_job()
+
+    assert window.clips_table.rowCount() == 1
+    assert window.clips_table.item(0, TITLE_COLUMN).text() == "محفوظ"
+    assert "تم استبدال مقاطع الجدول" in window.log_area.toPlainText()
+    assert "تم تحميل مقاطع المهمة المحددة" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
 
