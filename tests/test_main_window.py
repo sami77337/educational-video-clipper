@@ -34,6 +34,36 @@ def test_main_window_uses_scroll_area_for_tall_ui() -> None:
     app.processEvents()
 
 
+def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
+    app = _app()
+    window = MainWindow()
+
+    assert window.windowTitle() == "المقص البسيط"
+    assert [
+        window.clips_table.horizontalHeaderItem(column).text()
+        for column in range(window.clips_table.columnCount())
+    ] == ["الرقم", "العنوان", "البداية", "النهاية", "استثناءات"]
+    assert window.clips_table.columnCount() == 5
+    assert window.classification_rules_table.rowCount() == 2
+    assert window.youtube_radio.text() == "رابط يوتيوب"
+    assert window.local_file_radio.text() == "فيديو من الجهاز"
+    assert window.use_browser_cookies_checkbox.text() == "استخدام تسجيل الدخول من المتصفح"
+    assert [window.browser_combo.itemText(index) for index in range(window.browser_combo.count())] == [
+        "Chrome",
+        "Edge",
+        "Brave",
+        "Firefox",
+    ]
+    assert window.validate_button.text() == "فحص الجدول"
+    assert window.start_button.text() == "بدء القص"
+    assert window.open_output_button.text() == "فتح مجلد النتائج"
+    assert window.import_excel_button.text() == "استيراد من Excel"
+    assert window.parse_message_button.text() == "تحويل النص إلى جدول"
+
+    window.close()
+    app.processEvents()
+
+
 def test_log_append_updates_text_immediately() -> None:
     app = _app()
     window = MainWindow()

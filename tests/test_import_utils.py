@@ -7,6 +7,7 @@ from openpyxl import Workbook
 
 from src.import_utils import (
     AR_MISSING_REQUIRED_COLUMNS,
+    AR_INVALID_TIME_VALUE,
     ClipImportError,
     ImportedClipRow,
     import_clip_rows,
@@ -80,6 +81,34 @@ def test_xlsx_import_normalizes_optional_exclusions_column(tmp_path) -> None:
     ]
 
 
+def test_csv_import_normalizes_optional_exclusions_column(tmp_path) -> None:
+    file_path = tmp_path / "clips.csv"
+    with file_path.open("w", encoding="utf-8-sig", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=["number", "title", "start", "end", "exclusions"])
+        writer.writeheader()
+        writer.writerow(
+            {
+                "number": "7",
+                "title": "عنوان عربي",
+                "start": "26:56",
+                "end": "29:14",
+                "exclusions": "27:40 - 28:20",
+            }
+        )
+
+    rows = import_clip_rows(file_path)
+
+    assert rows == [
+        ImportedClipRow(
+            number=7,
+            title="عنوان عربي",
+            start="00:26:56",
+            end="00:29:14",
+            exclusions="00:27:40-00:28:20",
+        )
+    ]
+
+
 def test_missing_required_columns(tmp_path) -> None:
     file_path = tmp_path / "clips.xlsx"
     workbook = Workbook()
@@ -92,6 +121,19 @@ def test_missing_required_columns(tmp_path) -> None:
         import_clip_rows(file_path)
 
     assert str(error.value) == AR_MISSING_REQUIRED_COLUMNS
+
+
+def test_import_rejects_invalid_time_value(tmp_path) -> None:
+    file_path = tmp_path / "clips.csv"
+    file_path.write_text(
+        "number,title,start,end\n1,عنوان,not-a-time,00:05\n",
+        encoding="utf-8-sig",
+    )
+
+    with pytest.raises(ClipImportError) as error:
+        import_clip_rows(file_path)
+
+    assert str(error.value) == f"{AR_INVALID_TIME_VALUE} في الصف 2"
 
 
 def test_arabic_title_import(tmp_path) -> None:

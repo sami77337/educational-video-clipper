@@ -1,15 +1,18 @@
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from src.classification import ClassificationRule
 from src.video_processor import (
+    AR_FFMPEG_NOT_FOUND,
     AR_PROJECT_NAME_CLEANED,
     AR_EMPTY_LOCAL_VIDEO,
     AR_EMPTY_YOUTUBE_URL,
     AR_UNSUPPORTED_LOCAL_VIDEO,
     BENEFITS_FOLDER_NAME,
     ClipDefinition,
+    FfmpegNotFoundError,
     INPUT_VIDEO_NAME,
     REELS_FOLDER_NAME,
     PreparedVideoSource,
@@ -33,6 +36,30 @@ from src.video_processor import (
     download_youtube_video,
     verify_output_duration,
 )
+
+
+YOUTUBE_BEST_VIDEO_AUDIO_FORMAT = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+
+
+def _capture_youtube_options(tmp_path, **download_kwargs) -> dict:
+    destination = tmp_path / "input.mp4"
+    captured_options: dict = {}
+
+    class FakeYoutubeDL:
+        def __init__(self, options):
+            captured_options.update(options)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def download(self, urls):
+            Path(captured_options["outtmpl"]).write_bytes(b"video")
+
+    download_youtube_video("https://youtu.be/example", destination, FakeYoutubeDL, **download_kwargs)
+    return captured_options
 
 
 def test_project_output_folder_sanitizes_project_name(tmp_path) -> None:
@@ -456,6 +483,36 @@ def test_cut_clip_rejects_signal_15_even_when_output_exists(tmp_path) -> None:
     assert "signal 15" in str(error.value).lower()
 
 
+def test_cut_clip_rejects_successful_run_when_output_is_partial(tmp_path, monkeypatch) -> None:
+    input_path = tmp_path / "input.mp4"
+    output_path = tmp_path / "output.mp4"
+    input_path.write_bytes(b"video")
+    output_path.write_bytes(b"x")
+    monkeypatch.setattr("src.video_processor._should_validate_media_duration", lambda runner: True)
+
+    def fake_runner(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    with pytest.raises(Exception) as error:
+        cut_clip(input_path, output_path, 0, 10, runner=fake_runner)
+
+    assert "فارغ" in str(error.value)
+
+
+def test_cut_clip_missing_ffmpeg_raises_clear_arabic_error(tmp_path) -> None:
+    input_path = tmp_path / "input.mp4"
+    output_path = tmp_path / "output.mp4"
+    input_path.write_bytes(b"video")
+
+    def fake_runner(command, **kwargs):
+        raise FileNotFoundError("ffmpeg")
+
+    with pytest.raises(FfmpegNotFoundError) as error:
+        cut_clip(input_path, output_path, 0, 10, runner=fake_runner)
+
+    assert str(error.value) == AR_FFMPEG_NOT_FOUND
+
+
 def test_cut_clip_failure_error_is_concise(tmp_path) -> None:
     input_path = tmp_path / "input.mp4"
     output_path = tmp_path / "output.mp4"
@@ -510,6 +567,59 @@ def test_download_youtube_video_emits_progress_messages(tmp_path) -> None:
     assert "اكتمل تنزيل الفيديو، جاري تجهيز الملف" in messages
     assert captured_options["progress_hooks"]
     assert captured_options["socket_timeout"] == 30
+
+
+def test_download_youtube_video_keeps_best_video_best_audio_and_cookies_disabled_by_default(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("src.video_processor.bundled_ffmpeg_location", lambda: None)
+
+    options = _capture_youtube_options(tmp_path)
+
+    assert options["format"] == YOUTUBE_BEST_VIDEO_AUDIO_FORMAT
+    assert "cookiesfrombrowser" not in options
+    assert options["merge_output_format"] == "mp4"
+    assert options["noplaylist"] is True
+
+
+@pytest.mark.parametrize(
+    ("browser", "expected_cookie_browser"),
+    [
+        ("Chrome", "chrome"),
+        ("Edge", "edge"),
+        ("Brave", "brave"),
+        ("Firefox", "firefox"),
+    ],
+)
+def test_download_youtube_video_passes_browser_cookies_when_enabled(
+    tmp_path,
+    monkeypatch,
+    browser: str,
+    expected_cookie_browser: str,
+) -> None:
+    monkeypatch.setattr("src.video_processor.bundled_ffmpeg_location", lambda: None)
+
+    options = _capture_youtube_options(
+        tmp_path,
+        use_browser_cookies=True,
+        browser=browser,
+    )
+
+    assert options["cookiesfrombrowser"] == (expected_cookie_browser,)
+
+
+def test_download_youtube_video_passes_ffmpeg_location_when_bundled_ffmpeg_exists(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    bundled_tools_folder = tmp_path / "tools"
+    bundled_tools_folder.mkdir()
+    monkeypatch.setattr("src.video_processor.bundled_ffmpeg_location", lambda: str(bundled_tools_folder))
+
+    options = _capture_youtube_options(tmp_path)
+
+    assert options["ffmpeg_location"] == str(bundled_tools_folder)
 
 
 def test_verify_output_duration_rejects_short_partial_clip(tmp_path, monkeypatch) -> None:

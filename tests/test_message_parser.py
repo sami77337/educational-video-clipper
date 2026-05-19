@@ -22,6 +22,17 @@ def test_parse_simple_numbered_lines() -> None:
     assert result.clips[1].title == "هل يجوز لبس ملابس عليها نجمة داوود"
 
 
+def test_parse_english_numbered_list_with_dot_separator() -> None:
+    result = parse_clip_message("1. 4:15 - 6:35 English title")
+
+    assert result.warnings == []
+    assert len(result.clips) == 1
+    assert result.clips[0].number == 1
+    assert result.clips[0].title == "English title"
+    assert result.clips[0].start == "00:04:15"
+    assert result.clips[0].end == "00:06:35"
+
+
 def test_parse_arabic_indic_digits() -> None:
     clip = parse_clip_line("١- ٩:١٦ - ٩:٥٠ ما حكم نعي الميت")
 
@@ -102,6 +113,16 @@ def test_parse_title_before_bracketed_time_range() -> None:
     assert result.clips[0].end == "00:08:00"
 
 
+def test_parse_title_before_unbracketed_time_range() -> None:
+    result = parse_clip_message("اسم الله الوهاب 20:10 - 26:11")
+
+    assert result.warnings == []
+    assert len(result.clips) == 1
+    assert result.clips[0].title == "اسم الله الوهاب"
+    assert result.clips[0].start == "00:20:10"
+    assert result.clips[0].end == "00:26:11"
+
+
 def test_parse_arabic_indic_numbered_list_titles_and_times() -> None:
     result = parse_clip_message(
         "١- ٠٠:١٥ - ١:٣٥ (تجارة العلماء)\n"
@@ -174,6 +195,18 @@ def test_note_lines_starting_with_asterisk_are_ignored() -> None:
     result = parse_clip_message(
         "* هذه ملاحظة لا تتحول إلى مقطع\n"
         "[20:10] - [26:11] اسم الله الوهاب"
+    )
+
+    assert result.warnings == []
+    assert len(result.clips) == 1
+    assert result.clips[0].title == "اسم الله الوهاب"
+
+
+def test_supported_note_prefix_lines_are_ignored() -> None:
+    result = parse_clip_message(
+        "ملاحظة لا تقص هذا السطر\n"
+        "يحتاج مراجعة الصوت\n"
+        "20:10 - 26:11 اسم الله الوهاب"
     )
 
     assert result.warnings == []

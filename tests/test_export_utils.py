@@ -133,6 +133,7 @@ def test_build_processing_report_includes_dynamic_rules_and_counts(tmp_path) -> 
     assert "Clip counts by folder:" in report
     assert "- Shorts: 2" in report
     assert "- دروس: 1" in report
+    assert str(tmp_path / ZIP_FOLDER_NAME / "Shorts.zip") in report
 
 
 def test_build_processing_report_includes_clip_exclusions() -> None:
