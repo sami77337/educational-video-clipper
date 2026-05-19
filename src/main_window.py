@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -45,6 +46,7 @@ from src.classification import (
     get_default_classification_rules,
     validate_classification_rules,
 )
+from src.clip_padding import ClipPadding
 from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.job_queue import ClipJob, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
@@ -227,6 +229,7 @@ class ProcessingWorker(QObject):
         project_name: str,
         clip_rows: list[ClipRowInput],
         classification_rules: list[ClassificationRule],
+        clip_padding: ClipPadding,
     ) -> None:
         super().__init__()
         self.video_processor = video_processor
@@ -234,6 +237,7 @@ class ProcessingWorker(QObject):
         self.project_name = project_name
         self.clip_rows = clip_rows
         self.classification_rules = classification_rules
+        self.clip_padding = clip_padding
 
     @Slot()
     def run(self) -> None:
@@ -244,6 +248,7 @@ class ProcessingWorker(QObject):
                 self.clip_rows,
                 progress_callback=self.progress.emit,
                 classification_rules=self.classification_rules,
+                clip_padding=self.clip_padding,
             )
         except (VideoSourceError, VideoProcessingError, ExportError) as error:
             self.failed.emit(str(error))
@@ -308,6 +313,8 @@ class MainWindow(QMainWindow):
         self.add_classification_button = QPushButton("إضافة تصنيف")
         self.delete_classification_button = QPushButton("حذف التصنيف المحدد")
         self.reset_classification_button = QPushButton("استعادة الافتراضي")
+        self.pre_padding_input = QDoubleSpinBox()
+        self.post_padding_input = QDoubleSpinBox()
         self.readiness_button = QPushButton("فحص جاهزية البرنامج")
         self.smart_validation_button = QPushButton("فحص ذكي قبل القص")
         self.validate_button = QPushButton("فحص الجدول")
@@ -346,6 +353,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_help_section())
         layout.addWidget(self._build_clips_section(), stretch=1)
         layout.addWidget(self._build_classification_section())
+        layout.addWidget(self._build_padding_section())
         layout.addWidget(self._build_paste_section())
         layout.addWidget(self._build_action_section())
         layout.addWidget(self._build_log_section(), stretch=1)
@@ -552,6 +560,28 @@ class MainWindow(QMainWindow):
         layout.addLayout(button_row)
 
         return group
+
+    def _build_padding_section(self) -> QGroupBox:
+        group = QGroupBox("إعدادات القص")
+        layout = QGridLayout(group)
+
+        self._configure_padding_input(self.pre_padding_input)
+        self._configure_padding_input(self.post_padding_input)
+
+        layout.addWidget(QLabel("وقت قبل بداية المقطع"), 0, 0)
+        layout.addWidget(self.pre_padding_input, 0, 1)
+        layout.addWidget(QLabel("وقت بعد نهاية المقطع"), 0, 2)
+        layout.addWidget(self.post_padding_input, 0, 3)
+        layout.setColumnStretch(4, 1)
+
+        return group
+
+    def _configure_padding_input(self, widget: QDoubleSpinBox) -> None:
+        widget.setRange(0.0, 3600.0)
+        widget.setDecimals(2)
+        widget.setSingleStep(0.5)
+        widget.setValue(0.0)
+        widget.setSuffix(" ثانية")
 
     def _build_clips_section(self) -> QGroupBox:
         group = QGroupBox("جدول المقاطع")
@@ -1457,6 +1487,7 @@ class MainWindow(QMainWindow):
         self._normalize_clip_table_times()
         clip_rows = self._collect_clip_rows()
         classification_rules = self._collect_classification_rules()
+        clip_padding = self._collect_clip_padding()
 
         try:
             project_name = validate_required_text(self.project_name_input.text(), "Project name")
@@ -1485,6 +1516,7 @@ class MainWindow(QMainWindow):
             project_name=project_name,
             clip_rows=clip_rows,
             classification_rules=classification_rules,
+            clip_padding=clip_padding,
         )
 
     def open_output_folder(self) -> None:
@@ -1556,6 +1588,12 @@ class MainWindow(QMainWindow):
             )
 
         return rows
+
+    def _collect_clip_padding(self) -> ClipPadding:
+        return ClipPadding(
+            pre_seconds=self.pre_padding_input.value(),
+            post_seconds=self.post_padding_input.value(),
+        )
 
     def _collect_validation_errors(self) -> list[str]:
         errors = self._collect_base_validation_errors()
@@ -1883,6 +1921,7 @@ class MainWindow(QMainWindow):
         project_name: str,
         clip_rows: list[ClipRowInput],
         classification_rules: list[ClassificationRule],
+        clip_padding: ClipPadding,
     ) -> None:
         thread = QThread(self)
         worker = ProcessingWorker(
@@ -1891,6 +1930,7 @@ class MainWindow(QMainWindow):
             project_name=project_name,
             clip_rows=clip_rows,
             classification_rules=classification_rules,
+            clip_padding=clip_padding,
         )
         worker.moveToThread(thread)
 
@@ -1969,6 +2009,8 @@ class MainWindow(QMainWindow):
             self.add_classification_button,
             self.delete_classification_button,
             self.reset_classification_button,
+            self.pre_padding_input,
+            self.post_padding_input,
             self.readiness_button,
             self.smart_validation_button,
             self.validate_button,

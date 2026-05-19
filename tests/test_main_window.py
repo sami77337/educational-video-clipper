@@ -76,6 +76,14 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.smart_validation_button.text() == "فحص ذكي قبل القص"
     assert window.start_button.text() == "بدء القص"
     assert window.open_output_button.text() == "فتح مجلد النتائج"
+    assert window.pre_padding_input.value() == 0
+    assert window.post_padding_input.value() == 0
+    assert window.pre_padding_input.minimum() == 0
+    assert window.post_padding_input.minimum() == 0
+    window.pre_padding_input.setValue(-1)
+    window.post_padding_input.setValue(-1)
+    assert window.pre_padding_input.value() == 0
+    assert window.post_padding_input.value() == 0
     assert window.import_excel_button.text() == "استيراد من Excel"
     assert window.smart_paste_button.text() == "استيراد ذكي من رسالة"
     assert window.parse_message_button.text() == "تحويل النص إلى جدول"

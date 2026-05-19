@@ -19,6 +19,7 @@ from src.classification import (
     get_default_classification_rules,
     validate_classification_rules,
 )
+from src.clip_padding import ClipPadding, calculate_effective_clip_range
 from src.export_utils import (
     AR_PROCESSING_SUCCESS,
     AR_REPORT_CREATED,
@@ -99,6 +100,7 @@ AR_NO_EXCLUSIONS_FOR_CLIP = "لا توجد استثناءات للمقطع"
 AR_CUT_WITHOUT_EXCLUSIONS = "تم قص المقطع بدون استثناءات"
 AR_CONCAT_FAILED = "فشل دمج أجزاء المقطع رقم"
 AR_PROJECT_NAME_CLEANED = "تم تنظيف اسم المشروع ليكون مناسبًا للمجلدات"
+AR_CLIP_PADDING_APPLIED = "تم تطبيق وقت إضافي قبل/بعد القص"
 TEMP_SEGMENTS_FOLDER_NAME = "_temp_segments"
 ProgressCallback = Callable[[str], None]
 SubprocessRunner = Callable[..., subprocess.CompletedProcess[str]]
@@ -301,11 +303,21 @@ class VideoProcessor:
         progress_callback: ProgressCallback | None = None,
         runner: SubprocessRunner = subprocess.run,
         classification_rules: Sequence[ClassificationRule] | None = None,
+        clip_padding: ClipPadding | None = None,
+        video_duration_seconds: float | None = None,
     ) -> list[CutClipResult]:
         """Cut all clips from the prepared input video and sort them automatically."""
 
         active_rules = self._active_classification_rules(classification_rules)
-        return cut_clips(prepared_video, clips, progress_callback, runner, active_rules)
+        return cut_clips(
+            prepared_video,
+            clips,
+            progress_callback,
+            runner,
+            active_rules,
+            clip_padding,
+            video_duration_seconds,
+        )
 
     def process_project(
         self,
@@ -315,11 +327,13 @@ class VideoProcessor:
         progress_callback: ProgressCallback | None = None,
         runner: SubprocessRunner = subprocess.run,
         classification_rules: Sequence[ClassificationRule] | None = None,
+        clip_padding: ClipPadding | None = None,
     ) -> ProcessingResult:
         """Prepare, cut, sort, ZIP, and report one project."""
 
         started_at = datetime.now().astimezone()
         active_rules = self._active_classification_rules(classification_rules)
+        active_padding = clip_padding or ClipPadding()
         clips = self.build_clip_definitions(clip_rows)
         exclusion_errors = validate_exclusions_for_clips(clips)
         if exclusion_errors:
@@ -331,7 +345,16 @@ class VideoProcessor:
 
         _emit(progress_callback, AR_PREPARING_VIDEO)
         prepared_video = self.prepare_source(source_request, project_name, progress_callback)
-        cut_results = self.cut_clips(prepared_video, clips, progress_callback, runner, active_rules)
+        video_duration_seconds = _probe_video_duration_if_needed(prepared_video.input_video_path, active_padding)
+        cut_results = self.cut_clips(
+            prepared_video,
+            clips,
+            progress_callback,
+            runner,
+            active_rules,
+            active_padding,
+            video_duration_seconds,
+        )
         export_artifacts = self.export_results(
             project_output_folder=prepared_video.project_output_folder,
             project_name=project_name,
@@ -667,8 +690,8 @@ def verify_output_duration(
 def cut_clip(
     input_video_path: str | Path,
     output_video_path: str | Path,
-    start_seconds: int,
-    duration_seconds: int,
+    start_seconds: int | float,
+    duration_seconds: int | float,
     runner: SubprocessRunner = subprocess.run,
 ) -> Path:
     """Cut one clip using ffmpeg."""
@@ -698,24 +721,28 @@ def cut_clip_with_exclusions(
     temp_root: str | Path,
     progress_callback: ProgressCallback | None = None,
     runner: SubprocessRunner = subprocess.run,
+    effective_start_seconds: int | float | None = None,
+    effective_end_seconds: int | float | None = None,
 ) -> Path:
     """Cut kept segments for a clip with exclusions and merge them into one mp4."""
 
     temp_folder = _prepare_temp_clip_folder(temp_root, clip.number)
     output_path = Path(output_video_path)
     try:
-        kept_segments = calculate_kept_segments(clip.start_timestamp, clip.end_timestamp, clip.exclusions)
+        kept_segments = calculate_kept_segment_seconds(
+            effective_start_seconds if effective_start_seconds is not None else clip.start_seconds,
+            effective_end_seconds if effective_end_seconds is not None else clip.end_seconds,
+            clip.exclusions,
+        )
         segment_paths: list[Path] = []
-        for index, (segment_start, segment_end) in enumerate(kept_segments, start=1):
-            segment_start_seconds = parse_timestamp(segment_start)
-            segment_end_seconds = parse_timestamp(segment_end)
+        for index, (segment_start_seconds, segment_end_seconds) in enumerate(kept_segments, start=1):
             segment_path = temp_folder / f"segment_{index:03d}.mp4"
             segment_paths.append(
                 cut_clip(
                     input_video_path,
                     segment_path,
                     segment_start_seconds,
-                    calculate_clip_duration(segment_start_seconds, segment_end_seconds),
+                    segment_end_seconds - segment_start_seconds,
                     runner,
                 )
             )
@@ -725,7 +752,7 @@ def cut_clip_with_exclusions(
                 exclusion_start, exclusion_end = exclusion.split("-", maxsplit=1)
                 _emit(progress_callback, f"تم حذف الجزء {exclusion_start} - {exclusion_end}")
 
-        expected_duration = sum(parse_timestamp(end) - parse_timestamp(start) for start, end in kept_segments)
+        expected_duration = sum(segment_end - segment_start for segment_start, segment_end in kept_segments)
         file_list_path = write_concat_file_list(segment_paths, temp_folder / "segments.txt")
         try:
             concat_clip_segments(file_list_path, output_path, runner, expected_duration)
@@ -777,6 +804,37 @@ def write_concat_file_list(segment_paths: Sequence[Path], file_list_path: str | 
     return list_path
 
 
+def calculate_kept_segment_seconds(
+    main_start_seconds: int | float,
+    main_end_seconds: int | float,
+    exclusions: str,
+) -> list[tuple[float, float]]:
+    """Return kept absolute-second segments for a clip with optional padded bounds."""
+
+    if not exclusions.strip():
+        return [(float(main_start_seconds), float(main_end_seconds))]
+
+    # Reuse the existing HH:MM:SS exclusion normalizer for stable ordering and validation.
+    calculate_kept_segments(format_seconds(int(main_start_seconds)), format_seconds(int(main_end_seconds)), exclusions)
+    current_start = float(main_start_seconds)
+    kept_segments: list[tuple[float, float]] = []
+    for exclusion in format_exclusions(exclusions).split(", "):
+        if not exclusion:
+            continue
+        exclusion_start_text, exclusion_end_text = exclusion.split("-", maxsplit=1)
+        exclusion_start = float(parse_timestamp(exclusion_start_text))
+        exclusion_end = float(parse_timestamp(exclusion_end_text))
+        if exclusion_start > current_start:
+            kept_segments.append((current_start, exclusion_start))
+        current_start = max(current_start, exclusion_end)
+
+    main_end = float(main_end_seconds)
+    if current_start < main_end:
+        kept_segments.append((current_start, main_end))
+
+    return kept_segments
+
+
 def _prepare_temp_clip_folder(temp_root: str | Path, clip_number: int) -> Path:
     temp_folder = Path(temp_root) / f"clip_{clip_number:03d}"
     if temp_folder.exists():
@@ -804,6 +862,8 @@ def cut_clips(
     progress_callback: ProgressCallback | None = None,
     runner: SubprocessRunner = subprocess.run,
     classification_rules: Sequence[ClassificationRule] | None = None,
+    clip_padding: ClipPadding | None = None,
+    video_duration_seconds: float | None = None,
 ) -> list[CutClipResult]:
     """Cut and sort all requested clips."""
 
@@ -815,9 +875,19 @@ def cut_clips(
         raise VideoProcessingError(f"{AR_EXCLUSIONS_INVALID}:\n" + "\n".join(exclusion_errors))
 
     _emit(progress_callback, AR_CHECKING_EXCLUSIONS)
+    active_padding = clip_padding or ClipPadding()
+    if active_padding.has_padding:
+        _emit(progress_callback, AR_CLIP_PADDING_APPLIED)
+
     results: list[CutClipResult] = []
     for clip in clips:
         _emit(progress_callback, f"جاري قص المقطع {clip.number}")
+        effective_range = calculate_effective_clip_range(
+            clip.start_seconds,
+            clip.end_seconds,
+            active_padding,
+            video_duration_seconds,
+        )
         try:
             destination_folder_name = classify_clip_folder(clip.duration_seconds, classification_rules)
         except ClassificationRuleError as error:
@@ -842,14 +912,16 @@ def cut_clips(
                     Path(prepared_video.project_output_folder) / TEMP_SEGMENTS_FOLDER_NAME,
                     progress_callback,
                     runner,
+                    effective_range.start_seconds,
+                    effective_range.end_seconds,
                 )
             else:
                 _emit(progress_callback, f"{AR_NO_EXCLUSIONS_FOR_CLIP} {clip.number:02d}")
                 cut_clip(
                     prepared_video.input_video_path,
                     output_path,
-                    clip.start_seconds,
-                    clip.duration_seconds,
+                    effective_range.start_seconds,
+                    effective_range.duration_seconds,
                     runner,
                 )
                 _emit(progress_callback, AR_CUT_WITHOUT_EXCLUSIONS)
@@ -872,6 +944,16 @@ def cut_clips(
 
     _emit(progress_callback, AR_CUTTING_COMPLETE)
     return results
+
+
+def _probe_video_duration_if_needed(input_video_path: Path, clip_padding: ClipPadding) -> float | None:
+    if not clip_padding.has_padding:
+        return None
+
+    try:
+        return probe_media_duration_seconds(input_video_path)
+    except Exception:
+        return None
 
 
 def _emit(progress_callback: ProgressCallback | None, message: str) -> None:
