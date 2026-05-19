@@ -56,7 +56,14 @@ from src.clip_preview import (
 )
 from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
-from src.job_queue import ClipJob, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
+from src.job_queue import ClipJob, JobSettings, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
+from src.job_queue_processor import (
+    AR_QUEUE_CAN_PREPARE_NEXT,
+    AR_QUEUE_JOB_ADDED,
+    AR_QUEUE_JOB_WAITING,
+    AR_URL_QUEUE_PROCESSING_LATER,
+    SequentialQueueProcessor,
+)
 from src.job_queue_runner import format_queue_run_summary_ar, run_dry_queue
 from src.job_queue_storage import QueueStorageError, load_queue_jobs, save_queue_jobs
 from src.job_queue_validation import (
@@ -282,6 +289,85 @@ class ProcessingWorker(QObject):
             self.finished.emit()
 
 
+class QueueProcessingWorker(QObject):
+    """Runs queued local jobs sequentially without blocking the main window."""
+
+    progress = Signal(str)
+    job_updated = Signal(int)
+    finished = Signal()
+
+    def __init__(
+        self,
+        jobs: list[VideoJob],
+        video_processor: VideoProcessor,
+        classification_rules: list[ClassificationRule],
+    ) -> None:
+        super().__init__()
+        self.jobs = jobs
+        self.video_processor = video_processor
+        self.classification_rules = classification_rules
+        self.processor: SequentialQueueProcessor | None = None
+
+    @Slot()
+    def run(self) -> None:
+        self.processor = SequentialQueueProcessor(
+            self.jobs,
+            process_job=self._process_local_job,
+            progress_callback=self.progress.emit,
+        )
+        try:
+            self.processor.run_until_idle()
+        finally:
+            for row in range(len(self.jobs)):
+                self.job_updated.emit(row)
+            self.finished.emit()
+
+    @Slot()
+    def request_stop(self) -> None:
+        if self.processor is not None:
+            self.processor.request_stop()
+
+    def _process_local_job(self, job: VideoJob) -> None:
+        row = self._job_row(job)
+        if row is not None:
+            self.job_updated.emit(row)
+
+        result = self.video_processor.process_project(
+            VideoSourceRequest(VideoSourceType.LOCAL_FILE, job.source),
+            job.title,
+            self._clip_rows_from_job(job),
+            progress_callback=self.progress.emit,
+            classification_rules=self.classification_rules,
+            clip_padding=ClipPadding(
+                pre_seconds=job.settings.pre_roll_seconds,
+                post_seconds=job.settings.post_roll_seconds,
+            ),
+        )
+        self.progress.emit(f"تم حفظ النتائج داخل: {result.project_output_folder}")
+
+        row = self._job_row(job)
+        if row is not None:
+            self.job_updated.emit(row)
+
+    def _clip_rows_from_job(self, job: VideoJob) -> list[ClipRowInput]:
+        return [
+            ClipRowInput(
+                row_number=index,
+                title=clip.title,
+                start=clip.start,
+                end=clip.end,
+                exclusions=clip.exclusions,
+            )
+            for index, clip in enumerate(job.clips, start=1)
+        ]
+
+    def _job_row(self, job: VideoJob) -> int | None:
+        try:
+            return self.jobs.index(job)
+        except ValueError:
+            return None
+
+
 class MainWindow(QMainWindow):
     """Arabic-friendly initial application shell."""
 
@@ -292,6 +378,8 @@ class MainWindow(QMainWindow):
         self.job_queue: list[VideoJob] = []
         self._processing_thread: QThread | None = None
         self._processing_worker: ProcessingWorker | None = None
+        self._queue_processing_thread: QThread | None = None
+        self._queue_processing_worker: QueueProcessingWorker | None = None
         self._last_output_folder: Path | None = None
 
         self.setWindowTitle(APP_NAME)
@@ -320,6 +408,9 @@ class MainWindow(QMainWindow):
         self.load_queue_job_workspace_button = QPushButton("تحميل المهمة المحددة للتحرير")
         self.save_queue_state_button = QPushButton("حفظ قائمة الانتظار")
         self.load_queue_state_button = QPushButton("تحميل قائمة انتظار")
+        self.add_and_run_queue_job_button = QPushButton("إضافة وتشغيل في قائمة الانتظار")
+        self.start_queue_processing_button = QPushButton("بدء معالجة قائمة الانتظار")
+        self.stop_queue_after_current_button = QPushButton("إيقاف بعد المهمة الحالية")
         self.run_selected_queue_job_button = QPushButton("تشغيل المحدد فقط")
         self.run_all_queue_simulation_button = QPushButton("تشغيل كل القائمة تجريبيًا")
         self.validate_queue_job_button = QPushButton("إعادة فحص المحدد")
@@ -355,6 +446,7 @@ class MainWindow(QMainWindow):
         self._reset_classification_rules(log=False)
         self._update_source_inputs()
         self.open_output_button.setEnabled(False)
+        self.stop_queue_after_current_button.setEnabled(False)
 
     def _build_scrollable_ui(self) -> QScrollArea:
         content = self._build_ui()
@@ -514,6 +606,9 @@ class MainWindow(QMainWindow):
             self.load_queue_job_workspace_button,
             self.save_queue_state_button,
             self.load_queue_state_button,
+            self.add_and_run_queue_job_button,
+            self.start_queue_processing_button,
+            self.stop_queue_after_current_button,
             self.delete_queue_job_button,
             self.clear_queue_button,
         ]
@@ -694,6 +789,9 @@ class MainWindow(QMainWindow):
         self.load_queue_job_workspace_button.clicked.connect(self.load_selected_queue_job_to_workspace)
         self.save_queue_state_button.clicked.connect(self.save_queue_state)
         self.load_queue_state_button.clicked.connect(self.load_queue_state)
+        self.add_and_run_queue_job_button.clicked.connect(self.add_current_work_and_start_queue)
+        self.start_queue_processing_button.clicked.connect(self.start_queue_processing)
+        self.stop_queue_after_current_button.clicked.connect(self.stop_queue_after_current_job)
         self.run_selected_queue_job_button.clicked.connect(self.run_selected_queue_job)
         self.run_all_queue_simulation_button.clicked.connect(self.run_all_queue_simulation)
         self.validate_queue_job_button.clicked.connect(self.validate_selected_queue_job)
@@ -784,13 +882,16 @@ class MainWindow(QMainWindow):
         source: str,
         title: str,
         clips: list[ClipJob] | None = None,
+        settings: JobSettings | None = None,
+        status: JobStatus = JobStatus.DRAFT,
     ) -> VideoJob:
         job = VideoJob(
             source_type=source_type,
             source=source,
             title=title.strip() or source,
             clips=list(clips or []),
-            status=JobStatus.DRAFT,
+            settings=settings or JobSettings(),
+            status=status,
         )
         self.job_queue.append(job)
         self._insert_queue_job_row(job)
@@ -810,12 +911,48 @@ class MainWindow(QMainWindow):
         else:
             log_prefix = ""
 
-        job = self._add_queue_job(source_type, source, title, clips=self._clip_jobs_from_current_table())
+        job = self._add_queue_job(
+            source_type,
+            source,
+            title,
+            clips=self._clip_jobs_from_current_table(),
+            settings=self._current_job_settings_snapshot(),
+        )
         self.queue_table.setCurrentCell(self.job_queue.index(job), QUEUE_SOURCE_COLUMN)
         self._write_log(
             f"{log_prefix}تم إضافة العمل الحالي إلى قائمة الانتظار\n"
             "لم يتم بدء أي قص أو تحميل"
         )
+
+    def add_current_work_and_start_queue(self) -> None:
+        source_snapshot = self._current_work_queue_source()
+        if source_snapshot is None:
+            return
+
+        source_type, source, title = source_snapshot
+        if self.clips_table.rowCount() == 0:
+            if not self._ask_add_current_work_without_clips_confirmation():
+                self._write_log("لا توجد مقاطع في الجدول")
+                return
+            log_prefix = "لا توجد مقاطع في الجدول\n"
+        else:
+            log_prefix = ""
+
+        job = self._add_queue_job(
+            source_type,
+            source,
+            title,
+            clips=self._clip_jobs_from_current_table(),
+            settings=self._current_job_settings_snapshot(),
+            status=JobStatus.QUEUED,
+        )
+        self.queue_table.setCurrentCell(self.job_queue.index(job), QUEUE_SOURCE_COLUMN)
+        self._write_log(
+            f"{log_prefix}{AR_QUEUE_JOB_ADDED}\n"
+            f"{AR_QUEUE_JOB_WAITING}\n"
+            f"{AR_QUEUE_CAN_PREPARE_NEXT}"
+        )
+        self.start_queue_processing()
 
     def _current_work_queue_source(self) -> tuple[QueueVideoSourceType, str, str] | None:
         project_title = self.project_name_input.text().strip()
@@ -919,7 +1056,16 @@ class MainWindow(QMainWindow):
             return
         row = item.row()
         if 0 <= row < len(self.job_queue):
-            self.job_queue[row].settings.high_priority = item.checkState() == Qt.Checked
+            job = self.job_queue[row]
+            if self._queue_job_is_running(job):
+                self.queue_table.blockSignals(True)
+                try:
+                    item.setCheckState(Qt.Checked if job.settings.high_priority else Qt.Unchecked)
+                finally:
+                    self.queue_table.blockSignals(False)
+                self._append_log("المهمة قيد المعالجة ولا يمكن تعديلها الآن")
+                return
+            job.settings.high_priority = item.checkState() == Qt.Checked
 
     def validate_selected_queue_job(self) -> None:
         row = self._selected_queue_row()
@@ -999,6 +1145,10 @@ class MainWindow(QMainWindow):
             return
 
         job = self.job_queue[row]
+        if self._queue_job_is_running(job):
+            self._write_log("المهمة قيد المعالجة ولا يمكن تعديلها الآن")
+            return
+
         if job.clips and not self._ask_replace_queue_clips_confirmation():
             return
 
@@ -1020,6 +1170,12 @@ class MainWindow(QMainWindow):
             )
             for row in range(self.clips_table.rowCount())
         ]
+
+    def _current_job_settings_snapshot(self) -> JobSettings:
+        return JobSettings(
+            pre_roll_seconds=self.pre_padding_input.value(),
+            post_roll_seconds=self.post_padding_input.value(),
+        )
 
     def _ask_replace_queue_clips_confirmation(self) -> bool:
         dialog = QMessageBox(self)
@@ -1266,6 +1422,125 @@ class MainWindow(QMainWindow):
         ]
         return "\n".join(lines)
 
+    def start_queue_processing(self) -> None:
+        if self._queue_processing_thread is not None:
+            self._append_log(f"{AR_QUEUE_JOB_WAITING}\n{AR_QUEUE_CAN_PREPARE_NEXT}")
+            return
+
+        if not self.job_queue:
+            self._write_log("لا توجد مهام في قائمة الانتظار")
+            return
+
+        classification_errors = format_classification_errors_ar(
+            validate_classification_rules(self._collect_classification_rules())
+        )
+        if classification_errors:
+            self._write_log(
+                "تعذر فحص قواعد التصنيف:\n" + "\n".join(f"- {error}" for error in classification_errors)
+            )
+            return
+
+        self._prepare_queue_jobs_for_processing()
+        if not self._has_runnable_local_queue_job():
+            self._write_log(
+                "لا توجد مهمة محلية جاهزة للمعالجة الآن\n"
+                f"{AR_URL_QUEUE_PROCESSING_LATER if self._has_waiting_url_queue_job() else 'راجع أخطاء قائمة الانتظار أولًا'}"
+            )
+            return
+
+        self._append_log(f"جاري معالجة المهمة\n{AR_QUEUE_CAN_PREPARE_NEXT}")
+        self._set_queue_processing_controls_running(True)
+        self._start_queue_processing_worker(self._collect_classification_rules())
+
+    def stop_queue_after_current_job(self) -> None:
+        if self._queue_processing_worker is None:
+            self._write_log("لا توجد مهمة قيد المعالجة")
+            return
+
+        self._queue_processing_worker.request_stop()
+        self._append_log("سيتم الإيقاف بعد المهمة الحالية")
+
+    def _prepare_queue_jobs_for_processing(self) -> None:
+        for row, job in enumerate(self.job_queue):
+            if self._queue_job_is_running(job):
+                continue
+
+            if job.status in {JobStatus.DRAFT, JobStatus.READY, JobStatus.WARNING, JobStatus.QUEUED}:
+                result = validate_queue_job(job)
+                apply_queue_validation_result(job, result)
+
+            if not job.clips and job.status != JobStatus.VALIDATION_ERROR:
+                job.mark_status(JobStatus.VALIDATION_ERROR)
+                if "لا توجد مقاطع محفوظة لهذه المهمة" not in job.errors:
+                    job.errors.append("لا توجد مقاطع محفوظة لهذه المهمة")
+
+            if job.source_type == QueueVideoSourceType.LOCAL and job.can_start:
+                job.mark_status(JobStatus.QUEUED)
+            elif job.source_type != QueueVideoSourceType.LOCAL and job.status in {
+                JobStatus.READY,
+                JobStatus.WARNING,
+                JobStatus.QUEUED,
+            }:
+                job.mark_status(JobStatus.QUEUED)
+                if AR_URL_QUEUE_PROCESSING_LATER not in job.warnings:
+                    job.warnings.append(AR_URL_QUEUE_PROCESSING_LATER)
+
+            self._refresh_queue_job_row(row)
+
+    def _has_runnable_local_queue_job(self) -> bool:
+        return any(
+            job.source_type == QueueVideoSourceType.LOCAL and job.can_start
+            for job in self.job_queue
+        )
+
+    def _has_waiting_url_queue_job(self) -> bool:
+        return any(
+            job.source_type != QueueVideoSourceType.LOCAL and job.status == JobStatus.QUEUED
+            for job in self.job_queue
+        )
+
+    def _start_queue_processing_worker(self, classification_rules: list[ClassificationRule]) -> None:
+        thread = QThread(self)
+        worker = QueueProcessingWorker(
+            jobs=self.job_queue,
+            video_processor=self.video_processor,
+            classification_rules=classification_rules,
+        )
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._append_log)
+        worker.job_updated.connect(self._refresh_queue_job_row)
+        worker.finished.connect(self._finish_queue_processing)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._clear_queue_processing_worker)
+
+        self._queue_processing_thread = thread
+        self._queue_processing_worker = worker
+        thread.start()
+
+    @Slot()
+    def _finish_queue_processing(self) -> None:
+        for row in range(len(self.job_queue)):
+            self._refresh_queue_job_row(row)
+        self._append_log("انتهت معالجة قائمة الانتظار")
+        self._set_queue_processing_controls_running(False)
+
+    @Slot()
+    def _clear_queue_processing_worker(self) -> None:
+        self._queue_processing_thread = None
+        self._queue_processing_worker = None
+
+    def _set_queue_processing_controls_running(self, running: bool) -> None:
+        self.start_queue_processing_button.setEnabled(not running)
+        self.stop_queue_after_current_button.setEnabled(running)
+        self.processing_status_label.setText(
+            "الحالة: جاري معالجة قائمة الانتظار..." if running else "الحالة: جاهز"
+        )
+        self.processing_status_label.repaint()
+
     def delete_selected_queue_job(self) -> None:
         row_numbers = self._selected_queue_rows()
         if not row_numbers:
@@ -1290,6 +1565,10 @@ class MainWindow(QMainWindow):
     def clear_queue(self) -> None:
         if not self.job_queue:
             self._write_log("تم مسح قائمة الانتظار")
+            return
+
+        if any(self._queue_job_is_running(job) for job in self.job_queue):
+            self._write_log("لا يمكن مسح قائمة الانتظار أثناء معالجة مهمة")
             return
 
         if not self._ask_clear_queue_confirmation():
@@ -1988,6 +2267,7 @@ class MainWindow(QMainWindow):
             source,
             title,
             clips=self._smart_paste_clip_jobs(regular_clips),
+            settings=self._current_job_settings_snapshot(),
         )
         self.queue_table.setCurrentCell(self.job_queue.index(job), QUEUE_SOURCE_COLUMN)
 
@@ -2207,6 +2487,9 @@ class MainWindow(QMainWindow):
             self.load_queue_job_workspace_button,
             self.save_queue_state_button,
             self.load_queue_state_button,
+            self.add_and_run_queue_job_button,
+            self.start_queue_processing_button,
+            self.stop_queue_after_current_button,
             self.run_selected_queue_job_button,
             self.run_all_queue_simulation_button,
             self.validate_queue_job_button,
@@ -2247,3 +2530,4 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
 
         self.open_output_button.setEnabled(enabled and self._last_output_folder is not None)
+        self.stop_queue_after_current_button.setEnabled(enabled and self._queue_processing_thread is not None)
