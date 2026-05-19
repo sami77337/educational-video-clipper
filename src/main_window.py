@@ -49,6 +49,7 @@ from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.job_queue import ClipJob, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
 from src.job_queue_runner import format_queue_run_summary_ar, run_dry_queue
+from src.job_queue_storage import QueueStorageError, load_queue_jobs, save_queue_jobs
 from src.job_queue_validation import (
     apply_queue_validation_result,
     format_queue_validation_result_ar,
@@ -288,6 +289,8 @@ class MainWindow(QMainWindow):
         self.add_queue_url_button = QPushButton("إضافة رابط")
         self.save_queue_clips_button = QPushButton("حفظ المقاطع للمهمة المحددة")
         self.load_queue_clips_button = QPushButton("تحميل مقاطع المهمة المحددة")
+        self.save_queue_state_button = QPushButton("حفظ قائمة الانتظار")
+        self.load_queue_state_button = QPushButton("تحميل قائمة انتظار")
         self.run_selected_queue_job_button = QPushButton("تشغيل المحدد فقط")
         self.validate_queue_job_button = QPushButton("إعادة فحص المحدد")
         self.delete_queue_job_button = QPushButton("إزالة المهمة المحددة")
@@ -465,6 +468,8 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.add_queue_url_button)
         button_row.addWidget(self.save_queue_clips_button)
         button_row.addWidget(self.load_queue_clips_button)
+        button_row.addWidget(self.save_queue_state_button)
+        button_row.addWidget(self.load_queue_state_button)
         button_row.addWidget(self.run_selected_queue_job_button)
         button_row.addWidget(self.validate_queue_job_button)
         button_row.addWidget(self.delete_queue_job_button)
@@ -608,6 +613,8 @@ class MainWindow(QMainWindow):
         self.add_queue_url_button.clicked.connect(self.add_url_to_queue)
         self.save_queue_clips_button.clicked.connect(self.save_clips_to_selected_queue_job)
         self.load_queue_clips_button.clicked.connect(self.load_clips_from_selected_queue_job)
+        self.save_queue_state_button.clicked.connect(self.save_queue_state)
+        self.load_queue_state_button.clicked.connect(self.load_queue_state)
         self.run_selected_queue_job_button.clicked.connect(self.run_selected_queue_job)
         self.validate_queue_job_button.clicked.connect(self.validate_selected_queue_job)
         self.delete_queue_job_button.clicked.connect(self.delete_selected_queue_job)
@@ -847,6 +854,70 @@ class MainWindow(QMainWindow):
         dialog = QMessageBox(self)
         dialog.setWindowTitle("تحميل مقاطع المهمة المحددة")
         dialog.setText("يوجد مقاطع حالية في الجدول. هل تريد استبدالها؟")
+        replace_button = dialog.addButton("استبدال", QMessageBox.AcceptRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(replace_button)
+        dialog.exec()
+        return dialog.clickedButton() == replace_button
+
+    def save_queue_state(self) -> None:
+        if not self.job_queue:
+            self._write_log("لا توجد مهام لحفظها")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "حفظ قائمة الانتظار",
+            "queue.json",
+            "JSON Files (*.json);;All Files (*.*)",
+        )
+        if not file_path:
+            return
+
+        try:
+            save_queue_jobs(self.job_queue, self._json_file_path(file_path))
+        except QueueStorageError as exc:
+            self._write_log(f"فشل حفظ قائمة الانتظار: {exc}")
+            return
+
+        self._write_log("تم حفظ قائمة الانتظار\nلم يتم بدء أي قص أو تحميل")
+
+    def load_queue_state(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "تحميل قائمة انتظار",
+            "",
+            "JSON Files (*.json);;All Files (*.*)",
+        )
+        if not file_path:
+            return
+
+        if self.job_queue and not self._ask_replace_queue_state_confirmation():
+            return
+
+        try:
+            jobs = load_queue_jobs(file_path)
+        except QueueStorageError as exc:
+            self._write_log(f"فشل تحميل قائمة الانتظار: {exc}")
+            return
+
+        self._replace_queue_jobs(jobs)
+        self._write_log("تم تحميل قائمة الانتظار\nلم يتم بدء أي قص أو تحميل")
+
+    def _replace_queue_jobs(self, jobs: list[VideoJob]) -> None:
+        self.job_queue = jobs
+        self.queue_table.setRowCount(0)
+        for job in self.job_queue:
+            self._insert_queue_job_row(job)
+
+    def _json_file_path(self, file_path: str) -> Path:
+        path = Path(file_path)
+        return path if path.suffix.lower() == ".json" else path.with_suffix(".json")
+
+    def _ask_replace_queue_state_confirmation(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("تحميل قائمة انتظار")
+        dialog.setText("توجد قائمة انتظار حالية. هل تريد استبدالها؟")
         replace_button = dialog.addButton("استبدال", QMessageBox.AcceptRole)
         dialog.addButton("إلغاء", QMessageBox.RejectRole)
         dialog.setDefaultButton(replace_button)
@@ -1628,6 +1699,8 @@ class MainWindow(QMainWindow):
             self.add_queue_url_button,
             self.save_queue_clips_button,
             self.load_queue_clips_button,
+            self.save_queue_state_button,
+            self.load_queue_state_button,
             self.run_selected_queue_job_button,
             self.validate_queue_job_button,
             self.delete_queue_job_button,

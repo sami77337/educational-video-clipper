@@ -88,6 +88,8 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.add_queue_url_button.text() == "إضافة رابط"
     assert window.save_queue_clips_button.text() == "حفظ المقاطع للمهمة المحددة"
     assert window.load_queue_clips_button.text() == "تحميل مقاطع المهمة المحددة"
+    assert window.save_queue_state_button.text() == "حفظ قائمة الانتظار"
+    assert window.load_queue_state_button.text() == "تحميل قائمة انتظار"
     assert window.run_selected_queue_job_button.text() == "تشغيل المحدد فقط"
     assert window.validate_queue_job_button.text() == "إعادة فحص المحدد"
     assert window.delete_queue_job_button.text() == "إزالة المهمة المحددة"
@@ -347,6 +349,123 @@ def test_queue_load_saved_clips_replacing_table_requires_confirmation() -> None:
     assert window.clips_table.item(0, TITLE_COLUMN).text() == "محفوظ"
     assert "تم استبدال مقاطع الجدول" in window.log_area.toPlainText()
     assert "تم تحميل مقاطع المهمة المحددة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_save_state_with_empty_queue_shows_feedback() -> None:
+    app = _app()
+    window = MainWindow()
+
+    window.save_queue_state()
+
+    assert "لا توجد مهام لحفظها" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_save_and_load_state_roundtrip(tmp_path, monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    file_path = tmp_path / "queue.json"
+    job = window._add_queue_url_job("https://youtu.be/abc123", title="درس")
+    window._insert_clip_row(1, "المقطع", "00:01:00", "00:02:00", "00:01:20-00:01:30")
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.save_clips_to_selected_queue_job()
+    job.settings.high_priority = True
+    window._refresh_queue_job_row(0)
+
+    monkeypatch.setattr(
+        "src.main_window.QFileDialog.getSaveFileName",
+        lambda *args, **kwargs: (str(file_path), "JSON Files (*.json)"),
+    )
+    window.save_queue_state()
+
+    assert file_path.exists()
+    assert "تم حفظ قائمة الانتظار" in window.log_area.toPlainText()
+    assert "لم يتم بدء أي قص أو تحميل" in window.log_area.toPlainText()
+
+    window.job_queue.clear()
+    window.queue_table.setRowCount(0)
+    monkeypatch.setattr(
+        "src.main_window.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: (str(file_path), "JSON Files (*.json)"),
+    )
+    window.load_queue_state()
+
+    assert len(window.job_queue) == 1
+    assert window.job_queue[0].title == "درس"
+    assert window.job_queue[0].settings.high_priority is True
+    assert window.job_queue[0].clips[0].title == "المقطع"
+    assert window.job_queue[0].clips[0].exclusions == "00:01:20-00:01:30"
+    assert window.queue_table.rowCount() == 1
+    assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "1"
+    assert "تم تحميل قائمة الانتظار" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_state_existing_queue_requires_confirmation(tmp_path, monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    file_path = tmp_path / "queue.json"
+    window._add_queue_url_job("https://youtu.be/current", title="حالي")
+
+    second_window = MainWindow()
+    second_window._add_queue_url_job("https://youtu.be/saved", title="محفوظ")
+    monkeypatch.setattr(
+        "src.main_window.QFileDialog.getSaveFileName",
+        lambda *args, **kwargs: (str(file_path), "JSON Files (*.json)"),
+    )
+    second_window.save_queue_state()
+    second_window.close()
+
+    monkeypatch.setattr(
+        "src.main_window.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: (str(file_path), "JSON Files (*.json)"),
+    )
+    window._ask_replace_queue_state_confirmation = lambda: False
+    window.load_queue_state()
+
+    assert len(window.job_queue) == 1
+    assert window.job_queue[0].title == "حالي"
+
+    window._ask_replace_queue_state_confirmation = lambda: True
+    window.load_queue_state()
+
+    assert len(window.job_queue) == 1
+    assert window.job_queue[0].title == "محفوظ"
+    assert "تم تحميل قائمة الانتظار" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_invalid_state_file_shows_error(tmp_path, monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    file_path = tmp_path / "bad.json"
+    file_path.write_text("{bad", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "src.main_window.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: (str(file_path), "JSON Files (*.json)"),
+    )
+    window.load_queue_state()
+
+    assert "فشل تحميل قائمة الانتظار" in window.log_area.toPlainText()
+    assert window.job_queue == []
     assert window._processing_thread is None
     assert window._processing_worker is None
 
