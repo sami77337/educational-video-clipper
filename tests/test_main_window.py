@@ -188,7 +188,37 @@ def test_queue_run_selected_only_is_passive() -> None:
     assert "تم تشغيل المحاكاة فقط" in window.log_area.toPlainText()
     assert "لم يتم تنزيل أي فيديو" in window.log_area.toPlainText()
     assert "لم يتم قص أي مقطع" in window.log_area.toPlainText()
+    assert "عدد المهام: 1" in window.log_area.toPlainText()
+    assert "المهام التي تمت محاكاتها: 1" in window.log_area.toPlainText()
+    assert "المهام التي تم تخطيها: 0" in window.log_area.toPlainText()
+    assert "الأخطاء إن وجدت: 0" in window.log_area.toPlainText()
     assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مكتمل"
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_run_selected_ready_job_simulates_only(tmp_path) -> None:
+    app = _app()
+    window = MainWindow()
+    video_path = tmp_path / "lesson.mp4"
+    video_path.write_bytes(b"ok")
+    job = window._add_queue_local_file_job(str(video_path))
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.validate_selected_queue_job()
+    window.log_area.clear()
+    window.run_selected_queue_job()
+
+    assert job.status == JobStatus.DONE
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مكتمل"
+    assert "تم تشغيل المحاكاة فقط" in window.log_area.toPlainText()
+    assert "لم يتم تنزيل أي فيديو" in window.log_area.toPlainText()
+    assert "لم يتم قص أي مقطع" in window.log_area.toPlainText()
+    assert "المهام التي تمت محاكاتها: 1" in window.log_area.toPlainText()
+    assert "المهام التي تم تخطيها: 0" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
 
@@ -204,6 +234,29 @@ def test_queue_run_selected_without_selection_shows_feedback() -> None:
 
     assert "لا توجد مهمة محددة" in window.log_area.toPlainText()
     assert window._processing_thread is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_run_selected_validation_error_job_is_skipped() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://vimeo.com/123", title="غير مدعوم")
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.validate_selected_queue_job()
+    window.log_area.clear()
+    window.run_selected_queue_job()
+
+    assert job.status == JobStatus.SKIPPED
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "تم تجاوزه"
+    assert "تم تخطي المهمة بسبب أخطاء" in window.log_area.toPlainText()
+    assert "المهام التي تمت محاكاتها: 0" in window.log_area.toPlainText()
+    assert "المهام التي تم تخطيها: 1" in window.log_area.toPlainText()
+    assert "الأخطاء إن وجدت: 1" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
 
     window.close()
     app.processEvents()

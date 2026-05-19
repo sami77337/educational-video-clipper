@@ -99,12 +99,13 @@ def simulate_queue_run(
 def format_queue_run_summary_ar(summary: JobQueueRunSummary) -> str:
     """Format dry-run summary lines for UI logs or diagnostics."""
 
+    visible_error_count = summary.failed_jobs + summary.skipped_jobs
     count_lines = [
         f"عدد المهام: {summary.total_jobs}",
         f"المهام الجاهزة: {summary.ready_jobs}",
-        f"المهام المتخطاة: {summary.skipped_jobs}",
-        f"المهام الفاشلة: {summary.failed_jobs}",
-        f"المهام المكتملة بالمحاكاة: {summary.completed_simulated_jobs}",
+        f"المهام التي تمت محاكاتها: {summary.completed_simulated_jobs}",
+        f"المهام التي تم تخطيها: {summary.skipped_jobs}",
+        f"الأخطاء إن وجدت: {visible_error_count}",
     ]
     return "\n".join([*summary.messages, *count_lines])
 
