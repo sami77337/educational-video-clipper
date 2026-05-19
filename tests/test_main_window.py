@@ -23,7 +23,7 @@ from src.main_window import (
     MainWindow,
     SmartPasteImportDialog,
 )
-from src.job_queue import VideoSourceType as QueueVideoSourceType
+from src.job_queue import JobStatus, VideoSourceType as QueueVideoSourceType
 from src.readiness import STATUS_READY, ReadinessCheckItem, ReadinessReport
 from src.smart_paste_parser import (
     SmartPasteClip,
@@ -86,6 +86,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.queue_table.rowCount() == 0
     assert window.add_queue_local_video_button.text() == "إضافة فيديو محلي"
     assert window.add_queue_url_button.text() == "إضافة رابط"
+    assert window.validate_queue_job_button.text() == "فحص المهمة المحددة"
     assert window.delete_queue_job_button.text() == "حذف المهمة المحددة"
     assert window.clear_queue_button.text() == "مسح القائمة"
 
@@ -167,6 +168,45 @@ def test_queue_delete_and_clear_are_passive() -> None:
     assert window.job_queue == []
     assert window.queue_table.rowCount() == 0
     assert window._processing_thread is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_validate_selected_local_job_updates_status_without_processing(tmp_path) -> None:
+    app = _app()
+    window = MainWindow()
+    video_path = tmp_path / "lesson.mp4"
+    video_path.write_bytes(b"ok")
+    job = window._add_queue_local_file_job(str(video_path))
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.validate_selected_queue_job()
+
+    assert job.status == JobStatus.READY
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "جاهز"
+    assert "الملف موجود" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_validate_selected_unsupported_url_sets_error_without_processing() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://vimeo.com/123", title="غير مدعوم")
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.validate_selected_queue_job()
+
+    assert job.status == JobStatus.VALIDATION_ERROR
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "خطأ في الفحص"
+    assert "الرابط غير مدعوم حاليًا" in window.log_area.toPlainText()
+    assert "لا يمكن بدء المهمة قبل إصلاح الأخطاء" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
 
     window.close()
     app.processEvents()

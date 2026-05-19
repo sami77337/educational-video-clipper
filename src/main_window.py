@@ -48,6 +48,11 @@ from src.classification import (
 from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.job_queue import JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
+from src.job_queue_validation import (
+    apply_queue_validation_result,
+    format_queue_validation_result_ar,
+    validate_queue_job,
+)
 from src.message_parser import ParsedClipLine, parse_clip_message
 from src.readiness import format_readiness_report_ar, run_readiness_check
 from src.smart_paste_parser import SmartPasteClip, SmartPastePreview, parse_smart_paste_message
@@ -280,6 +285,7 @@ class MainWindow(QMainWindow):
         self.queue_table = QTableWidget(0, 6)
         self.add_queue_local_video_button = QPushButton("إضافة فيديو محلي")
         self.add_queue_url_button = QPushButton("إضافة رابط")
+        self.validate_queue_job_button = QPushButton("فحص المهمة المحددة")
         self.delete_queue_job_button = QPushButton("حذف المهمة المحددة")
         self.clear_queue_button = QPushButton("مسح القائمة")
         self.clips_table = QTableWidget(0, 5)
@@ -453,6 +459,7 @@ class MainWindow(QMainWindow):
         button_row = QHBoxLayout()
         button_row.addWidget(self.add_queue_local_video_button)
         button_row.addWidget(self.add_queue_url_button)
+        button_row.addWidget(self.validate_queue_job_button)
         button_row.addWidget(self.delete_queue_job_button)
         button_row.addWidget(self.clear_queue_button)
         button_row.addStretch(1)
@@ -592,6 +599,7 @@ class MainWindow(QMainWindow):
         self.reset_classification_button.clicked.connect(self.reset_classification_rules)
         self.add_queue_local_video_button.clicked.connect(self.add_local_video_to_queue)
         self.add_queue_url_button.clicked.connect(self.add_url_to_queue)
+        self.validate_queue_job_button.clicked.connect(self.validate_selected_queue_job)
         self.delete_queue_job_button.clicked.connect(self.delete_selected_queue_job)
         self.clear_queue_button.clicked.connect(self.clear_queue)
         self.queue_table.itemChanged.connect(self._sync_queue_high_priority)
@@ -737,11 +745,20 @@ class MainWindow(QMainWindow):
         if 0 <= row < len(self.job_queue):
             self.job_queue[row].settings.high_priority = item.checkState() == Qt.Checked
 
+    def validate_selected_queue_job(self) -> None:
+        row = self._selected_queue_row()
+        if row is None:
+            self._write_log("اختر مهمة من قائمة الانتظار أولًا.")
+            return
+
+        job = self.job_queue[row]
+        result = validate_queue_job(job)
+        apply_queue_validation_result(job, result)
+        self._refresh_queue_job_row(row)
+        self._write_log(format_queue_validation_result_ar(result))
+
     def delete_selected_queue_job(self) -> None:
-        selected_rows = self.queue_table.selectionModel().selectedRows()
-        row_numbers = [index.row() for index in selected_rows]
-        if not row_numbers and self.queue_table.currentRow() >= 0:
-            row_numbers = [self.queue_table.currentRow()]
+        row_numbers = self._selected_queue_rows()
         if not row_numbers:
             self._write_log("اختر مهمة من قائمة الانتظار أولًا.")
             return
@@ -756,6 +773,35 @@ class MainWindow(QMainWindow):
         self.job_queue.clear()
         self.queue_table.setRowCount(0)
         self._write_log("تم مسح قائمة الانتظار.")
+
+    def _selected_queue_row(self) -> int | None:
+        row_numbers = self._selected_queue_rows()
+        return row_numbers[0] if row_numbers else None
+
+    def _selected_queue_rows(self) -> list[int]:
+        selected_rows = self.queue_table.selectionModel().selectedRows()
+        row_numbers = [index.row() for index in selected_rows]
+        if not row_numbers and self.queue_table.currentRow() >= 0:
+            row_numbers = [self.queue_table.currentRow()]
+        return sorted(set(row_numbers))
+
+    def _refresh_queue_job_row(self, row: int) -> None:
+        if not 0 <= row < len(self.job_queue):
+            return
+
+        job = self.job_queue[row]
+        self.queue_table.blockSignals(True)
+        try:
+            self.queue_table.item(row, QUEUE_SOURCE_COLUMN).setText(self._queue_source_label(job))
+            self.queue_table.item(row, QUEUE_SOURCE_COLUMN).setToolTip(job.source)
+            self.queue_table.item(row, QUEUE_TITLE_COLUMN).setText(job.title)
+            self.queue_table.item(row, QUEUE_CLIP_COUNT_COLUMN).setText(str(job.clip_count))
+            self.queue_table.item(row, QUEUE_STATUS_COLUMN).setText(self._queue_status_label(job.status))
+            self.queue_table.item(row, QUEUE_HIGH_PRIORITY_COLUMN).setCheckState(
+                Qt.Checked if job.settings.high_priority else Qt.Unchecked
+            )
+        finally:
+            self.queue_table.blockSignals(False)
 
     def add_classification_rule(self) -> None:
         self._insert_classification_rule(
@@ -1441,6 +1487,7 @@ class MainWindow(QMainWindow):
             self.queue_table,
             self.add_queue_local_video_button,
             self.add_queue_url_button,
+            self.validate_queue_job_button,
             self.delete_queue_job_button,
             self.clear_queue_button,
             self.clips_table,
