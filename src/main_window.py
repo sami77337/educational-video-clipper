@@ -295,6 +295,7 @@ class MainWindow(QMainWindow):
         self.load_queue_state_button = QPushButton("تحميل قائمة انتظار")
         self.run_selected_queue_job_button = QPushButton("تشغيل المحدد فقط")
         self.validate_queue_job_button = QPushButton("إعادة فحص المحدد")
+        self.validate_all_queue_jobs_button = QPushButton("فحص كل قائمة الانتظار")
         self.delete_queue_job_button = QPushButton("إزالة المهمة المحددة")
         self.clear_queue_button = QPushButton("مسح القائمة")
         self.clips_table = QTableWidget(0, 5)
@@ -476,6 +477,7 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.load_queue_state_button)
         button_row.addWidget(self.run_selected_queue_job_button)
         button_row.addWidget(self.validate_queue_job_button)
+        button_row.addWidget(self.validate_all_queue_jobs_button)
         button_row.addWidget(self.delete_queue_job_button)
         button_row.addWidget(self.clear_queue_button)
         button_row.addStretch(1)
@@ -623,6 +625,7 @@ class MainWindow(QMainWindow):
         self.load_queue_state_button.clicked.connect(self.load_queue_state)
         self.run_selected_queue_job_button.clicked.connect(self.run_selected_queue_job)
         self.validate_queue_job_button.clicked.connect(self.validate_selected_queue_job)
+        self.validate_all_queue_jobs_button.clicked.connect(self.validate_all_queue_jobs)
         self.delete_queue_job_button.clicked.connect(self.delete_selected_queue_job)
         self.clear_queue_button.clicked.connect(self.clear_queue)
         self.queue_table.itemChanged.connect(self._sync_queue_high_priority)
@@ -848,6 +851,61 @@ class MainWindow(QMainWindow):
         apply_queue_validation_result(job, result)
         self._refresh_queue_job_row(row)
         self._write_log("تم فحص المهمة المحددة\n" + format_queue_validation_result_ar(result))
+
+    def validate_all_queue_jobs(self) -> None:
+        if not self.job_queue:
+            self._write_log("لا توجد مهام في قائمة الانتظار")
+            return
+
+        ready_count = 0
+        warning_count = 0
+        error_count = 0
+        error_jobs: list[str] = []
+        for row, job in enumerate(self.job_queue):
+            result = validate_queue_job(job)
+            apply_queue_validation_result(job, result)
+            self._refresh_queue_job_row(row)
+            if result.status == JobStatus.READY:
+                ready_count += 1
+            elif result.status == JobStatus.WARNING:
+                warning_count += 1
+            elif result.status == JobStatus.VALIDATION_ERROR:
+                error_count += 1
+                error_jobs.append(f"{row + 1} - {job.title}: لا يمكن بدء المهمة قبل إصلاح الأخطاء")
+
+        self._write_log(
+            self._format_validate_all_queue_summary(
+                total=len(self.job_queue),
+                ready=ready_count,
+                warnings=warning_count,
+                errors=error_count,
+                error_jobs=error_jobs,
+            )
+        )
+
+    def _format_validate_all_queue_summary(
+        self,
+        *,
+        total: int,
+        ready: int,
+        warnings: int,
+        errors: int,
+        error_jobs: list[str],
+    ) -> str:
+        lines = [
+            "تم فحص كل قائمة الانتظار",
+            f"عدد المهام: {total}",
+            f"المهام الجاهزة: {ready}",
+            f"المهام التي فيها تحذيرات: {warnings}",
+            f"المهام التي فيها أخطاء: {errors}",
+        ]
+        if errors:
+            lines.extend(error_jobs)
+            lines.append("لا يمكن تشغيل القائمة قبل إصلاح الأخطاء")
+        else:
+            lines.append("يمكن تشغيل القائمة لاحقًا")
+        lines.append("لم يتم بدء أي قص أو تحميل")
+        return "\n".join(lines)
 
     def save_clips_to_selected_queue_job(self) -> None:
         row = self._selected_queue_row()
@@ -1859,6 +1917,7 @@ class MainWindow(QMainWindow):
             self.load_queue_state_button,
             self.run_selected_queue_job_button,
             self.validate_queue_job_button,
+            self.validate_all_queue_jobs_button,
             self.delete_queue_job_button,
             self.clear_queue_button,
             self.clips_table,
