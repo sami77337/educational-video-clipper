@@ -94,6 +94,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.load_queue_state_button.text() == "تحميل قائمة انتظار"
     assert window.run_selected_queue_job_button.text() == "تشغيل المحدد فقط"
     assert window.validate_queue_job_button.text() == "إعادة فحص المحدد"
+    assert window.validate_all_queue_jobs_button.text() == "فحص كل قائمة الانتظار"
     assert window.delete_queue_job_button.text() == "إزالة المهمة المحددة"
     assert window.clear_queue_button.text() == "مسح القائمة"
 
@@ -767,6 +768,135 @@ def test_queue_load_invalid_state_file_shows_error(tmp_path, monkeypatch) -> Non
 
     assert "فشل تحميل قائمة الانتظار" in window.log_area.toPlainText()
     assert window.job_queue == []
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_validate_all_empty_queue_shows_feedback() -> None:
+    app = _app()
+    window = MainWindow()
+
+    window.validate_all_queue_jobs()
+
+    assert "لا توجد مهام في قائمة الانتظار" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_validate_all_one_valid_local_job(tmp_path) -> None:
+    app = _app()
+    window = MainWindow()
+    video_path = tmp_path / "lesson.mp4"
+    video_path.write_bytes(b"ok")
+    job = window._add_queue_local_file_job(str(video_path))
+
+    window.validate_all_queue_jobs()
+
+    assert job.status == JobStatus.READY
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "جاهز"
+    assert "تم فحص كل قائمة الانتظار" in window.log_area.toPlainText()
+    assert "عدد المهام: 1" in window.log_area.toPlainText()
+    assert "المهام الجاهزة: 1" in window.log_area.toPlainText()
+    assert "المهام التي فيها تحذيرات: 0" in window.log_area.toPlainText()
+    assert "المهام التي فيها أخطاء: 0" in window.log_area.toPlainText()
+    assert "يمكن تشغيل القائمة لاحقًا" in window.log_area.toPlainText()
+    assert "لم يتم بدء أي قص أو تحميل" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_validate_all_one_missing_local_file_job(tmp_path) -> None:
+    app = _app()
+    window = MainWindow()
+    missing_path = tmp_path / "missing.mp4"
+    job = window._add_queue_local_file_job(str(missing_path))
+
+    window.validate_all_queue_jobs()
+
+    assert job.status == JobStatus.VALIDATION_ERROR
+    assert "لم يتم العثور على الملف" in job.errors
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "خطأ في الفحص"
+    assert "المهام التي فيها أخطاء: 1" in window.log_area.toPlainText()
+    assert "1 - missing: لا يمكن بدء المهمة قبل إصلاح الأخطاء" in window.log_area.toPlainText()
+    assert "لا يمكن تشغيل القائمة قبل إصلاح الأخطاء" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_validate_all_one_valid_youtube_job() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://youtu.be/abc123", title="درس")
+
+    window.validate_all_queue_jobs()
+
+    assert job.status == JobStatus.READY
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "جاهز"
+    assert "المهام الجاهزة: 1" in window.log_area.toPlainText()
+    assert "لم يتم بدء أي قص أو تحميل" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_validate_all_one_unsupported_url_job() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://vimeo.com/123", title="غير مدعوم")
+
+    window.validate_all_queue_jobs()
+
+    assert job.status == JobStatus.VALIDATION_ERROR
+    assert "الرابط غير مدعوم حاليًا" in job.errors
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "خطأ في الفحص"
+    assert "المهام التي فيها أخطاء: 1" in window.log_area.toPlainText()
+    assert "1 - غير مدعوم: لا يمكن بدء المهمة قبل إصلاح الأخطاء" in window.log_area.toPlainText()
+    assert "لا يمكن تشغيل القائمة قبل إصلاح الأخطاء" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_validate_all_mixed_jobs_updates_statuses(tmp_path) -> None:
+    app = _app()
+    window = MainWindow()
+    video_path = tmp_path / "lesson.mp4"
+    video_path.write_bytes(b"ok")
+    window._add_queue_local_file_job(str(video_path))
+    window._add_queue_url_job("https://youtu.be/abc123", title="يوتيوب")
+    window._add_queue_url_job("https://vimeo.com/123", title="غير مدعوم")
+
+    window.validate_all_queue_jobs_button.click()
+    app.processEvents()
+
+    assert [job.status for job in window.job_queue] == [
+        JobStatus.READY,
+        JobStatus.READY,
+        JobStatus.VALIDATION_ERROR,
+    ]
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "جاهز"
+    assert window.queue_table.item(1, QUEUE_STATUS_COLUMN).text() == "جاهز"
+    assert window.queue_table.item(2, QUEUE_STATUS_COLUMN).text() == "خطأ في الفحص"
+    assert "عدد المهام: 3" in window.log_area.toPlainText()
+    assert "المهام الجاهزة: 2" in window.log_area.toPlainText()
+    assert "المهام التي فيها أخطاء: 1" in window.log_area.toPlainText()
+    assert "لم يتم بدء أي قص أو تحميل" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
 
