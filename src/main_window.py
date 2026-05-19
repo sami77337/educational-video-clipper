@@ -94,16 +94,26 @@ QUEUE_STATUS_COLUMN = 3
 QUEUE_HIGH_PRIORITY_COLUMN = 4
 QUEUE_ACTION_COLUMN = 5
 AR_OPEN_MINUTES = "مفتوح"
+SMART_PASTE_REPLACE_LABEL = "استبدال البيانات الحالية"
+SMART_PASTE_APPEND_LABEL = "إضافة كمقاطع جديدة"
+SMART_PASTE_QUEUE_LABEL = "إضافة كمهمة جديدة في قائمة الانتظار"
+SMART_PASTE_CANCEL_LABEL = "إلغاء"
 
 
 class SmartPasteImportDialog(QDialog):
     """Preview-only dialog for smart paste imports."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        initial_text: str = "",
+        auto_generate: bool = False,
+    ) -> None:
         super().__init__(parent)
         self.preview: SmartPastePreview | None = None
 
-        self.setWindowTitle("استيراد ذكي من رسالة")
+        self.setWindowTitle("استيراد ذكي")
         self.setLayoutDirection(Qt.RightToLeft)
         self.resize(760, 620)
 
@@ -145,6 +155,10 @@ class SmartPasteImportDialog(QDialog):
         self.parse_button.clicked.connect(self.generate_preview)
         self.apply_button.clicked.connect(self._accept_preview)
         self.cancel_button.clicked.connect(self.reject)
+        if initial_text:
+            self.message_input.setPlainText(initial_text)
+        if auto_generate:
+            self.generate_preview()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -287,8 +301,8 @@ class MainWindow(QMainWindow):
         self.browser_cookies_help_label = QLabel()
         self.project_name_input = QLineEdit()
         self.paste_message_input = QTextEdit()
-        self.smart_paste_button = QPushButton("استيراد ذكي من رسالة")
-        self.parse_message_button = QPushButton("تحويل النص إلى جدول")
+        self.smart_paste_button = QPushButton("استيراد ذكي")
+        self.parse_message_button = QPushButton("تحويل بسيط إلى جدول")
         self.queue_table = QTableWidget(0, 6)
         self.add_current_work_to_queue_button = QPushButton("إضافة العمل الحالي إلى قائمة الانتظار")
         self.add_queue_local_video_button = QPushButton("إضافة فيديو محلي")
@@ -308,7 +322,7 @@ class MainWindow(QMainWindow):
         self.classification_rules_table = QTableWidget(0, 4)
         self.add_row_button = QPushButton("إضافة مقطع")
         self.import_excel_button = QPushButton("استيراد من Excel")
-        self.delete_row_button = QPushButton("حذف المحدد")
+        self.delete_row_button = QPushButton("حذف المقطع المحدد")
         self.clear_table_button = QPushButton("مسح الجدول")
         self.add_classification_button = QPushButton("إضافة تصنيف")
         self.delete_classification_button = QPushButton("حذف التصنيف المحدد")
@@ -316,8 +330,8 @@ class MainWindow(QMainWindow):
         self.pre_padding_input = QDoubleSpinBox()
         self.post_padding_input = QDoubleSpinBox()
         self.readiness_button = QPushButton("فحص جاهزية البرنامج")
-        self.smart_validation_button = QPushButton("فحص ذكي قبل القص")
-        self.validate_button = QPushButton("فحص الجدول")
+        self.smart_validation_button = QPushButton("فحص الجدول قبل القص")
+        self.validate_button = QPushButton("فحص الجدول قبل القص")
         self.start_button = QPushButton("بدء القص")
         self.open_output_button = QPushButton("فتح مجلد النتائج")
         self.processing_status_label = QLabel("الحالة: جاهز")
@@ -349,13 +363,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_header_section())
         layout.addWidget(self._build_video_source_section())
         layout.addWidget(self._build_project_section())
-        layout.addWidget(self._build_queue_section())
         layout.addWidget(self._build_help_section())
+        layout.addWidget(self._build_paste_section())
         layout.addWidget(self._build_clips_section(), stretch=1)
         layout.addWidget(self._build_classification_section())
         layout.addWidget(self._build_padding_section())
-        layout.addWidget(self._build_paste_section())
         layout.addWidget(self._build_action_section())
+        layout.addWidget(self._build_queue_section())
         layout.addWidget(self._build_log_section(), stretch=1)
 
         return central
@@ -475,25 +489,29 @@ class MainWindow(QMainWindow):
         self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_HIGH_PRIORITY_COLUMN, QHeaderView.ResizeToContents)
         self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_ACTION_COLUMN, QHeaderView.Stretch)
 
-        button_row = QHBoxLayout()
-        button_row.addWidget(self.add_current_work_to_queue_button)
-        button_row.addWidget(self.add_queue_local_video_button)
-        button_row.addWidget(self.add_queue_url_button)
-        button_row.addWidget(self.save_queue_clips_button)
-        button_row.addWidget(self.load_queue_clips_button)
-        button_row.addWidget(self.load_queue_job_workspace_button)
-        button_row.addWidget(self.save_queue_state_button)
-        button_row.addWidget(self.load_queue_state_button)
-        button_row.addWidget(self.run_selected_queue_job_button)
-        button_row.addWidget(self.run_all_queue_simulation_button)
-        button_row.addWidget(self.validate_queue_job_button)
-        button_row.addWidget(self.validate_all_queue_jobs_button)
-        button_row.addWidget(self.delete_queue_job_button)
-        button_row.addWidget(self.clear_queue_button)
-        button_row.addStretch(1)
+        button_grid = QGridLayout()
+        queue_buttons = [
+            self.add_current_work_to_queue_button,
+            self.add_queue_local_video_button,
+            self.add_queue_url_button,
+            self.validate_queue_job_button,
+            self.validate_all_queue_jobs_button,
+            self.run_selected_queue_job_button,
+            self.run_all_queue_simulation_button,
+            self.save_queue_clips_button,
+            self.load_queue_clips_button,
+            self.load_queue_job_workspace_button,
+            self.save_queue_state_button,
+            self.load_queue_state_button,
+            self.delete_queue_job_button,
+            self.clear_queue_button,
+        ]
+        for index, button in enumerate(queue_buttons):
+            button_grid.addWidget(button, index // 4, index % 4)
+        button_grid.setColumnStretch(4, 1)
 
         layout.addWidget(self.queue_table)
-        layout.addLayout(button_row)
+        layout.addLayout(button_grid)
 
         return group
 
@@ -544,11 +562,11 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_paste_section(self) -> QGroupBox:
-        group = QGroupBox("لصق قائمة المقاطع")
+        group = QGroupBox("الصق الرسالة هنا")
         layout = QVBoxLayout(group)
 
-        layout.addWidget(QLabel("الصق قائمة المقاطع هنا"))
-        self.paste_message_input.setPlaceholderText("مثال: 1- 9:16 - 9:50 عنوان المقطع")
+        layout.addWidget(QLabel("الصق الرسالة هنا"))
+        self.paste_message_input.setPlaceholderText("الصق رسالة واتساب أو تيليجرام كاملة، ويمكن أن تحتوي على رابط الفيديو والمقاطع.")
         self.paste_message_input.setMinimumHeight(80)
 
         button_row = QHBoxLayout()
@@ -582,6 +600,7 @@ class MainWindow(QMainWindow):
         widget.setSingleStep(0.5)
         widget.setValue(0.0)
         widget.setSuffix(" ثانية")
+        widget.setToolTip("الافتراضي: 0 ثانية")
 
     def _build_clips_section(self) -> QGroupBox:
         group = QGroupBox("جدول المقاطع")
@@ -616,7 +635,6 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(group)
 
         layout.addWidget(self.readiness_button)
-        layout.addWidget(self.smart_validation_button)
         layout.addWidget(self.validate_button)
         layout.addWidget(self.start_button)
         layout.addWidget(self.open_output_button)
@@ -665,8 +683,8 @@ class MainWindow(QMainWindow):
         self.smart_paste_button.clicked.connect(self.import_smart_paste_message)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
         self.readiness_button.clicked.connect(self.check_readiness)
-        self.smart_validation_button.clicked.connect(self.run_smart_pre_cut_validation)
-        self.validate_button.clicked.connect(self.validate_inputs)
+        self.smart_validation_button.clicked.connect(self.validate_before_cutting)
+        self.validate_button.clicked.connect(self.validate_before_cutting)
         self.start_button.clicked.connect(self.start_processing)
         self.open_output_button.clicked.connect(self.open_output_folder)
 
@@ -1347,12 +1365,16 @@ class MainWindow(QMainWindow):
         self.classification_rules_table.setItem(row, RULE_FOLDER_COLUMN, QTableWidgetItem(rule.folder_name))
 
     def delete_selected_row(self) -> None:
-        selected_rows = self.clips_table.selectionModel().selectedRows()
-        if not selected_rows:
-            self._write_log("اختر صفًا من الجدول أولًا.")
+        selected_row_numbers = [index.row() for index in self.clips_table.selectionModel().selectedRows()]
+        if not selected_row_numbers:
+            selected_row_numbers = [index.row() for index in self.clips_table.selectedIndexes()]
+        if not selected_row_numbers and self.clips_table.currentRow() >= 0:
+            selected_row_numbers = [self.clips_table.currentRow()]
+        if not selected_row_numbers:
+            self._write_log("لا يوجد مقطع محدد")
             return
 
-        for row_index in sorted((index.row() for index in selected_rows), reverse=True):
+        for row_index in sorted(set(selected_row_numbers), reverse=True):
             self.clips_table.removeRow(row_index)
 
         self._renumber_rows()
@@ -1373,7 +1395,7 @@ class MainWindow(QMainWindow):
     def _ask_clear_table_confirmation(self) -> bool:
         dialog = QMessageBox(self)
         dialog.setWindowTitle("مسح الجدول")
-        dialog.setText("هل تريد مسح كل المقاطع من الجدول؟")
+        dialog.setText("هل تريد مسح كل المقاطع؟")
         clear_button = dialog.addButton("مسح الجدول", QMessageBox.AcceptRole)
         dialog.addButton("إلغاء", QMessageBox.RejectRole)
         dialog.setDefaultButton(clear_button)
@@ -1394,7 +1416,7 @@ class MainWindow(QMainWindow):
 
         import_mode = "replace"
         if self._table_has_clip_data():
-            import_mode = self._ask_table_import_mode("تحويل النص إلى جدول")
+            import_mode = self._ask_table_import_mode("تحويل بسيط إلى جدول")
             if import_mode is None:
                 self._append_log("تم إلغاء تحويل النص.")
                 return
@@ -1406,7 +1428,12 @@ class MainWindow(QMainWindow):
         self._write_log("\n".join(messages))
 
     def import_smart_paste_message(self) -> None:
-        dialog = SmartPasteImportDialog(self)
+        pasted_text = self.paste_message_input.toPlainText()
+        dialog = SmartPasteImportDialog(
+            self,
+            initial_text=pasted_text,
+            auto_generate=bool(pasted_text.strip()),
+        )
         if dialog.exec() != QDialog.Accepted or dialog.preview is None:
             self._append_log("تم إلغاء الاستيراد الذكي من الرسالة.")
             return
@@ -1452,6 +1479,17 @@ class MainWindow(QMainWindow):
         self._normalize_clip_table_times()
         self._write_log("تم فحص البيانات بنجاح. يمكنك بدء المعالجة.")
         return True
+
+    def validate_before_cutting(self) -> bool:
+        if not self.validate_inputs():
+            return False
+
+        report = validate_clips_before_cutting(
+            self._collect_clip_rows(),
+            known_video_duration_seconds=self._known_video_duration_for_smart_validation(),
+        )
+        self._append_log(format_smart_validation_report_ar(report))
+        return report.can_start_cutting
 
     def check_readiness(self) -> None:
         project_folder = self.output_root / sanitize_project_name(self.project_name_input.text())
@@ -1742,18 +1780,24 @@ class MainWindow(QMainWindow):
             )
 
     def _apply_smart_paste_preview(self, preview: SmartPastePreview) -> bool:
-        url_mode = self._resolve_smart_paste_url_mode(preview)
-        if url_mode is None:
+        if not preview.video_urls and not preview.clips:
+            self._write_log("لم يتم العثور على رابط أو مقاطع مفهومة")
+            return False
+
+        apply_mode = self._ask_smart_paste_apply_mode(preview)
+        if apply_mode is None:
             self._append_log("تم إلغاء تطبيق نتائج الاستيراد الذكي.")
             return False
 
-        clip_mode = self._resolve_smart_paste_clip_mode(preview)
-        if clip_mode is None:
-            self._append_log("تم إلغاء تطبيق نتائج الاستيراد الذكي.")
-            return False
+        if apply_mode == "queue":
+            return self._add_smart_paste_preview_to_queue(preview)
 
         applied_messages: list[str] = []
-        if url_mode in {"set", "replace"} and len(preview.video_urls) == 1:
+        if apply_mode == "replace" and len(preview.video_urls) == 1:
+            self.youtube_radio.setChecked(True)
+            self.youtube_input.setText(preview.video_urls[0])
+            applied_messages.append("تم تطبيق رابط الفيديو المكتشف.")
+        elif apply_mode == "append" and len(preview.video_urls) == 1 and not self.youtube_input.text().strip():
             self.youtube_radio.setChecked(True)
             self.youtube_input.setText(preview.video_urls[0])
             applied_messages.append("تم تطبيق رابط الفيديو المكتشف.")
@@ -1763,10 +1807,10 @@ class MainWindow(QMainWindow):
         regular_clips = [clip for clip in preview.clips if not clip.multi_part]
         multi_part_clips = [clip for clip in preview.clips if clip.multi_part]
 
-        if clip_mode in {"append", "replace"} and regular_clips:
+        if regular_clips:
             self._insert_clip_lines(
                 [self._smart_paste_clip_to_parsed_clip(clip) for clip in regular_clips],
-                append=clip_mode == "append",
+                append=apply_mode == "append",
             )
             applied_messages.append(f"تم تطبيق {len(regular_clips)} مقطع من الاستيراد الذكي.")
         if multi_part_clips:
@@ -1784,53 +1828,88 @@ class MainWindow(QMainWindow):
         self._write_log("\n".join(applied_messages))
         return True
 
-    def _resolve_smart_paste_url_mode(self, preview: SmartPastePreview) -> str | None:
-        if len(preview.video_urls) != 1:
-            return "skip"
-        if not self.youtube_input.text().strip():
-            return "set"
-        return self._ask_smart_paste_url_mode()
-
-    def _resolve_smart_paste_clip_mode(self, preview: SmartPastePreview) -> str | None:
-        if not preview.clips:
-            return "skip"
-        if self._table_has_clip_data():
-            return self._ask_smart_paste_clip_mode()
-        return "replace"
-
-    def _ask_smart_paste_url_mode(self) -> str | None:
+    def _ask_smart_paste_apply_mode(self, preview: SmartPastePreview) -> str | None:
         dialog = QMessageBox(self)
-        dialog.setWindowTitle("استيراد ذكي من رسالة")
-        dialog.setText("حقل رابط يوتيوب يحتوي على رابط. هل تريد استبداله بالرابط المكتشف؟")
-        replace_button = dialog.addButton("استبدال", QMessageBox.AcceptRole)
-        keep_button = dialog.addButton("عدم استبدال", QMessageBox.ActionRole)
-        dialog.addButton("إلغاء", QMessageBox.RejectRole)
-        dialog.setDefaultButton(keep_button)
+        dialog.setWindowTitle("استيراد ذكي")
+        dialog.setText("اختر طريقة تطبيق نتائج الاستيراد الذكي.")
+        replace_button = dialog.addButton(SMART_PASTE_REPLACE_LABEL, QMessageBox.AcceptRole)
+        append_button = dialog.addButton(SMART_PASTE_APPEND_LABEL, QMessageBox.ActionRole)
+        queue_button = dialog.addButton(SMART_PASTE_QUEUE_LABEL, QMessageBox.ActionRole)
+        dialog.addButton(SMART_PASTE_CANCEL_LABEL, QMessageBox.RejectRole)
+        dialog.setDefaultButton(append_button if self._table_has_clip_data() else replace_button)
         dialog.exec()
 
         clicked_button = dialog.clickedButton()
         if clicked_button == replace_button:
             return "replace"
-        if clicked_button == keep_button:
-            return "keep"
-        return None
-
-    def _ask_smart_paste_clip_mode(self) -> str | None:
-        dialog = QMessageBox(self)
-        dialog.setWindowTitle("استيراد ذكي من رسالة")
-        dialog.setText("جدول المقاطع يحتوي على بيانات. كيف تريد تطبيق المقاطع المكتشفة؟")
-        append_button = dialog.addButton("إضافة المقاطع الجديدة", QMessageBox.AcceptRole)
-        replace_button = dialog.addButton("استبدال الجدول الحالي", QMessageBox.ActionRole)
-        dialog.addButton("إلغاء", QMessageBox.RejectRole)
-        dialog.setDefaultButton(append_button)
-        dialog.exec()
-
-        clicked_button = dialog.clickedButton()
         if clicked_button == append_button:
             return "append"
-        if clicked_button == replace_button:
-            return "replace"
+        if clicked_button == queue_button:
+            return "queue"
         return None
+
+    def _add_smart_paste_preview_to_queue(self, preview: SmartPastePreview) -> bool:
+        source_snapshot = self._smart_paste_queue_source(preview)
+        if source_snapshot is None:
+            return False
+
+        source_type, source, title = source_snapshot
+        regular_clips = [clip for clip in preview.clips if not clip.multi_part]
+        multi_part_count = len(preview.clips) - len(regular_clips)
+        job = self._add_queue_job(
+            source_type,
+            source,
+            title,
+            clips=self._smart_paste_clip_jobs(regular_clips),
+        )
+        self.queue_table.setCurrentCell(self.job_queue.index(job), QUEUE_SOURCE_COLUMN)
+
+        messages = [
+            "تمت إضافة الاستيراد الذكي كمهمة جديدة في قائمة الانتظار",
+            "لم يتم بدء أي قص أو تحميل",
+        ]
+        if multi_part_count:
+            messages.append(
+                f"تم إبقاء {multi_part_count} مقطع مركب في المعاينة فقط لأن القص المركب لم يتم تفعيله بعد."
+            )
+        if preview.warnings:
+            messages.append(f"تمت الإضافة مع {len(preview.warnings)} تحذير.")
+        if preview.unparsed_lines:
+            messages.append(f"بقي {len(preview.unparsed_lines)} سطر لم يتم فهمه.")
+        self._write_log("\n".join(messages))
+        return True
+
+    def _smart_paste_queue_source(self, preview: SmartPastePreview) -> tuple[QueueVideoSourceType, str, str] | None:
+        title = preview.project_title or self.project_name_input.text().strip()
+        if len(preview.video_urls) == 1:
+            source = preview.video_urls[0]
+            source_type = self._supported_queue_url_source_type(source)
+            if source_type is None:
+                self._write_log("الرابط غير مدعوم حاليًا")
+                return None
+            return source_type, source, title or source
+
+        if len(preview.video_urls) > 1:
+            self._write_log("تم اكتشاف أكثر من رابط فيديو. اختر رابطًا واحدًا قبل إضافة المهمة.")
+            return None
+
+        current_source = self._current_work_queue_source()
+        if current_source is None:
+            return None
+        source_type, source, current_title = current_source
+        return source_type, source, title or current_title
+
+    def _smart_paste_clip_jobs(self, clips: list[SmartPasteClip]) -> list[ClipJob]:
+        return [
+            ClipJob(
+                title=clip.title,
+                start=clip.start,
+                end=clip.end,
+                exclusions=clip.exclusions_text,
+                notes=[clip.notes_text] if clip.notes_text else [],
+            )
+            for clip in clips
+        ]
 
     def _smart_paste_clip_to_parsed_clip(self, clip: SmartPasteClip) -> ParsedClipLine:
         return ParsedClipLine(

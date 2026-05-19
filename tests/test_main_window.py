@@ -4,7 +4,7 @@ import re
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QScrollArea
+from PySide6.QtWidgets import QApplication, QDialog, QScrollArea
 
 from src.main_window import (
     END_COLUMN,
@@ -18,6 +18,10 @@ from src.main_window import (
     RULE_MAX_COLUMN,
     RULE_MIN_COLUMN,
     RULE_NAME_COLUMN,
+    SMART_PASTE_APPEND_LABEL,
+    SMART_PASTE_CANCEL_LABEL,
+    SMART_PASTE_QUEUE_LABEL,
+    SMART_PASTE_REPLACE_LABEL,
     START_COLUMN,
     TITLE_COLUMN,
     MainWindow,
@@ -71,9 +75,9 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
         "Brave",
         "Firefox",
     ]
-    assert window.validate_button.text() == "فحص الجدول"
+    assert window.validate_button.text() == "فحص الجدول قبل القص"
     assert window.readiness_button.text() == "فحص جاهزية البرنامج"
-    assert window.smart_validation_button.text() == "فحص ذكي قبل القص"
+    assert window.smart_validation_button.text() == "فحص الجدول قبل القص"
     assert window.start_button.text() == "بدء القص"
     assert window.open_output_button.text() == "فتح مجلد النتائج"
     assert window.pre_padding_input.value() == 0
@@ -85,8 +89,9 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.pre_padding_input.value() == 0
     assert window.post_padding_input.value() == 0
     assert window.import_excel_button.text() == "استيراد من Excel"
-    assert window.smart_paste_button.text() == "استيراد ذكي من رسالة"
-    assert window.parse_message_button.text() == "تحويل النص إلى جدول"
+    assert window.smart_paste_button.text() == "استيراد ذكي"
+    assert window.parse_message_button.text() == "تحويل بسيط إلى جدول"
+    assert window.delete_row_button.text() == "حذف المقطع المحدد"
     assert [
         window.queue_table.horizontalHeaderItem(column).text()
         for column in range(window.queue_table.columnCount())
@@ -1287,6 +1292,35 @@ def test_smart_validation_button_writes_arabic_summary(monkeypatch) -> None:
     app.processEvents()
 
 
+def test_combined_validation_button_runs_table_and_smart_validation(monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    captured = {}
+
+    def fake_smart_validation(rows, *, known_video_duration_seconds):
+        captured["rows"] = list(rows)
+        captured["known_video_duration_seconds"] = known_video_duration_seconds
+        return SmartValidationReport(total_clips_count=1, issues=[])
+
+    monkeypatch.setattr("src.main_window.validate_clips_before_cutting", fake_smart_validation)
+    window.project_name_input.setText("مشروع")
+    window.youtube_input.setText("https://youtube.com/watch?v=test")
+    window.add_clip_row()
+    window.clips_table.item(0, TITLE_COLUMN).setText("مقطع")
+    window.clips_table.item(0, START_COLUMN).setText("4:15")
+    window.clips_table.item(0, END_COLUMN).setText("6:35")
+
+    assert window.validate_before_cutting() is True
+
+    assert len(captured["rows"]) == 1
+    assert window.clips_table.item(0, START_COLUMN).text() == "00:04:15"
+    assert window.clips_table.item(0, END_COLUMN).text() == "00:06:35"
+    assert "نتيجة الفحص الذكي قبل القص" in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
 def test_smart_paste_preview_dialog_generates_summary_and_clip_table() -> None:
     app = _app()
     dialog = SmartPasteImportDialog()
@@ -1346,6 +1380,7 @@ def test_smart_paste_preview_dialog_shows_multi_part_clips() -> None:
 def test_smart_paste_apply_empty_url_and_table_without_processing() -> None:
     app = _app()
     window = MainWindow()
+    window._ask_smart_paste_apply_mode = lambda preview: "replace"
     preview = SmartPastePreview(
         video_urls=["https://youtu.be/abc123"],
         project_title="",
@@ -1370,17 +1405,17 @@ def test_smart_paste_apply_empty_url_and_table_without_processing() -> None:
     app.processEvents()
 
 
-def test_smart_paste_does_not_overwrite_existing_url_without_confirmation() -> None:
+def test_smart_paste_does_not_apply_without_confirmation() -> None:
     app = _app()
     window = MainWindow()
     window.youtube_input.setText("https://youtu.be/existing")
-    asked = {"url": 0}
+    asked = {"apply": 0}
 
-    def cancel_url_replace():
-        asked["url"] += 1
+    def cancel_apply(preview):
+        asked["apply"] += 1
         return None
 
-    window._ask_smart_paste_url_mode = cancel_url_replace
+    window._ask_smart_paste_apply_mode = cancel_apply
     preview = SmartPastePreview(
         video_urls=["https://youtu.be/new"],
         project_title="",
@@ -1390,7 +1425,7 @@ def test_smart_paste_does_not_overwrite_existing_url_without_confirmation() -> N
     )
 
     assert window._apply_smart_paste_preview(preview) is False
-    assert asked["url"] == 1
+    assert asked["apply"] == 1
     assert window.youtube_input.text() == "https://youtu.be/existing"
 
     window.close()
@@ -1404,13 +1439,13 @@ def test_smart_paste_does_not_overwrite_existing_table_without_confirmation() ->
     window.clips_table.item(0, TITLE_COLUMN).setText("قديم")
     window.clips_table.item(0, START_COLUMN).setText("00:00:01")
     window.clips_table.item(0, END_COLUMN).setText("00:00:02")
-    asked = {"table": 0}
+    asked = {"apply": 0}
 
-    def cancel_table_apply():
-        asked["table"] += 1
+    def cancel_apply(preview):
+        asked["apply"] += 1
         return None
 
-    window._ask_smart_paste_clip_mode = cancel_table_apply
+    window._ask_smart_paste_apply_mode = cancel_apply
     preview = SmartPastePreview(
         video_urls=[],
         project_title="",
@@ -1420,7 +1455,7 @@ def test_smart_paste_does_not_overwrite_existing_table_without_confirmation() ->
     )
 
     assert window._apply_smart_paste_preview(preview) is False
-    assert asked["table"] == 1
+    assert asked["apply"] == 1
     assert window.clips_table.rowCount() == 1
     assert window.clips_table.item(0, TITLE_COLUMN).text() == "قديم"
 
@@ -1436,8 +1471,7 @@ def test_smart_paste_can_keep_existing_url_and_append_clips_with_warnings() -> N
     window.clips_table.item(0, TITLE_COLUMN).setText("قديم")
     window.clips_table.item(0, START_COLUMN).setText("00:00:01")
     window.clips_table.item(0, END_COLUMN).setText("00:00:02")
-    window._ask_smart_paste_url_mode = lambda: "keep"
-    window._ask_smart_paste_clip_mode = lambda: "append"
+    window._ask_smart_paste_apply_mode = lambda preview: "append"
     preview = SmartPastePreview(
         video_urls=["https://youtu.be/new"],
         project_title="",
@@ -1459,6 +1493,7 @@ def test_smart_paste_can_keep_existing_url_and_append_clips_with_warnings() -> N
 def test_smart_paste_applies_exclusions_to_existing_table_column() -> None:
     app = _app()
     window = MainWindow()
+    window._ask_smart_paste_apply_mode = lambda preview: "replace"
     preview = SmartPastePreview(
         video_urls=[],
         project_title="",
@@ -1487,6 +1522,7 @@ def test_smart_paste_applies_exclusions_to_existing_table_column() -> None:
 def test_smart_paste_keeps_multi_part_clips_preview_only() -> None:
     app = _app()
     window = MainWindow()
+    window._ask_smart_paste_apply_mode = lambda preview: "replace"
     preview = SmartPastePreview(
         video_urls=[],
         project_title="",
@@ -1511,6 +1547,91 @@ def test_smart_paste_keeps_multi_part_clips_preview_only() -> None:
     assert window._apply_smart_paste_preview(preview) is True
     assert window.clips_table.rowCount() == 0
     assert "مقطع مركب في المعاينة فقط" in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
+def test_smart_paste_main_paste_box_opens_preview_without_processing(monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    captured = {}
+
+    def fake_exec(dialog):
+        captured["text"] = dialog.message_input.toPlainText()
+        captured["summary"] = dialog.summary_label.text()
+        assert dialog.preview is not None
+        return QDialog.Accepted
+
+    monkeypatch.setattr("src.main_window.SmartPasteImportDialog.exec", fake_exec)
+    window._ask_smart_paste_apply_mode = lambda preview: "append"
+    window.paste_message_input.setPlainText(
+        "https://youtu.be/abc123\n"
+        "01:00 - 02:00 عنوان"
+    )
+
+    window.import_smart_paste_message()
+
+    assert captured["text"].startswith("https://youtu.be/abc123")
+    assert "عدد الروابط: 1" in captured["summary"]
+    assert window.youtube_input.text() == "https://youtu.be/abc123"
+    assert window.clips_table.rowCount() == 1
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_smart_paste_apply_choices_are_user_facing_arabic_labels() -> None:
+    assert SMART_PASTE_REPLACE_LABEL == "استبدال البيانات الحالية"
+    assert SMART_PASTE_APPEND_LABEL == "إضافة كمقاطع جديدة"
+    assert SMART_PASTE_QUEUE_LABEL == "إضافة كمهمة جديدة في قائمة الانتظار"
+    assert SMART_PASTE_CANCEL_LABEL == "إلغاء"
+
+
+def test_smart_paste_can_add_detected_data_as_queue_job_without_processing() -> None:
+    app = _app()
+    window = MainWindow()
+    window.project_name_input.setText("مشروع")
+    window._ask_smart_paste_apply_mode = lambda preview: "queue"
+    preview = SmartPastePreview(
+        video_urls=["https://youtu.be/abc123"],
+        project_title="عنوان من الرسالة",
+        clips=[SmartPasteClip(1, "مقطع", "00:01:00", "00:02:00", 1, "01:00 - 02:00 مقطع")],
+        warnings=[],
+        unparsed_lines=[],
+    )
+
+    assert window._apply_smart_paste_preview(preview) is True
+
+    assert len(window.job_queue) == 1
+    assert window.job_queue[0].source_type == QueueVideoSourceType.YOUTUBE
+    assert window.job_queue[0].source == "https://youtu.be/abc123"
+    assert window.job_queue[0].title == "عنوان من الرسالة"
+    assert len(window.job_queue[0].clips) == 1
+    assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "1"
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_smart_paste_no_detected_url_or_clips_shows_clear_message() -> None:
+    app = _app()
+    window = MainWindow()
+    window._ask_smart_paste_apply_mode = lambda preview: "replace"
+    preview = SmartPastePreview(
+        video_urls=[],
+        project_title="",
+        clips=[],
+        warnings=[],
+        unparsed_lines=[],
+    )
+
+    assert window._apply_smart_paste_preview(preview) is False
+    assert "لم يتم العثور على رابط أو مقاطع مفهومة" in window.log_area.toPlainText()
 
     window.close()
     app.processEvents()
@@ -1562,6 +1683,40 @@ def test_table_starts_empty_and_add_row_creates_blank_row() -> None:
     assert window.clips_table.item(0, START_COLUMN).text() == ""
     assert window.clips_table.item(0, END_COLUMN).text() == ""
     assert window.clips_table.item(0, EXCLUSIONS_COLUMN).text() == ""
+
+    window.close()
+    app.processEvents()
+
+
+def test_delete_selected_clip_row_removes_only_selected_row() -> None:
+    app = _app()
+    window = MainWindow()
+    window._insert_clip_row(1, "الأول", "00:01:00", "00:02:00")
+    window._insert_clip_row(2, "الثاني", "00:03:00", "00:04:00")
+    window.clips_table.selectRow(0)
+    window.clips_table.setCurrentCell(0, TITLE_COLUMN)
+
+    window.delete_selected_row()
+
+    assert window.clips_table.rowCount() == 1
+    assert window.clips_table.item(0, TITLE_COLUMN).text() == "الثاني"
+    assert window.clips_table.item(0, 0).text() == "1"
+
+    window.close()
+    app.processEvents()
+
+
+def test_delete_clip_without_selected_row_does_not_crash() -> None:
+    app = _app()
+    window = MainWindow()
+    window._insert_clip_row(1, "الأول", "00:01:00", "00:02:00")
+    window.clips_table.clearSelection()
+    window.clips_table.setCurrentCell(-1, -1)
+
+    window.delete_selected_row()
+
+    assert window.clips_table.rowCount() == 1
+    assert "لا يوجد مقطع محدد" in window.log_area.toPlainText()
 
     window.close()
     app.processEvents()
