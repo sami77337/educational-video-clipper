@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 
 from src.classification import ClassificationRule
+from src.clip_padding import ClipPadding
 from src.video_processor import (
+    AR_CLIP_PADDING_APPLIED,
     AR_FFMPEG_NOT_FOUND,
     AR_PROJECT_NAME_CLEANED,
     AR_EMPTY_LOCAL_VIDEO,
@@ -241,10 +243,69 @@ def test_cut_clips_generates_reels_output_and_logs(tmp_path) -> None:
     assert results[0].output_path == input_path.parent / REELS_FOLDER_NAME / "1_ريل قصير.mp4"
     assert len(commands) == 1
     assert commands[0][0] == "ffmpeg"
+    assert commands[0][commands[0].index("-ss") + 1] == "5"
+    assert commands[0][commands[0].index("-t") + 1] == "20"
+    assert AR_CLIP_PADDING_APPLIED not in messages
     assert "لا توجد استثناءات للمقطع 01" in messages
     assert "تم قص المقطع بدون استثناءات" in messages
     assert "جاري قص المقطع 1" in messages
     assert "تم الانتهاء من القص والفرز" in messages
+
+
+def test_cut_clips_applies_pre_and_post_padding_to_ffmpeg_command(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(number=1, title="clip", start_seconds=5, end_seconds=25)
+    commands: list[list[str]] = []
+    messages: list[str] = []
+
+    def fake_runner(command, **kwargs):
+        commands.append(command)
+
+    cut_clips(
+        prepared_video,
+        [clip],
+        messages.append,
+        fake_runner,
+        clip_padding=ClipPadding(pre_seconds=0.5, post_seconds=1),
+    )
+
+    assert commands[0][commands[0].index("-ss") + 1] == "4.5"
+    assert commands[0][commands[0].index("-t") + 1] == "21.5"
+    assert AR_CLIP_PADDING_APPLIED in messages
+
+
+def test_cut_clips_clamps_post_padding_to_known_video_duration(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(number=1, title="clip", start_seconds=10, end_seconds=20)
+    commands: list[list[str]] = []
+
+    def fake_runner(command, **kwargs):
+        commands.append(command)
+
+    cut_clips(
+        prepared_video,
+        [clip],
+        runner=fake_runner,
+        clip_padding=ClipPadding(post_seconds=10),
+        video_duration_seconds=25,
+    )
+
+    assert commands[0][commands[0].index("-ss") + 1] == "10"
+    assert commands[0][commands[0].index("-t") + 1] == "15"
 
 
 def test_cut_clips_uses_custom_classification_folder_and_logs(tmp_path) -> None:
@@ -348,6 +409,39 @@ def test_cut_clip_with_one_exclusion_builds_segment_and_concat_commands(tmp_path
     assert "تم حذف الجزء 00:27:40 - 00:28:20" in messages
     assert "تم دمج أجزاء المقطع 01" in messages
     assert not (input_path.parent / "_temp_segments").exists()
+
+
+def test_cut_clip_with_exclusion_uses_effective_padded_bounds(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    output_path = input_path.parent / REELS_FOLDER_NAME / "1_clip.mp4"
+    clip = ClipDefinition(
+        number=1,
+        title="clip",
+        start_seconds=100,
+        end_seconds=200,
+        exclusions="00:02:30-00:02:40",
+    )
+    commands: list[list[str]] = []
+
+    def fake_runner(command, **kwargs):
+        commands.append(command)
+
+    cut_clip_with_exclusions(
+        input_path,
+        output_path,
+        clip,
+        input_path.parent / "_temp_segments",
+        runner=fake_runner,
+        effective_start_seconds=95,
+        effective_end_seconds=202,
+    )
+
+    assert commands[0][commands[0].index("-ss") + 1] == "95"
+    assert commands[0][commands[0].index("-t") + 1] == "55"
+    assert commands[1][commands[1].index("-ss") + 1] == "160"
+    assert commands[1][commands[1].index("-t") + 1] == "42"
 
 
 def test_cut_clips_with_multiple_exclusions_uses_all_kept_segments(tmp_path) -> None:

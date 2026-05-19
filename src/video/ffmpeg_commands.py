@@ -8,8 +8,8 @@ from pathlib import Path
 def build_ffmpeg_command(
     input_video_path: str | Path,
     output_video_path: str | Path,
-    start_seconds: int,
-    duration_seconds: int,
+    start_seconds: int | float,
+    duration_seconds: int | float,
 ) -> list[str]:
     """Build the ffmpeg command used to cut a clip."""
 
@@ -17,9 +17,9 @@ def build_ffmpeg_command(
         "ffmpeg",
         "-y",
         "-ss",
-        str(start_seconds),
+        _format_ffmpeg_seconds(start_seconds),
         "-t",
-        str(duration_seconds),
+        _format_ffmpeg_seconds(duration_seconds),
         "-i",
         str(input_video_path),
         "-c:v",
@@ -55,3 +55,10 @@ def build_ffmpeg_concat_command(
         "copy",
         str(output_video_path),
     ]
+
+
+def _format_ffmpeg_seconds(value: int | float) -> str:
+    seconds = float(value)
+    if seconds.is_integer():
+        return str(int(seconds))
+    return f"{seconds:.3f}".rstrip("0").rstrip(".")
