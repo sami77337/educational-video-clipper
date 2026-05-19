@@ -104,6 +104,64 @@ def test_build_processing_report_includes_required_content(tmp_path) -> None:
     assert "Skipped or failed items:\n- None" in report
 
 
+def test_build_processing_report_preserves_zero_padding_no_exclusions_behavior() -> None:
+    timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
+    data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+        clip_details=[
+            ProcessingReportClipData(
+                number=1,
+                title="عنوان المقطع",
+                start="00:01:00",
+                end="00:02:00",
+                exclusions="",
+                folder_name=REELS_FOLDER_NAME,
+            )
+        ],
+    )
+
+    report = build_processing_report(data)
+
+    assert "وقت قبل بداية المقطع" not in report
+    assert "وقت بعد نهاية المقطع" not in report
+    assert "عدد الاستثناءات" not in report
+    assert "تم تطبيق أكثر من استثناء داخل هذا المقطع" not in report
+    assert "الاستثناءات:" not in report
+    assert "01 - عنوان المقطع" in report
+
+
+def test_build_processing_report_includes_pre_and_post_padding_values() -> None:
+    timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
+    data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+        pre_padding_seconds=0.5,
+        post_padding_seconds=2,
+    )
+
+    report = build_processing_report(data)
+
+    assert "وقت قبل بداية المقطع: 0.5 ثانية" in report
+    assert "وقت بعد نهاية المقطع: 2 ثانية" in report
+
+
 def test_build_processing_report_includes_dynamic_rules_and_counts(tmp_path) -> None:
     started_at = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
     ended_at = datetime(2026, 5, 13, 10, 3, tzinfo=timezone.utc)
@@ -167,7 +225,41 @@ def test_build_processing_report_includes_clip_exclusions() -> None:
     assert "البداية: 00:26:56" in report
     assert "النهاية: 00:29:14" in report
     assert "الاستثناءات: 00:27:40-00:28:20" in report
+    assert "عدد الاستثناءات داخل المقطع: 1" in report
+    assert "تم تطبيق أكثر من استثناء داخل هذا المقطع" not in report
     assert f"المجلد: {REELS_FOLDER_NAME}" in report
+
+
+def test_build_processing_report_includes_multiple_exclusion_count_and_note() -> None:
+    timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
+    data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+        clip_details=[
+            ProcessingReportClipData(
+                number=1,
+                title="عنوان المقطع",
+                start="00:01:00",
+                end="00:05:00",
+                exclusions="00:02:00-00:02:10, 00:03:00-00:03:15",
+                folder_name=REELS_FOLDER_NAME,
+            )
+        ],
+    )
+
+    report = build_processing_report(data)
+
+    assert "الاستثناءات: 00:02:00-00:02:10, 00:03:00-00:03:15" in report
+    assert "عدد الاستثناءات داخل المقطع: 2" in report
+    assert "تم تطبيق أكثر من استثناء داخل هذا المقطع" in report
 
 
 def test_export_results_creates_full_result_folder_structure(tmp_path) -> None:
