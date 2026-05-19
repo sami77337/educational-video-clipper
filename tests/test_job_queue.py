@@ -41,6 +41,7 @@ def test_clip_job_creation() -> None:
 def test_job_status_values() -> None:
     assert {status.value for status in JobStatus} == {
         "draft",
+        "validating",
         "ready",
         "validation_error",
         "warning",
