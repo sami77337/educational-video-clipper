@@ -285,8 +285,9 @@ class MainWindow(QMainWindow):
         self.queue_table = QTableWidget(0, 6)
         self.add_queue_local_video_button = QPushButton("إضافة فيديو محلي")
         self.add_queue_url_button = QPushButton("إضافة رابط")
-        self.validate_queue_job_button = QPushButton("فحص المهمة المحددة")
-        self.delete_queue_job_button = QPushButton("حذف المهمة المحددة")
+        self.run_selected_queue_job_button = QPushButton("تشغيل المحدد فقط")
+        self.validate_queue_job_button = QPushButton("إعادة فحص المحدد")
+        self.delete_queue_job_button = QPushButton("إزالة المهمة المحددة")
         self.clear_queue_button = QPushButton("مسح القائمة")
         self.clips_table = QTableWidget(0, 5)
         self.classification_rules_table = QTableWidget(0, 4)
@@ -459,6 +460,7 @@ class MainWindow(QMainWindow):
         button_row = QHBoxLayout()
         button_row.addWidget(self.add_queue_local_video_button)
         button_row.addWidget(self.add_queue_url_button)
+        button_row.addWidget(self.run_selected_queue_job_button)
         button_row.addWidget(self.validate_queue_job_button)
         button_row.addWidget(self.delete_queue_job_button)
         button_row.addWidget(self.clear_queue_button)
@@ -599,6 +601,7 @@ class MainWindow(QMainWindow):
         self.reset_classification_button.clicked.connect(self.reset_classification_rules)
         self.add_queue_local_video_button.clicked.connect(self.add_local_video_to_queue)
         self.add_queue_url_button.clicked.connect(self.add_url_to_queue)
+        self.run_selected_queue_job_button.clicked.connect(self.run_selected_queue_job)
         self.validate_queue_job_button.clicked.connect(self.validate_selected_queue_job)
         self.delete_queue_job_button.clicked.connect(self.delete_selected_queue_job)
         self.clear_queue_button.clicked.connect(self.clear_queue)
@@ -748,31 +751,66 @@ class MainWindow(QMainWindow):
     def validate_selected_queue_job(self) -> None:
         row = self._selected_queue_row()
         if row is None:
-            self._write_log("اختر مهمة من قائمة الانتظار أولًا.")
+            self._write_log("لا توجد مهمة محددة")
             return
 
         job = self.job_queue[row]
         result = validate_queue_job(job)
         apply_queue_validation_result(job, result)
         self._refresh_queue_job_row(row)
-        self._write_log(format_queue_validation_result_ar(result))
+        self._write_log("تم فحص المهمة المحددة\n" + format_queue_validation_result_ar(result))
+
+    def run_selected_queue_job(self) -> None:
+        row = self._selected_queue_row()
+        if row is None:
+            self._write_log("لا توجد مهمة محددة")
+            return
+
+        self._write_log("تشغيل قائمة الانتظار سيتم تفعيله في مرحلة لاحقة")
 
     def delete_selected_queue_job(self) -> None:
         row_numbers = self._selected_queue_rows()
         if not row_numbers:
-            self._write_log("اختر مهمة من قائمة الانتظار أولًا.")
+            self._write_log("لا توجد مهمة محددة")
             return
 
+        removed_count = 0
         for row_index in sorted(set(row_numbers), reverse=True):
-            if 0 <= row_index < len(self.job_queue):
-                del self.job_queue[row_index]
+            if not 0 <= row_index < len(self.job_queue):
+                continue
+            if self._queue_job_is_running(self.job_queue[row_index]):
+                continue
+            del self.job_queue[row_index]
             self.queue_table.removeRow(row_index)
-        self._write_log("تم حذف المهمة المحددة من قائمة الانتظار.")
+            removed_count += 1
+
+        if removed_count:
+            self._write_log("تم حذف المهمة المحددة")
+        else:
+            self._write_log("لا توجد مهمة محددة")
 
     def clear_queue(self) -> None:
+        if not self.job_queue:
+            self._write_log("تم مسح قائمة الانتظار")
+            return
+
+        if not self._ask_clear_queue_confirmation():
+            self._write_log("تم إلغاء مسح قائمة الانتظار")
+            return
+
         self.job_queue.clear()
         self.queue_table.setRowCount(0)
-        self._write_log("تم مسح قائمة الانتظار.")
+        self._write_log("تم مسح قائمة الانتظار")
+
+    def _ask_clear_queue_confirmation(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("مسح قائمة الانتظار")
+        dialog.setText("هل تريد مسح كل المهام من قائمة الانتظار؟")
+        clear_button = dialog.addButton("مسح القائمة", QMessageBox.AcceptRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(clear_button)
+        dialog.exec()
+        return dialog.clickedButton() == clear_button
 
     def _selected_queue_row(self) -> int | None:
         row_numbers = self._selected_queue_rows()
@@ -784,6 +822,9 @@ class MainWindow(QMainWindow):
         if not row_numbers and self.queue_table.currentRow() >= 0:
             row_numbers = [self.queue_table.currentRow()]
         return sorted(set(row_numbers))
+
+    def _queue_job_is_running(self, job: VideoJob) -> bool:
+        return job.status in {JobStatus.DOWNLOADING, JobStatus.CUTTING, JobStatus.VERIFYING}
 
     def _refresh_queue_job_row(self, row: int) -> None:
         if not 0 <= row < len(self.job_queue):
@@ -1487,6 +1528,7 @@ class MainWindow(QMainWindow):
             self.queue_table,
             self.add_queue_local_video_button,
             self.add_queue_url_button,
+            self.run_selected_queue_job_button,
             self.validate_queue_job_button,
             self.delete_queue_job_button,
             self.clear_queue_button,

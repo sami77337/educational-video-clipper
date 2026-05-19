@@ -86,8 +86,9 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.queue_table.rowCount() == 0
     assert window.add_queue_local_video_button.text() == "إضافة فيديو محلي"
     assert window.add_queue_url_button.text() == "إضافة رابط"
-    assert window.validate_queue_job_button.text() == "فحص المهمة المحددة"
-    assert window.delete_queue_job_button.text() == "حذف المهمة المحددة"
+    assert window.run_selected_queue_job_button.text() == "تشغيل المحدد فقط"
+    assert window.validate_queue_job_button.text() == "إعادة فحص المحدد"
+    assert window.delete_queue_job_button.text() == "إزالة المهمة المحددة"
     assert window.clear_queue_button.text() == "مسح القائمة"
 
     window.close()
@@ -155,6 +156,7 @@ def test_queue_delete_and_clear_are_passive() -> None:
     window = MainWindow()
     window._add_queue_url_job("https://youtu.be/abc123", title="الأول")
     window._add_queue_url_job("https://youtu.be/def456", title="الثاني")
+    window._ask_clear_queue_confirmation = lambda: True
 
     window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
     window.delete_selected_queue_job()
@@ -167,6 +169,36 @@ def test_queue_delete_and_clear_are_passive() -> None:
 
     assert window.job_queue == []
     assert window.queue_table.rowCount() == 0
+    assert window._processing_thread is None
+    assert "تم مسح قائمة الانتظار" in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_run_selected_only_is_passive() -> None:
+    app = _app()
+    window = MainWindow()
+    window._add_queue_url_job("https://youtu.be/abc123", title="درس")
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.run_selected_queue_job()
+
+    assert "تشغيل قائمة الانتظار سيتم تفعيله في مرحلة لاحقة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_run_selected_without_selection_shows_feedback() -> None:
+    app = _app()
+    window = MainWindow()
+
+    window.run_selected_queue_job()
+
+    assert "لا توجد مهمة محددة" in window.log_area.toPlainText()
     assert window._processing_thread is None
 
     window.close()
@@ -185,6 +217,7 @@ def test_queue_validate_selected_local_job_updates_status_without_processing(tmp
 
     assert job.status == JobStatus.READY
     assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "جاهز"
+    assert "تم فحص المهمة المحددة" in window.log_area.toPlainText()
     assert "الملف موجود" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
@@ -207,6 +240,47 @@ def test_queue_validate_selected_unsupported_url_sets_error_without_processing()
     assert "لا يمكن بدء المهمة قبل إصلاح الأخطاء" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_high_priority_checkbox_toggles_per_job() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://youtu.be/abc123", title="درس")
+    priority_item = window.queue_table.item(0, QUEUE_HIGH_PRIORITY_COLUMN)
+
+    priority_item.setCheckState(Qt.Checked)
+
+    assert job.settings.high_priority is True
+
+    priority_item.setCheckState(Qt.Unchecked)
+
+    assert job.settings.high_priority is False
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_clear_requires_confirmation() -> None:
+    app = _app()
+    window = MainWindow()
+    window._add_queue_url_job("https://youtu.be/abc123", title="درس")
+    window._ask_clear_queue_confirmation = lambda: False
+
+    window.clear_queue()
+
+    assert len(window.job_queue) == 1
+    assert window.queue_table.rowCount() == 1
+    assert "تم إلغاء مسح قائمة الانتظار" in window.log_area.toPlainText()
+
+    window._ask_clear_queue_confirmation = lambda: True
+
+    window.clear_queue()
+
+    assert window.job_queue == []
+    assert window.queue_table.rowCount() == 0
 
     window.close()
     app.processEvents()
