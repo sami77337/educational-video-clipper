@@ -290,6 +290,7 @@ class MainWindow(QMainWindow):
         self.add_queue_url_button = QPushButton("إضافة رابط")
         self.save_queue_clips_button = QPushButton("حفظ المقاطع للمهمة المحددة")
         self.load_queue_clips_button = QPushButton("تحميل مقاطع المهمة المحددة")
+        self.load_queue_job_workspace_button = QPushButton("تحميل المهمة المحددة للتحرير")
         self.save_queue_state_button = QPushButton("حفظ قائمة الانتظار")
         self.load_queue_state_button = QPushButton("تحميل قائمة انتظار")
         self.run_selected_queue_job_button = QPushButton("تشغيل المحدد فقط")
@@ -470,6 +471,7 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.add_queue_url_button)
         button_row.addWidget(self.save_queue_clips_button)
         button_row.addWidget(self.load_queue_clips_button)
+        button_row.addWidget(self.load_queue_job_workspace_button)
         button_row.addWidget(self.save_queue_state_button)
         button_row.addWidget(self.load_queue_state_button)
         button_row.addWidget(self.run_selected_queue_job_button)
@@ -616,6 +618,7 @@ class MainWindow(QMainWindow):
         self.add_queue_url_button.clicked.connect(self.add_url_to_queue)
         self.save_queue_clips_button.clicked.connect(self.save_clips_to_selected_queue_job)
         self.load_queue_clips_button.clicked.connect(self.load_clips_from_selected_queue_job)
+        self.load_queue_job_workspace_button.clicked.connect(self.load_selected_queue_job_to_workspace)
         self.save_queue_state_button.clicked.connect(self.save_queue_state)
         self.load_queue_state_button.clicked.connect(self.load_queue_state)
         self.run_selected_queue_job_button.clicked.connect(self.run_selected_queue_job)
@@ -926,6 +929,85 @@ class MainWindow(QMainWindow):
         dialog = QMessageBox(self)
         dialog.setWindowTitle("تحميل مقاطع المهمة المحددة")
         dialog.setText("يوجد مقاطع حالية في الجدول. هل تريد استبدالها؟")
+        replace_button = dialog.addButton("استبدال", QMessageBox.AcceptRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(replace_button)
+        dialog.exec()
+        return dialog.clickedButton() == replace_button
+
+    def load_selected_queue_job_to_workspace(self) -> None:
+        row = self._selected_queue_row()
+        if row is None:
+            self._write_log("لا توجد مهمة محددة")
+            return
+
+        job = self.job_queue[row]
+        if not job.source.strip():
+            self._write_log("لا يوجد مصدر محفوظ لهذه المهمة")
+            return
+
+        replaced_source = self._workspace_source_has_data(job)
+        if replaced_source and not self._ask_replace_workspace_source_confirmation():
+            return
+
+        replaced_clips = False
+        missing_clips = False
+        if job.clips:
+            if self.clips_table.rowCount() > 0:
+                if not self._ask_replace_current_clip_table_confirmation():
+                    return
+                replaced_clips = True
+        else:
+            missing_clips = True
+
+        self._apply_queue_job_source_to_workspace(job)
+        if job.clips:
+            self._load_clip_jobs_to_table(job.clips)
+
+        if job.title.strip():
+            self.project_name_input.setText(job.title.strip())
+
+        messages = []
+        if replaced_source:
+            messages.append("تم استبدال مصدر الفيديو الحالي")
+        if replaced_clips:
+            messages.append("تم استبدال مقاطع الجدول")
+        if missing_clips:
+            messages.append("لا توجد مقاطع محفوظة لهذه المهمة")
+        messages.extend(["تم تحميل المهمة المحددة للتحرير", "لم يتم بدء أي قص أو تحميل"])
+        self._write_log("\n".join(messages))
+
+    def _load_clip_jobs_to_table(self, clips: list[ClipJob]) -> None:
+        self.clips_table.setRowCount(0)
+        for index, clip in enumerate(clips, start=1):
+            self._insert_clip_row(
+                index,
+                clip.title,
+                clip.start,
+                clip.end,
+                clip.exclusions,
+            )
+
+    def _workspace_source_has_data(self, job: VideoJob) -> bool:
+        current_sources = [
+            self.youtube_input.text().strip(),
+            self.local_file_input.text().strip(),
+        ]
+        return any(source and source != job.source for source in current_sources)
+
+    def _apply_queue_job_source_to_workspace(self, job: VideoJob) -> None:
+        if job.source_type == QueueVideoSourceType.LOCAL:
+            self.local_file_radio.setChecked(True)
+            self.local_file_input.setText(job.source)
+        else:
+            self.youtube_radio.setChecked(True)
+            self.youtube_input.setText(job.source)
+        self._update_source_inputs()
+
+    def _ask_replace_workspace_source_confirmation(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("تحميل المهمة المحددة للتحرير")
+        dialog.setText("يوجد مصدر فيديو حالي. هل تريد استبداله؟")
         replace_button = dialog.addButton("استبدال", QMessageBox.AcceptRole)
         dialog.addButton("إلغاء", QMessageBox.RejectRole)
         dialog.setDefaultButton(replace_button)
@@ -1772,6 +1854,7 @@ class MainWindow(QMainWindow):
             self.add_queue_url_button,
             self.save_queue_clips_button,
             self.load_queue_clips_button,
+            self.load_queue_job_workspace_button,
             self.save_queue_state_button,
             self.load_queue_state_button,
             self.run_selected_queue_job_button,
