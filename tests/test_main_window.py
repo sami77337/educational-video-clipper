@@ -3,11 +3,17 @@ import re
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QScrollArea
 
 from src.main_window import (
     END_COLUMN,
     EXCLUSIONS_COLUMN,
+    QUEUE_CLIP_COUNT_COLUMN,
+    QUEUE_HIGH_PRIORITY_COLUMN,
+    QUEUE_SOURCE_COLUMN,
+    QUEUE_STATUS_COLUMN,
+    QUEUE_TITLE_COLUMN,
     RULE_FOLDER_COLUMN,
     RULE_MAX_COLUMN,
     RULE_MIN_COLUMN,
@@ -17,6 +23,7 @@ from src.main_window import (
     MainWindow,
     SmartPasteImportDialog,
 )
+from src.job_queue import VideoSourceType as QueueVideoSourceType
 from src.readiness import STATUS_READY, ReadinessCheckItem, ReadinessReport
 from src.smart_paste_parser import (
     SmartPasteClip,
@@ -72,6 +79,94 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.import_excel_button.text() == "استيراد من Excel"
     assert window.smart_paste_button.text() == "استيراد ذكي من رسالة"
     assert window.parse_message_button.text() == "تحويل النص إلى جدول"
+    assert [
+        window.queue_table.horizontalHeaderItem(column).text()
+        for column in range(window.queue_table.columnCount())
+    ] == ["المصدر", "العنوان", "عدد المقاطع", "الحالة", "أولوية عالية", "الإجراء"]
+    assert window.queue_table.rowCount() == 0
+    assert window.add_queue_local_video_button.text() == "إضافة فيديو محلي"
+    assert window.add_queue_url_button.text() == "إضافة رابط"
+    assert window.delete_queue_job_button.text() == "حذف المهمة المحددة"
+    assert window.clear_queue_button.text() == "مسح القائمة"
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_local_video_adds_video_job_without_processing() -> None:
+    app = _app()
+    window = MainWindow()
+
+    job = window._add_queue_local_file_job("C:/videos/lesson.mp4")
+
+    assert job.source_type == QueueVideoSourceType.LOCAL
+    assert job.source.replace("\\", "/") == "C:/videos/lesson.mp4"
+    assert job.title == "lesson"
+    assert job.settings.high_priority is False
+    assert window.queue_table.rowCount() == 1
+    assert window.queue_table.item(0, QUEUE_SOURCE_COLUMN).text() == "فيديو محلي"
+    assert window.queue_table.item(0, QUEUE_TITLE_COLUMN).text() == "lesson"
+    assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "0"
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مسودة"
+    assert window.queue_table.item(0, QUEUE_HIGH_PRIORITY_COLUMN).checkState() == Qt.Unchecked
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_url_adds_video_job_without_processing() -> None:
+    app = _app()
+    window = MainWindow()
+
+    job = window._add_queue_url_job("https://youtu.be/abc123", title="درس")
+
+    assert job.source_type == QueueVideoSourceType.YOUTUBE
+    assert job.source == "https://youtu.be/abc123"
+    assert job.title == "درس"
+    assert window.queue_table.rowCount() == 1
+    assert window.queue_table.item(0, QUEUE_SOURCE_COLUMN).text() == "رابط يوتيوب"
+    assert window.queue_table.item(0, QUEUE_HIGH_PRIORITY_COLUMN).checkState() == Qt.Unchecked
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_facebook_url_is_created_as_facebook_job() -> None:
+    app = _app()
+    window = MainWindow()
+
+    job = window._add_queue_url_job("https://facebook.com/watch/example", title="درس")
+
+    assert job.source_type == QueueVideoSourceType.FACEBOOK
+    assert window.queue_table.item(0, QUEUE_SOURCE_COLUMN).text() == "رابط Facebook"
+    assert window._processing_thread is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_delete_and_clear_are_passive() -> None:
+    app = _app()
+    window = MainWindow()
+    window._add_queue_url_job("https://youtu.be/abc123", title="الأول")
+    window._add_queue_url_job("https://youtu.be/def456", title="الثاني")
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.delete_selected_queue_job()
+
+    assert len(window.job_queue) == 1
+    assert window.queue_table.rowCount() == 1
+    assert window.queue_table.item(0, QUEUE_TITLE_COLUMN).text() == "الثاني"
+
+    window.clear_queue()
+
+    assert window.job_queue == []
+    assert window.queue_table.rowCount() == 0
+    assert window._processing_thread is None
 
     window.close()
     app.processEvents()

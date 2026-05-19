@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QApplication,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -46,6 +47,7 @@ from src.classification import (
 )
 from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
+from src.job_queue import JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
 from src.message_parser import ParsedClipLine, parse_clip_message
 from src.readiness import format_readiness_report_ar, run_readiness_check
 from src.smart_paste_parser import SmartPasteClip, SmartPastePreview, parse_smart_paste_message
@@ -76,6 +78,12 @@ RULE_NAME_COLUMN = 0
 RULE_MIN_COLUMN = 1
 RULE_MAX_COLUMN = 2
 RULE_FOLDER_COLUMN = 3
+QUEUE_SOURCE_COLUMN = 0
+QUEUE_TITLE_COLUMN = 1
+QUEUE_CLIP_COUNT_COLUMN = 2
+QUEUE_STATUS_COLUMN = 3
+QUEUE_HIGH_PRIORITY_COLUMN = 4
+QUEUE_ACTION_COLUMN = 5
 AR_OPEN_MINUTES = "مفتوح"
 
 
@@ -247,6 +255,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.output_root = Path.cwd() / "output"
         self.video_processor = VideoProcessor(self.output_root)
+        self.job_queue: list[VideoJob] = []
         self._processing_thread: QThread | None = None
         self._processing_worker: ProcessingWorker | None = None
         self._last_output_folder: Path | None = None
@@ -268,6 +277,11 @@ class MainWindow(QMainWindow):
         self.paste_message_input = QTextEdit()
         self.smart_paste_button = QPushButton("استيراد ذكي من رسالة")
         self.parse_message_button = QPushButton("تحويل النص إلى جدول")
+        self.queue_table = QTableWidget(0, 6)
+        self.add_queue_local_video_button = QPushButton("إضافة فيديو محلي")
+        self.add_queue_url_button = QPushButton("إضافة رابط")
+        self.delete_queue_job_button = QPushButton("حذف المهمة المحددة")
+        self.clear_queue_button = QPushButton("مسح القائمة")
         self.clips_table = QTableWidget(0, 5)
         self.classification_rules_table = QTableWidget(0, 4)
         self.add_row_button = QPushButton("إضافة مقطع")
@@ -311,6 +325,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_header_section())
         layout.addWidget(self._build_video_source_section())
         layout.addWidget(self._build_project_section())
+        layout.addWidget(self._build_queue_section())
         layout.addWidget(self._build_help_section())
         layout.addWidget(self._build_clips_section(), stretch=1)
         layout.addWidget(self._build_classification_section())
@@ -413,6 +428,37 @@ class MainWindow(QMainWindow):
         layout.addWidget(QLabel("اسم المشروع"), 0, 0)
         layout.addWidget(self.project_name_input, 0, 1)
         layout.setColumnStretch(1, 1)
+
+        return group
+
+    def _build_queue_section(self) -> QGroupBox:
+        group = QGroupBox("قائمة الانتظار")
+        layout = QVBoxLayout(group)
+
+        self.queue_table.setHorizontalHeaderLabels(
+            ["المصدر", "العنوان", "عدد المقاطع", "الحالة", "أولوية عالية", "الإجراء"]
+        )
+        self.queue_table.verticalHeader().setVisible(False)
+        self.queue_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.queue_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.queue_table.setAlternatingRowColors(True)
+        self.queue_table.setMinimumHeight(130)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_SOURCE_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_TITLE_COLUMN, QHeaderView.Stretch)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_CLIP_COUNT_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_STATUS_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_HIGH_PRIORITY_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_ACTION_COLUMN, QHeaderView.Stretch)
+
+        button_row = QHBoxLayout()
+        button_row.addWidget(self.add_queue_local_video_button)
+        button_row.addWidget(self.add_queue_url_button)
+        button_row.addWidget(self.delete_queue_job_button)
+        button_row.addWidget(self.clear_queue_button)
+        button_row.addStretch(1)
+
+        layout.addWidget(self.queue_table)
+        layout.addLayout(button_row)
 
         return group
 
@@ -544,6 +590,11 @@ class MainWindow(QMainWindow):
         self.add_classification_button.clicked.connect(self.add_classification_rule)
         self.delete_classification_button.clicked.connect(self.delete_selected_classification_rule)
         self.reset_classification_button.clicked.connect(self.reset_classification_rules)
+        self.add_queue_local_video_button.clicked.connect(self.add_local_video_to_queue)
+        self.add_queue_url_button.clicked.connect(self.add_url_to_queue)
+        self.delete_queue_job_button.clicked.connect(self.delete_selected_queue_job)
+        self.clear_queue_button.clicked.connect(self.clear_queue)
+        self.queue_table.itemChanged.connect(self._sync_queue_high_priority)
         self.smart_paste_button.clicked.connect(self.import_smart_paste_message)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
         self.readiness_button.clicked.connect(self.check_readiness)
@@ -576,6 +627,135 @@ class MainWindow(QMainWindow):
         self.clips_table.setItem(row, START_COLUMN, QTableWidgetItem(start))
         self.clips_table.setItem(row, END_COLUMN, QTableWidgetItem(end))
         self.clips_table.setItem(row, EXCLUSIONS_COLUMN, QTableWidgetItem(exclusions))
+
+    def add_local_video_to_queue(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "إضافة فيديو محلي إلى قائمة الانتظار",
+            "",
+            "Video Files (*.mp4 *.mov *.mkv *.webm);;All Files (*.*)",
+        )
+        if not file_path:
+            return
+
+        self._add_queue_local_file_job(file_path)
+        self._write_log("تمت إضافة فيديو محلي إلى قائمة الانتظار. لن يبدأ التحميل أو القص تلقائيًا.")
+
+    def add_url_to_queue(self) -> None:
+        url, accepted = QInputDialog.getText(
+            self,
+            "إضافة رابط إلى قائمة الانتظار",
+            "أدخل رابط الفيديو",
+        )
+        if not accepted or not url.strip():
+            return
+
+        self._add_queue_url_job(url.strip())
+        self._write_log("تمت إضافة الرابط إلى قائمة الانتظار. لن يبدأ التحميل أو القص تلقائيًا.")
+
+    def _add_queue_local_file_job(self, file_path: str) -> VideoJob:
+        path = Path(file_path)
+        title = path.stem or path.name or "فيديو محلي"
+        return self._add_queue_job(QueueVideoSourceType.LOCAL, str(path), title)
+
+    def _add_queue_url_job(self, url: str, title: str | None = None) -> VideoJob:
+        source_type = self._infer_queue_url_source_type(url)
+        job_title = title or self.project_name_input.text().strip() or url
+        return self._add_queue_job(source_type, url, job_title)
+
+    def _add_queue_job(self, source_type: QueueVideoSourceType | str, source: str, title: str) -> VideoJob:
+        job = VideoJob(
+            source_type=source_type,
+            source=source,
+            title=title.strip() or source,
+            status=JobStatus.DRAFT,
+        )
+        self.job_queue.append(job)
+        self._insert_queue_job_row(job)
+        return job
+
+    def _insert_queue_job_row(self, job: VideoJob) -> None:
+        row = self.queue_table.rowCount()
+        self.queue_table.blockSignals(True)
+        try:
+            self.queue_table.insertRow(row)
+            self.queue_table.setItem(row, QUEUE_SOURCE_COLUMN, self._readonly_table_item(self._queue_source_label(job)))
+            self.queue_table.item(row, QUEUE_SOURCE_COLUMN).setToolTip(job.source)
+            self.queue_table.setItem(row, QUEUE_TITLE_COLUMN, self._readonly_table_item(job.title))
+            self.queue_table.setItem(row, QUEUE_CLIP_COUNT_COLUMN, self._readonly_table_item(str(job.clip_count)))
+            self.queue_table.setItem(row, QUEUE_STATUS_COLUMN, self._readonly_table_item(self._queue_status_label(job.status)))
+
+            priority_item = self._readonly_table_item("")
+            priority_item.setCheckState(Qt.Checked if job.settings.high_priority else Qt.Unchecked)
+            priority_item.setTextAlignment(Qt.AlignCenter)
+            self.queue_table.setItem(row, QUEUE_HIGH_PRIORITY_COLUMN, priority_item)
+
+            self.queue_table.setItem(row, QUEUE_ACTION_COLUMN, self._readonly_table_item("معد للتطوير اللاحق"))
+        finally:
+            self.queue_table.blockSignals(False)
+
+    def _readonly_table_item(self, text: str) -> QTableWidgetItem:
+        item = QTableWidgetItem(text)
+        item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+        return item
+
+    def _infer_queue_url_source_type(self, url: str) -> QueueVideoSourceType:
+        lowered_url = url.lower()
+        if "facebook.com" in lowered_url or "fb.watch" in lowered_url:
+            return QueueVideoSourceType.FACEBOOK
+        return QueueVideoSourceType.YOUTUBE
+
+    def _queue_source_label(self, job: VideoJob) -> str:
+        labels = {
+            QueueVideoSourceType.LOCAL: "فيديو محلي",
+            QueueVideoSourceType.YOUTUBE: "رابط يوتيوب",
+            QueueVideoSourceType.FACEBOOK: "رابط Facebook",
+        }
+        return labels[job.source_type]
+
+    def _queue_status_label(self, status: JobStatus) -> str:
+        labels = {
+            JobStatus.DRAFT: "مسودة",
+            JobStatus.READY: "جاهز",
+            JobStatus.VALIDATION_ERROR: "خطأ في الفحص",
+            JobStatus.WARNING: "تحذير",
+            JobStatus.QUEUED: "في الانتظار",
+            JobStatus.DOWNLOADING: "جاري التحميل",
+            JobStatus.CUTTING: "جاري القص",
+            JobStatus.VERIFYING: "جاري التحقق",
+            JobStatus.DONE: "مكتمل",
+            JobStatus.FAILED: "فشل",
+            JobStatus.SKIPPED: "تم تجاوزه",
+            JobStatus.CANCELLED: "ملغى",
+        }
+        return labels[status]
+
+    def _sync_queue_high_priority(self, item: QTableWidgetItem) -> None:
+        if item.column() != QUEUE_HIGH_PRIORITY_COLUMN:
+            return
+        row = item.row()
+        if 0 <= row < len(self.job_queue):
+            self.job_queue[row].settings.high_priority = item.checkState() == Qt.Checked
+
+    def delete_selected_queue_job(self) -> None:
+        selected_rows = self.queue_table.selectionModel().selectedRows()
+        row_numbers = [index.row() for index in selected_rows]
+        if not row_numbers and self.queue_table.currentRow() >= 0:
+            row_numbers = [self.queue_table.currentRow()]
+        if not row_numbers:
+            self._write_log("اختر مهمة من قائمة الانتظار أولًا.")
+            return
+
+        for row_index in sorted(set(row_numbers), reverse=True):
+            if 0 <= row_index < len(self.job_queue):
+                del self.job_queue[row_index]
+            self.queue_table.removeRow(row_index)
+        self._write_log("تم حذف المهمة المحددة من قائمة الانتظار.")
+
+    def clear_queue(self) -> None:
+        self.job_queue.clear()
+        self.queue_table.setRowCount(0)
+        self._write_log("تم مسح قائمة الانتظار.")
 
     def add_classification_rule(self) -> None:
         self._insert_classification_rule(
@@ -1258,6 +1438,11 @@ class MainWindow(QMainWindow):
             self.paste_message_input,
             self.smart_paste_button,
             self.parse_message_button,
+            self.queue_table,
+            self.add_queue_local_video_button,
+            self.add_queue_url_button,
+            self.delete_queue_job_button,
+            self.clear_queue_button,
             self.clips_table,
             self.classification_rules_table,
             self.add_row_button,
