@@ -46,15 +46,18 @@ from src.classification import (
 from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.message_parser import ParsedClipLine, parse_clip_message
+from src.readiness import format_readiness_report_ar, run_readiness_check
 from src.time_utils import normalize_timestamp_text
 from src.version import APP_NAME, APP_SUBTITLE
 from src.validation import ClipRowInput, normalize_clip_exclusions, validate_clip_rows, validate_required_text
 from src.video_processor import (
+    TEMP_SEGMENTS_FOLDER_NAME,
     VideoProcessor,
     VideoProcessingError,
     VideoSourceError,
     VideoSourceRequest,
     VideoSourceType,
+    sanitize_project_name,
     validate_local_video_file,
     validate_youtube_url,
 )
@@ -151,6 +154,7 @@ class MainWindow(QMainWindow):
         self.add_classification_button = QPushButton("إضافة تصنيف")
         self.delete_classification_button = QPushButton("حذف التصنيف المحدد")
         self.reset_classification_button = QPushButton("استعادة الافتراضي")
+        self.readiness_button = QPushButton("فحص جاهزية البرنامج")
         self.validate_button = QPushButton("فحص الجدول")
         self.start_button = QPushButton("بدء القص")
         self.open_output_button = QPushButton("فتح مجلد النتائج")
@@ -383,6 +387,7 @@ class MainWindow(QMainWindow):
         group = QGroupBox("أزرار التشغيل")
         layout = QHBoxLayout(group)
 
+        layout.addWidget(self.readiness_button)
         layout.addWidget(self.validate_button)
         layout.addWidget(self.start_button)
         layout.addWidget(self.open_output_button)
@@ -414,6 +419,7 @@ class MainWindow(QMainWindow):
         self.delete_classification_button.clicked.connect(self.delete_selected_classification_rule)
         self.reset_classification_button.clicked.connect(self.reset_classification_rules)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
+        self.readiness_button.clicked.connect(self.check_readiness)
         self.validate_button.clicked.connect(self.validate_inputs)
         self.start_button.clicked.connect(self.start_processing)
         self.open_output_button.clicked.connect(self.open_output_folder)
@@ -593,6 +599,20 @@ class MainWindow(QMainWindow):
         self._normalize_clip_table_times()
         self._write_log("تم فحص البيانات بنجاح. يمكنك بدء المعالجة.")
         return True
+
+    def check_readiness(self) -> None:
+        project_folder = self.output_root / sanitize_project_name(self.project_name_input.text())
+        temp_folder = project_folder / TEMP_SEGMENTS_FOLDER_NAME
+        selected_paths: list[Path] = [project_folder, temp_folder]
+        if self.local_file_radio.isChecked() and self.local_file_input.text().strip():
+            selected_paths.append(Path(self.local_file_input.text().strip()))
+
+        report = run_readiness_check(
+            project_folder,
+            temp_folder,
+            selected_paths=selected_paths,
+        )
+        self._write_log("نتيجة فحص جاهزية البرنامج:\n" + format_readiness_report_ar(report))
 
     def start_processing(self) -> None:
         if self._processing_thread is not None:
@@ -994,6 +1014,7 @@ class MainWindow(QMainWindow):
             self.add_classification_button,
             self.delete_classification_button,
             self.reset_classification_button,
+            self.readiness_button,
             self.validate_button,
             self.start_button,
             self.open_output_button,

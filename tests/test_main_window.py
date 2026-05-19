@@ -16,6 +16,7 @@ from src.main_window import (
     TITLE_COLUMN,
     MainWindow,
 )
+from src.readiness import STATUS_READY, ReadinessCheckItem, ReadinessReport
 
 
 def _app() -> QApplication:
@@ -55,10 +56,35 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
         "Firefox",
     ]
     assert window.validate_button.text() == "فحص الجدول"
+    assert window.readiness_button.text() == "فحص جاهزية البرنامج"
     assert window.start_button.text() == "بدء القص"
     assert window.open_output_button.text() == "فتح مجلد النتائج"
     assert window.import_excel_button.text() == "استيراد من Excel"
     assert window.parse_message_button.text() == "تحويل النص إلى جدول"
+
+    window.close()
+    app.processEvents()
+
+
+def test_readiness_button_writes_arabic_report(monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    captured = {}
+
+    def fake_readiness_check(output_folder, temp_folder, *, selected_paths):
+        captured["output_folder"] = output_folder
+        captured["temp_folder"] = temp_folder
+        captured["selected_paths"] = selected_paths
+        return ReadinessReport([ReadinessCheckItem("ffmpeg", STATUS_READY, "ffmpeg جاهز")])
+
+    monkeypatch.setattr("src.main_window.run_readiness_check", fake_readiness_check)
+
+    window.check_readiness()
+
+    assert "نتيجة فحص جاهزية البرنامج" in window.log_area.toPlainText()
+    assert "جاهز: ffmpeg جاهز" in window.log_area.toPlainText()
+    assert captured["output_folder"].name == "مشروع-بدون-اسم"
+    assert captured["temp_folder"].name == "_temp_segments"
 
     window.close()
     app.processEvents()
