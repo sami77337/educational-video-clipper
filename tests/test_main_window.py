@@ -1152,6 +1152,82 @@ def test_queue_clear_requires_confirmation() -> None:
     app.processEvents()
 
 
+def test_queue_action_buttons_wiring_remains_passive(tmp_path, monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    video_path = tmp_path / "lesson.mp4"
+    video_path.write_bytes(b"ok")
+    queue_file = tmp_path / "queue.json"
+
+    def fake_open_file_name(*args, **kwargs):
+        caption = args[1] if len(args) > 1 else ""
+        if "تحميل قائمة" in caption:
+            return str(queue_file), "JSON Files (*.json)"
+        return str(video_path), "Video Files (*.mp4)"
+
+    monkeypatch.setattr("src.main_window.QFileDialog.getOpenFileName", fake_open_file_name)
+    monkeypatch.setattr(
+        "src.main_window.QFileDialog.getSaveFileName",
+        lambda *args, **kwargs: (str(queue_file), "JSON Files (*.json)"),
+    )
+    monkeypatch.setattr(
+        "src.main_window.QInputDialog.getText",
+        lambda *args, **kwargs: ("https://youtu.be/abc123", True),
+    )
+    window._ask_replace_queue_clips_confirmation = lambda: True
+    window._ask_replace_current_clip_table_confirmation = lambda: True
+    window._ask_replace_workspace_source_confirmation = lambda: True
+    window._ask_replace_queue_state_confirmation = lambda: True
+    window._ask_clear_queue_confirmation = lambda: True
+
+    window.project_name_input.setText("مشروع")
+    window.local_file_radio.setChecked(True)
+    window.local_file_input.setText(str(video_path))
+    window._insert_clip_row(1, "مقطع", "00:00:01", "00:00:05")
+
+    window.add_current_work_to_queue_button.click()
+    window.add_queue_local_video_button.click()
+    window.add_queue_url_button.click()
+    app.processEvents()
+
+    assert len(window.job_queue) == 3
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.save_queue_clips_button.click()
+    window.validate_queue_job_button.click()
+    window.validate_all_queue_jobs_button.click()
+    window.run_selected_queue_job_button.click()
+    window.run_all_queue_simulation_button.click()
+    assert "تم تشغيل المحاكاة فقط" in window.log_area.toPlainText()
+    window.load_queue_clips_button.click()
+    window.load_queue_job_workspace_button.click()
+    window.save_queue_state_button.click()
+    app.processEvents()
+
+    assert queue_file.exists()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.clear_queue_button.click()
+    assert len(window.job_queue) == 0
+    window.load_queue_state_button.click()
+    assert len(window.job_queue) == 3
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.delete_queue_job_button.click()
+    assert len(window.job_queue) == 2
+    window.clear_queue_button.click()
+
+    assert len(window.job_queue) == 0
+    assert window.queue_table.rowCount() == 0
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
 def test_readiness_button_writes_arabic_report(monkeypatch) -> None:
     app = _app()
     window = MainWindow()
