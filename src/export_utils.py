@@ -68,6 +68,8 @@ class ProcessingReportData:
     classification_rules: list[ClassificationRule] = field(default_factory=list)
     clip_counts_by_folder: dict[str, int] = field(default_factory=dict)
     clip_details: list["ProcessingReportClipData"] = field(default_factory=list)
+    pre_padding_seconds: float = 0.0
+    post_padding_seconds: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -156,8 +158,15 @@ def build_processing_report(data: ProcessingReportData) -> str:
         f"Total clips count: {data.total_clips_count}",
         f"Reels count: {data.reels_count}",
         f"Benefits count: {data.benefits_count}",
-        "Classification rules:",
     ]
+    if _has_clip_padding(data):
+        lines.extend(
+            [
+                f"وقت قبل بداية المقطع: {_format_seconds_value(data.pre_padding_seconds)} ثانية",
+                f"وقت بعد نهاية المقطع: {_format_seconds_value(data.post_padding_seconds)} ثانية",
+            ]
+        )
+    lines.append("Classification rules:")
     lines.extend(_format_classification_rule(rule) for rule in classification_rules)
     lines.append("Clip counts by folder:")
     lines.extend(f"- {folder_name}: {count}" for folder_name, count in clip_counts.items())
@@ -258,8 +267,24 @@ def _format_clip_detail(clip: ProcessingReportClipData) -> list[str]:
     ]
     if clip.exclusions:
         lines.append(f"الاستثناءات: {clip.exclusions}")
+        exclusion_count = _count_exclusions(clip.exclusions)
+        lines.append(f"عدد الاستثناءات داخل المقطع: {exclusion_count}")
+        if exclusion_count > 1:
+            lines.append("تم تطبيق أكثر من استثناء داخل هذا المقطع")
     lines.append(f"المجلد: {clip.folder_name}")
     return lines
+
+
+def _has_clip_padding(data: ProcessingReportData) -> bool:
+    return data.pre_padding_seconds > 0 or data.post_padding_seconds > 0
+
+
+def _format_seconds_value(value: float) -> str:
+    return f"{float(value):g}"
+
+
+def _count_exclusions(exclusions: str) -> int:
+    return len([part for part in exclusions.split(",") if part.strip()])
 
 
 def _create_folder_zip(project_folder: Path, folder: Path, zip_path: Path) -> Path:

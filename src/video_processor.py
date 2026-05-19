@@ -366,6 +366,7 @@ class VideoProcessor:
             ended_at=None,
             progress_callback=progress_callback,
             classification_rules=active_rules,
+            clip_padding=active_padding,
         )
         _emit(progress_callback, AR_PROCESSING_SUCCESS)
 
@@ -386,11 +387,13 @@ class VideoProcessor:
         ended_at: datetime | None,
         progress_callback: ProgressCallback | None = None,
         classification_rules: Sequence[ClassificationRule] | None = None,
+        clip_padding: ClipPadding | None = None,
     ) -> ExportArtifacts:
         """Create ZIP files and a final report after successful clipping."""
 
         project_folder = Path(project_output_folder)
         active_rules = self._active_classification_rules(classification_rules)
+        active_padding = clip_padding or ClipPadding()
         folder_names = classification_folder_names(active_rules)
         output_folders = list(ensure_result_folders(project_folder, folder_names))
         zip_result = create_result_zips(project_folder, progress_callback, folder_names)
@@ -409,6 +412,8 @@ class VideoProcessor:
             classification_rules=list(active_rules),
             clip_counts_by_folder=clip_counts,
             clip_details=build_report_clip_details(cut_results),
+            pre_padding_seconds=active_padding.pre_seconds,
+            post_padding_seconds=active_padding.post_seconds,
         )
         report_path = write_processing_report(project_folder, report_data)
         _emit(progress_callback, AR_REPORT_CREATED)
