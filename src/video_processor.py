@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -101,6 +102,7 @@ AR_CUT_WITHOUT_EXCLUSIONS = "تم قص المقطع بدون استثناءات"
 AR_CONCAT_FAILED = "فشل دمج أجزاء المقطع رقم"
 AR_PROJECT_NAME_CLEANED = "تم تنظيف اسم المشروع ليكون مناسبًا للمجلدات"
 AR_CLIP_PADDING_APPLIED = "تم تطبيق وقت إضافي قبل/بعد القص"
+AR_MULTIPLE_EXCLUSIONS_APPLIED = "تم تطبيق أكثر من استثناء داخل المقطع"
 TEMP_SEGMENTS_FOLDER_NAME = "_temp_segments"
 ProgressCallback = Callable[[str], None]
 SubprocessRunner = Callable[..., subprocess.CompletedProcess[str]]
@@ -335,7 +337,7 @@ class VideoProcessor:
         active_rules = self._active_classification_rules(classification_rules)
         active_padding = clip_padding or ClipPadding()
         clips = self.build_clip_definitions(clip_rows)
-        exclusion_errors = validate_exclusions_for_clips(clips)
+        exclusion_errors = validate_exclusions_for_clips(clips, active_padding)
         if exclusion_errors:
             raise VideoProcessingError(f"{AR_EXCLUSIONS_INVALID}:\n" + "\n".join(exclusion_errors))
 
@@ -586,15 +588,32 @@ def validate_classification_rules_for_clips(
     return errors
 
 
-def validate_exclusions_for_clips(clips: Sequence[ClipDefinition]) -> list[str]:
+def validate_exclusions_for_clips(
+    clips: Sequence[ClipDefinition],
+    clip_padding: ClipPadding | None = None,
+    video_duration_seconds: float | None = None,
+) -> list[str]:
     """Validate clip exclusions before any ffmpeg work starts."""
 
+    active_padding = clip_padding or ClipPadding()
     errors: list[str] = []
     for clip in clips:
         if not clip.exclusions.strip():
             continue
         try:
-            exclusion_errors = validate_exclusions(clip.start_timestamp, clip.end_timestamp, clip.exclusions)
+            validation_start = clip.start_timestamp
+            validation_end = clip.end_timestamp
+            if active_padding.has_padding:
+                effective_range = calculate_effective_clip_range(
+                    clip.start_seconds,
+                    clip.end_seconds,
+                    active_padding,
+                    video_duration_seconds,
+                )
+                validation_start = format_seconds(max(0, math.floor(effective_range.start_seconds)))
+                validation_end = format_seconds(math.ceil(effective_range.end_seconds))
+
+            exclusion_errors = validate_exclusions(validation_start, validation_end, clip.exclusions)
         except (ExclusionError, ValueError) as error:
             exclusion_errors = [str(error)]
         errors.extend(f"{error} في المقطع رقم {clip.number}" for error in exclusion_errors)
@@ -815,7 +834,11 @@ def calculate_kept_segment_seconds(
         return [(float(main_start_seconds), float(main_end_seconds))]
 
     # Reuse the existing HH:MM:SS exclusion normalizer for stable ordering and validation.
-    calculate_kept_segments(format_seconds(int(main_start_seconds)), format_seconds(int(main_end_seconds)), exclusions)
+    calculate_kept_segments(
+        format_seconds(max(0, math.floor(main_start_seconds))),
+        format_seconds(math.ceil(main_end_seconds)),
+        exclusions,
+    )
     current_start = float(main_start_seconds)
     kept_segments: list[tuple[float, float]] = []
     for exclusion in format_exclusions(exclusions).split(", "):
@@ -870,12 +893,12 @@ def cut_clips(
     if not prepared_video.input_video_path.is_file():
         raise VideoProcessingError(AR_INPUT_VIDEO_MISSING)
 
-    exclusion_errors = validate_exclusions_for_clips(clips)
+    active_padding = clip_padding or ClipPadding()
+    exclusion_errors = validate_exclusions_for_clips(clips, active_padding, video_duration_seconds)
     if exclusion_errors:
         raise VideoProcessingError(f"{AR_EXCLUSIONS_INVALID}:\n" + "\n".join(exclusion_errors))
 
     _emit(progress_callback, AR_CHECKING_EXCLUSIONS)
-    active_padding = clip_padding or ClipPadding()
     if active_padding.has_padding:
         _emit(progress_callback, AR_CLIP_PADDING_APPLIED)
 
@@ -905,6 +928,8 @@ def cut_clips(
         try:
             if clip.exclusions.strip():
                 _emit(progress_callback, f"{AR_CUTTING_EXCLUDED_PARTS} {clip.number:02d}")
+                if len(format_exclusions(clip.exclusions).split(", ")) > 1:
+                    _emit(progress_callback, f"{AR_MULTIPLE_EXCLUSIONS_APPLIED} {clip.number:02d}")
                 cut_clip_with_exclusions(
                     prepared_video.input_video_path,
                     output_path,

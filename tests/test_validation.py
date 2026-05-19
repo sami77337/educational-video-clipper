@@ -1,5 +1,6 @@
 import pytest
 
+from src.clip_padding import ClipPadding
 from src.validation import ClipRowInput, validate_clip_range, validate_clip_rows, validate_required_text
 
 
@@ -75,3 +76,17 @@ def test_validate_clip_rows_reports_invalid_exclusions() -> None:
 
     assert errors[0].field == "exclusions"
     assert "الاستثناء خارج حدود المقطع" in errors[0].message_ar
+
+
+def test_validate_clip_rows_accepts_exclusions_inside_padded_range() -> None:
+    rows = [
+        ClipRowInput(
+            row_number=1,
+            title="درس",
+            start="00:01:40",
+            end="00:03:20",
+            exclusions="00:01:35-00:01:38, 00:03:25-00:03:28",
+        )
+    ]
+
+    assert validate_clip_rows(rows, clip_padding=ClipPadding(pre_seconds=10, post_seconds=10)) == []

@@ -11,7 +11,7 @@ from src.time_utils import format_seconds, normalize_time_symbols, parse_timesta
 AR_INVALID_EXCLUSION_FORMAT = "صيغة الاستثناء غير صحيحة"
 AR_EXCLUSION_START_AFTER_END = "بداية الاستثناء يجب أن تكون قبل نهايته"
 AR_EXCLUSION_OUTSIDE_MAIN_RANGE = "الاستثناء خارج حدود المقطع"
-AR_EXCLUSIONS_OVERLAP = "الاستثناءات متداخلة"
+AR_EXCLUSIONS_OVERLAP = "توجد استثناءات متداخلة"
 AR_EXCLUSION_REMOVES_ENTIRE_CLIP = "الاستثناء يحذف المقطع كاملًا"
 
 _TIME_PATTERN = r"\d{1,3}:\d{1,2}(?::\d{1,2})?"
@@ -33,7 +33,7 @@ def parse_exclusions(text: str | None) -> list[str]:
     if not ranges:
         raise ExclusionError(AR_INVALID_EXCLUSION_FORMAT)
 
-    return ranges
+    return _sort_normalized_ranges(ranges)
 
 
 def normalize_exclusion_range(range_text: str) -> str:
@@ -123,7 +123,7 @@ def _normalize_exclusions_input(exclusions: Iterable[str] | str | None) -> list[
             continue
         normalized.append(normalize_exclusion_range(str(exclusion)))
 
-    return normalized
+    return _sort_normalized_ranges(normalized)
 
 
 def _normalize_match(match: re.Match[str]) -> str:
@@ -138,6 +138,10 @@ def _range_to_seconds(exclusion: str) -> tuple[int, int]:
         raise ExclusionError(AR_INVALID_EXCLUSION_FORMAT)
 
     return parse_timestamp(match.group(1)), parse_timestamp(match.group(2))
+
+
+def _sort_normalized_ranges(ranges: list[str]) -> list[str]:
+    return sorted(ranges, key=_range_to_seconds)
 
 
 def _calculate_kept_segment_seconds(

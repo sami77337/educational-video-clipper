@@ -45,6 +45,26 @@ def test_multiple_exclusions_parse() -> None:
     ]
 
 
+def test_semicolon_separated_exclusions_parse() -> None:
+    assert parse_exclusions("01:00-01:10; 02:00-02:15") == [
+        "00:01:00-00:01:10",
+        "00:02:00-00:02:15",
+    ]
+
+
+def test_newline_separated_exclusions_parse() -> None:
+    assert parse_exclusions("01:00-01:10\n02:00-02:15") == [
+        "00:01:00-00:01:10",
+        "00:02:00-00:02:15",
+    ]
+
+
+def test_exclusions_are_sorted_before_formatting() -> None:
+    assert format_exclusions("02:00-02:15, 01:00-01:10") == (
+        "00:01:00-00:01:10, 00:02:00-00:02:15"
+    )
+
+
 def test_exclusion_outside_main_range_returns_error() -> None:
     errors = validate_exclusions("00:26:56", "00:29:14", ["00:25:00-00:27:00"])
 
