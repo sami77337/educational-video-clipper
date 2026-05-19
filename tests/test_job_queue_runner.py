@@ -110,7 +110,9 @@ def test_queue_runner_summary_counts_and_arabic_formatting() -> None:
     assert summary.failed_jobs == 0
     assert summary.completed_simulated_jobs == 1
     assert "عدد المهام: 2" in formatted
-    assert "المهام المتخطاة: 1" in formatted
+    assert "المهام التي تمت محاكاتها: 1" in formatted
+    assert "المهام التي تم تخطيها: 1" in formatted
+    assert "الأخطاء إن وجدت: 1" in formatted
     assert AR_NO_DOWNLOADS in formatted
     assert AR_NO_CUTTING in formatted
 
