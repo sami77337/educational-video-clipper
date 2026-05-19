@@ -233,6 +233,12 @@ build_app.bat
 build_app_ci.bat
 ```
 
+بعد البناء، يمكن فحص حزمة الإصدار قبل إرسالها للفريق:
+
+```powershell
+python scripts\check_release_package.py
+```
+
 سينتج مجلد:
 
 ```text
