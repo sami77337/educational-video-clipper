@@ -185,6 +185,10 @@ def test_queue_run_selected_only_is_passive() -> None:
     window.run_selected_queue_job()
 
     assert "تشغيل قائمة الانتظار سيتم تفعيله في مرحلة لاحقة" in window.log_area.toPlainText()
+    assert "تم تشغيل المحاكاة فقط" in window.log_area.toPlainText()
+    assert "لم يتم تنزيل أي فيديو" in window.log_area.toPlainText()
+    assert "لم يتم قص أي مقطع" in window.log_area.toPlainText()
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مكتمل"
     assert window._processing_thread is None
     assert window._processing_worker is None
 

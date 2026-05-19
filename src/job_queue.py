@@ -15,6 +15,7 @@ class JobStatus(str, Enum):
     """Lifecycle state for video and clip jobs."""
 
     DRAFT = "draft"
+    VALIDATING = "validating"
     READY = "ready"
     VALIDATION_ERROR = "validation_error"
     WARNING = "warning"

@@ -48,6 +48,7 @@ from src.classification import (
 from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.job_queue import JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
+from src.job_queue_runner import format_queue_run_summary_ar, run_dry_queue
 from src.job_queue_validation import (
     apply_queue_validation_result,
     format_queue_validation_result_ar,
@@ -766,7 +767,12 @@ class MainWindow(QMainWindow):
             self._write_log("لا توجد مهمة محددة")
             return
 
-        self._write_log("تشغيل قائمة الانتظار سيتم تفعيله في مرحلة لاحقة")
+        summary = run_dry_queue([self.job_queue[row]])
+        self._refresh_queue_job_row(row)
+        self._write_log(
+            "تشغيل قائمة الانتظار سيتم تفعيله في مرحلة لاحقة\n"
+            + format_queue_run_summary_ar(summary)
+        )
 
     def delete_selected_queue_job(self) -> None:
         row_numbers = self._selected_queue_rows()
