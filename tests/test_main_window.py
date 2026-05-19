@@ -93,6 +93,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.save_queue_state_button.text() == "حفظ قائمة الانتظار"
     assert window.load_queue_state_button.text() == "تحميل قائمة انتظار"
     assert window.run_selected_queue_job_button.text() == "تشغيل المحدد فقط"
+    assert window.run_all_queue_simulation_button.text() == "تشغيل كل القائمة تجريبيًا"
     assert window.validate_queue_job_button.text() == "إعادة فحص المحدد"
     assert window.validate_all_queue_jobs_button.text() == "فحص كل قائمة الانتظار"
     assert window.delete_queue_job_button.text() == "إزالة المهمة المحددة"
@@ -983,6 +984,86 @@ def test_queue_run_selected_validation_error_job_is_skipped() -> None:
     assert "المهام التي تمت محاكاتها: 0" in window.log_area.toPlainText()
     assert "المهام التي تم تخطيها: 1" in window.log_area.toPlainText()
     assert "الأخطاء إن وجدت: 1" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_run_all_simulation_empty_queue_shows_feedback() -> None:
+    app = _app()
+    window = MainWindow()
+
+    window.run_all_queue_simulation()
+
+    assert "لا توجد مهام في قائمة الانتظار" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_run_all_simulation_one_ready_job(tmp_path) -> None:
+    app = _app()
+    window = MainWindow()
+    video_path = tmp_path / "lesson.mp4"
+    video_path.write_bytes(b"ok")
+    job = window._add_queue_local_file_job(str(video_path))
+
+    window.validate_all_queue_jobs()
+    window.log_area.clear()
+    window.run_all_queue_simulation()
+
+    assert job.status == JobStatus.DONE
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مكتمل"
+    assert "تم تشغيل المحاكاة فقط" in window.log_area.toPlainText()
+    assert "لم يتم تنزيل أي فيديو" in window.log_area.toPlainText()
+    assert "لم يتم قص أي مقطع" in window.log_area.toPlainText()
+    assert "عدد المهام: 1" in window.log_area.toPlainText()
+    assert "تمت محاكاتها: 1" in window.log_area.toPlainText()
+    assert "تم تخطيها: 0" in window.log_area.toPlainText()
+    assert "فيها أخطاء: 0" in window.log_area.toPlainText()
+    assert "فيها تحذيرات: 0" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_run_all_simulation_multiple_jobs_with_warning_and_error(tmp_path) -> None:
+    app = _app()
+    window = MainWindow()
+    video_path = tmp_path / "lesson.mp4"
+    video_path.write_bytes(b"ok")
+    ready_job = window._add_queue_local_file_job(str(video_path))
+    warning_job = window._add_queue_url_job("https://youtu.be/" + ("a" * 230), title="رابط طويل")
+    error_job = window._add_queue_url_job("https://vimeo.com/123", title="غير مدعوم")
+
+    window.validate_all_queue_jobs()
+    window.log_area.clear()
+    window.run_all_queue_simulation_button.click()
+    app.processEvents()
+
+    assert [ready_job.status, warning_job.status, error_job.status] == [
+        JobStatus.DONE,
+        JobStatus.DONE,
+        JobStatus.SKIPPED,
+    ]
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مكتمل"
+    assert window.queue_table.item(1, QUEUE_STATUS_COLUMN).text() == "مكتمل"
+    assert window.queue_table.item(2, QUEUE_STATUS_COLUMN).text() == "تم تجاوزه"
+    assert "تم تشغيل المحاكاة فقط" in window.log_area.toPlainText()
+    assert "لم يتم تنزيل أي فيديو" in window.log_area.toPlainText()
+    assert "لم يتم قص أي مقطع" in window.log_area.toPlainText()
+    assert "تم تخطي المهمة بسبب أخطاء: غير مدعوم" in window.log_area.toPlainText()
+    assert "عدد المهام: 3" in window.log_area.toPlainText()
+    assert "تمت محاكاتها: 2" in window.log_area.toPlainText()
+    assert "تم تخطيها: 1" in window.log_area.toPlainText()
+    assert "فيها أخطاء: 1" in window.log_area.toPlainText()
+    assert "فيها تحذيرات: 1" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
 
