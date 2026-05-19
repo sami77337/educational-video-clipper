@@ -1622,7 +1622,13 @@ class MainWindow(QMainWindow):
         except VideoSourceError as error:
             errors.append(str(error))
 
-        errors.extend(error.message_ar for error in validate_clip_rows(self._collect_clip_rows()))
+        errors.extend(
+            error.message_ar
+            for error in validate_clip_rows(
+                self._collect_clip_rows(),
+                clip_padding=self._collect_clip_padding(),
+            )
+        )
         return errors
 
     def _collect_classification_rules(self) -> list[ClassificationRule]:
@@ -1849,6 +1855,7 @@ class MainWindow(QMainWindow):
                         self._cell_text(row, START_COLUMN),
                         self._cell_text(row, END_COLUMN),
                         exclusions_item.text(),
+                        clip_padding=self._collect_clip_padding(),
                     )
                 )
 

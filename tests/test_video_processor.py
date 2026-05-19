@@ -8,6 +8,7 @@ from src.clip_padding import ClipPadding
 from src.video_processor import (
     AR_CLIP_PADDING_APPLIED,
     AR_FFMPEG_NOT_FOUND,
+    AR_MULTIPLE_EXCLUSIONS_APPLIED,
     AR_PROJECT_NAME_CLEANED,
     AR_EMPTY_LOCAL_VIDEO,
     AR_EMPTY_YOUTUBE_URL,
@@ -461,6 +462,36 @@ def test_cut_clips_with_multiple_exclusions_uses_all_kept_segments(tmp_path) -> 
         exclusions="00:11:00-00:11:30, 00:13:00-00:13:20",
     )
     commands: list[list[str]] = []
+    messages: list[str] = []
+
+    def fake_runner(command, **kwargs):
+        commands.append(command)
+
+    cut_clips(prepared_video, [clip], messages.append, fake_runner)
+
+    assert len(commands) == 4
+    assert [command[command.index("-t") + 1] for command in commands[:3]] == ["60", "90", "100"]
+    assert commands[-1][0:6] == ["ffmpeg", "-y", "-f", "concat", "-safe", "0"]
+    assert f"{AR_MULTIPLE_EXCLUSIONS_APPLIED} 02" in messages
+
+
+def test_cut_clips_accepts_semicolon_separated_multiple_exclusions(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(
+        number=2,
+        title="multi",
+        start_seconds=600,
+        end_seconds=900,
+        exclusions="00:11:00-00:11:30; 00:13:00-00:13:20",
+    )
+    commands: list[list[str]] = []
 
     def fake_runner(command, **kwargs):
         commands.append(command)
@@ -469,7 +500,100 @@ def test_cut_clips_with_multiple_exclusions_uses_all_kept_segments(tmp_path) -> 
 
     assert len(commands) == 4
     assert [command[command.index("-t") + 1] for command in commands[:3]] == ["60", "90", "100"]
-    assert commands[-1][0:6] == ["ffmpeg", "-y", "-f", "concat", "-safe", "0"]
+
+
+def test_cut_clips_sorts_multiple_exclusions_before_cutting(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(
+        number=2,
+        title="multi",
+        start_seconds=600,
+        end_seconds=900,
+        exclusions="00:13:00-00:13:20, 00:11:00-00:11:30",
+    )
+    commands: list[list[str]] = []
+
+    def fake_runner(command, **kwargs):
+        commands.append(command)
+
+    cut_clips(prepared_video, [clip], runner=fake_runner)
+
+    assert len(commands) == 4
+    assert [command[command.index("-ss") + 1] for command in commands[:3]] == ["600", "690", "800"]
+    assert [command[command.index("-t") + 1] for command in commands[:3]] == ["60", "90", "100"]
+
+
+def test_cut_clips_applies_multiple_exclusions_with_padding(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(
+        number=3,
+        title="padded multi",
+        start_seconds=100,
+        end_seconds=200,
+        exclusions="00:02:00-00:02:10, 00:02:40-00:02:45",
+    )
+    commands: list[list[str]] = []
+
+    def fake_runner(command, **kwargs):
+        commands.append(command)
+
+    cut_clips(
+        prepared_video,
+        [clip],
+        runner=fake_runner,
+        clip_padding=ClipPadding(pre_seconds=10, post_seconds=5),
+    )
+
+    assert len(commands) == 4
+    assert [command[command.index("-ss") + 1] for command in commands[:3]] == ["90", "130", "165"]
+    assert [command[command.index("-t") + 1] for command in commands[:3]] == ["30", "30", "40"]
+
+
+def test_cut_clips_validates_exclusions_against_effective_padded_range(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(
+        number=3,
+        title="padded edge exclusions",
+        start_seconds=100,
+        end_seconds=200,
+        exclusions="00:01:35-00:01:38, 00:03:25-00:03:28",
+    )
+    commands: list[list[str]] = []
+
+    def fake_runner(command, **kwargs):
+        commands.append(command)
+
+    cut_clips(
+        prepared_video,
+        [clip],
+        runner=fake_runner,
+        clip_padding=ClipPadding(pre_seconds=10, post_seconds=10),
+    )
+
+    assert len(commands) == 4
+    assert [command[command.index("-ss") + 1] for command in commands[:3]] == ["90", "98", "208"]
+    assert [command[command.index("-t") + 1] for command in commands[:3]] == ["5", "107", "2"]
 
 
 def test_invalid_exclusions_stop_before_ffmpeg(tmp_path) -> None:

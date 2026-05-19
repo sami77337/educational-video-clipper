@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Iterable
 
+from src.clip_padding import ClipPadding, calculate_effective_clip_range
 from src.exclusions import ExclusionError, format_exclusions, validate_exclusions
-from src.time_utils import AR_INVALID_TIME_FORMAT, parse_timestamp
+from src.time_utils import AR_INVALID_TIME_FORMAT, format_seconds, parse_timestamp
 
 
 @dataclass(frozen=True)
@@ -51,7 +53,10 @@ def validate_required_text(value: str, field_name: str) -> str:
     return value.strip()
 
 
-def validate_clip_rows(rows: Iterable[ClipRowInput]) -> list[ValidationErrorDetail]:
+def validate_clip_rows(
+    rows: Iterable[ClipRowInput],
+    clip_padding: ClipPadding | None = None,
+) -> list[ValidationErrorDetail]:
     """Validate all clip table rows and return display-ready errors."""
 
     row_list = list(rows)
@@ -67,12 +72,12 @@ def validate_clip_rows(rows: Iterable[ClipRowInput]) -> list[ValidationErrorDeta
 
     errors: list[ValidationErrorDetail] = []
     for row in row_list:
-        errors.extend(_validate_clip_row(row))
+        errors.extend(_validate_clip_row(row, clip_padding=clip_padding))
 
     return errors
 
 
-def _validate_clip_row(row: ClipRowInput) -> list[ValidationErrorDetail]:
+def _validate_clip_row(row: ClipRowInput, clip_padding: ClipPadding | None = None) -> list[ValidationErrorDetail]:
     errors: list[ValidationErrorDetail] = []
 
     title = row.title.strip() if row.title else ""
@@ -118,7 +123,12 @@ def _validate_clip_row(row: ClipRowInput) -> list[ValidationErrorDetail]:
         exclusions_text = row.exclusions.strip() if row.exclusions else ""
         if exclusions_text:
             try:
-                exclusion_errors = validate_exclusions(start, end, exclusions_text)
+                exclusion_start, exclusion_end = _exclusion_validation_bounds(
+                    start_seconds,
+                    end_seconds,
+                    clip_padding,
+                )
+                exclusion_errors = validate_exclusions(exclusion_start, exclusion_end, exclusions_text)
             except (ExclusionError, ValueError) as error:
                 exclusion_errors = [str(error)]
 
@@ -135,17 +145,41 @@ def _validate_clip_row(row: ClipRowInput) -> list[ValidationErrorDetail]:
     return errors
 
 
-def normalize_clip_exclusions(start: str, end: str, exclusions: str | None) -> str:
+def normalize_clip_exclusions(
+    start: str,
+    end: str,
+    exclusions: str | None,
+    clip_padding: ClipPadding | None = None,
+) -> str:
     """Normalize optional exclusions after validating against a clip range."""
 
     if exclusions is None or not exclusions.strip():
         return ""
 
-    errors = validate_exclusions(start, end, exclusions)
+    start_seconds = parse_timestamp(start)
+    end_seconds = parse_timestamp(end)
+    validation_start, validation_end = _exclusion_validation_bounds(start_seconds, end_seconds, clip_padding)
+    errors = validate_exclusions(validation_start, validation_end, exclusions)
     if errors:
         raise ValueError("\n".join(errors))
 
     return format_exclusions(exclusions)
+
+
+def _exclusion_validation_bounds(
+    start_seconds: int,
+    end_seconds: int,
+    clip_padding: ClipPadding | None = None,
+) -> tuple[str, str]:
+    active_padding = clip_padding or ClipPadding()
+    if not active_padding.has_padding:
+        return format_seconds(start_seconds), format_seconds(end_seconds)
+
+    effective_range = calculate_effective_clip_range(start_seconds, end_seconds, active_padding)
+    return (
+        format_seconds(max(0, math.floor(effective_range.start_seconds))),
+        format_seconds(math.ceil(effective_range.end_seconds)),
+    )
 
 
 def _parse_row_timestamp(
