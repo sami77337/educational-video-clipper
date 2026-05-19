@@ -285,6 +285,7 @@ class MainWindow(QMainWindow):
         self.smart_paste_button = QPushButton("استيراد ذكي من رسالة")
         self.parse_message_button = QPushButton("تحويل النص إلى جدول")
         self.queue_table = QTableWidget(0, 6)
+        self.add_current_work_to_queue_button = QPushButton("إضافة العمل الحالي إلى قائمة الانتظار")
         self.add_queue_local_video_button = QPushButton("إضافة فيديو محلي")
         self.add_queue_url_button = QPushButton("إضافة رابط")
         self.save_queue_clips_button = QPushButton("حفظ المقاطع للمهمة المحددة")
@@ -464,6 +465,7 @@ class MainWindow(QMainWindow):
         self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_ACTION_COLUMN, QHeaderView.Stretch)
 
         button_row = QHBoxLayout()
+        button_row.addWidget(self.add_current_work_to_queue_button)
         button_row.addWidget(self.add_queue_local_video_button)
         button_row.addWidget(self.add_queue_url_button)
         button_row.addWidget(self.save_queue_clips_button)
@@ -609,6 +611,7 @@ class MainWindow(QMainWindow):
         self.add_classification_button.clicked.connect(self.add_classification_rule)
         self.delete_classification_button.clicked.connect(self.delete_selected_classification_rule)
         self.reset_classification_button.clicked.connect(self.reset_classification_rules)
+        self.add_current_work_to_queue_button.clicked.connect(self.add_current_work_to_queue)
         self.add_queue_local_video_button.clicked.connect(self.add_local_video_to_queue)
         self.add_queue_url_button.clicked.connect(self.add_url_to_queue)
         self.save_queue_clips_button.clicked.connect(self.save_clips_to_selected_queue_job)
@@ -688,16 +691,85 @@ class MainWindow(QMainWindow):
         job_title = title or self.project_name_input.text().strip() or url
         return self._add_queue_job(source_type, url, job_title)
 
-    def _add_queue_job(self, source_type: QueueVideoSourceType | str, source: str, title: str) -> VideoJob:
+    def _add_queue_job(
+        self,
+        source_type: QueueVideoSourceType | str,
+        source: str,
+        title: str,
+        clips: list[ClipJob] | None = None,
+    ) -> VideoJob:
         job = VideoJob(
             source_type=source_type,
             source=source,
             title=title.strip() or source,
+            clips=list(clips or []),
             status=JobStatus.DRAFT,
         )
         self.job_queue.append(job)
         self._insert_queue_job_row(job)
         return job
+
+    def add_current_work_to_queue(self) -> None:
+        source_snapshot = self._current_work_queue_source()
+        if source_snapshot is None:
+            return
+
+        source_type, source, title = source_snapshot
+        if self.clips_table.rowCount() == 0:
+            if not self._ask_add_current_work_without_clips_confirmation():
+                self._write_log("لا توجد مقاطع في الجدول")
+                return
+            log_prefix = "لا توجد مقاطع في الجدول\n"
+        else:
+            log_prefix = ""
+
+        job = self._add_queue_job(source_type, source, title, clips=self._clip_jobs_from_current_table())
+        self.queue_table.setCurrentCell(self.job_queue.index(job), QUEUE_SOURCE_COLUMN)
+        self._write_log(
+            f"{log_prefix}تم إضافة العمل الحالي إلى قائمة الانتظار\n"
+            "لم يتم بدء أي قص أو تحميل"
+        )
+
+    def _current_work_queue_source(self) -> tuple[QueueVideoSourceType, str, str] | None:
+        project_title = self.project_name_input.text().strip()
+
+        if self.local_file_radio.isChecked():
+            source = self.local_file_input.text().strip()
+            if not source:
+                self._write_log("لا يوجد مصدر فيديو لإضافته")
+                return None
+            title = project_title or Path(source).stem or Path(source).name or "فيديو محلي"
+            return QueueVideoSourceType.LOCAL, source, title
+
+        source = self.youtube_input.text().strip()
+        if not source:
+            self._write_log("لا يوجد مصدر فيديو لإضافته")
+            return None
+
+        source_type = self._supported_queue_url_source_type(source)
+        if source_type is None:
+            self._write_log("الرابط غير مدعوم حاليًا")
+            return None
+
+        return source_type, source, project_title or source
+
+    def _supported_queue_url_source_type(self, url: str) -> QueueVideoSourceType | None:
+        lowered_url = url.lower()
+        if "youtube.com" in lowered_url or "youtu.be" in lowered_url:
+            return QueueVideoSourceType.YOUTUBE
+        if "facebook.com" in lowered_url or "fb.watch" in lowered_url:
+            return QueueVideoSourceType.FACEBOOK
+        return None
+
+    def _ask_add_current_work_without_clips_confirmation(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("إضافة العمل الحالي إلى قائمة الانتظار")
+        dialog.setText("لا توجد مقاطع في الجدول. هل تريد إضافة المهمة بدون مقاطع؟")
+        add_button = dialog.addButton("إضافة", QMessageBox.AcceptRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(add_button)
+        dialog.exec()
+        return dialog.clickedButton() == add_button
 
     def _insert_queue_job_row(self, job: VideoJob) -> None:
         row = self.queue_table.rowCount()
@@ -1695,6 +1767,7 @@ class MainWindow(QMainWindow):
             self.smart_paste_button,
             self.parse_message_button,
             self.queue_table,
+            self.add_current_work_to_queue_button,
             self.add_queue_local_video_button,
             self.add_queue_url_button,
             self.save_queue_clips_button,
