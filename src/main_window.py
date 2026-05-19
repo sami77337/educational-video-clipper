@@ -294,6 +294,7 @@ class MainWindow(QMainWindow):
         self.save_queue_state_button = QPushButton("حفظ قائمة الانتظار")
         self.load_queue_state_button = QPushButton("تحميل قائمة انتظار")
         self.run_selected_queue_job_button = QPushButton("تشغيل المحدد فقط")
+        self.run_all_queue_simulation_button = QPushButton("تشغيل كل القائمة تجريبيًا")
         self.validate_queue_job_button = QPushButton("إعادة فحص المحدد")
         self.validate_all_queue_jobs_button = QPushButton("فحص كل قائمة الانتظار")
         self.delete_queue_job_button = QPushButton("إزالة المهمة المحددة")
@@ -476,6 +477,7 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.save_queue_state_button)
         button_row.addWidget(self.load_queue_state_button)
         button_row.addWidget(self.run_selected_queue_job_button)
+        button_row.addWidget(self.run_all_queue_simulation_button)
         button_row.addWidget(self.validate_queue_job_button)
         button_row.addWidget(self.validate_all_queue_jobs_button)
         button_row.addWidget(self.delete_queue_job_button)
@@ -624,6 +626,7 @@ class MainWindow(QMainWindow):
         self.save_queue_state_button.clicked.connect(self.save_queue_state)
         self.load_queue_state_button.clicked.connect(self.load_queue_state)
         self.run_selected_queue_job_button.clicked.connect(self.run_selected_queue_job)
+        self.run_all_queue_simulation_button.clicked.connect(self.run_all_queue_simulation)
         self.validate_queue_job_button.clicked.connect(self.validate_selected_queue_job)
         self.validate_all_queue_jobs_button.clicked.connect(self.validate_all_queue_jobs)
         self.delete_queue_job_button.clicked.connect(self.delete_selected_queue_job)
@@ -1148,6 +1151,42 @@ class MainWindow(QMainWindow):
             "تشغيل قائمة الانتظار سيتم تفعيله في مرحلة لاحقة\n"
             + format_queue_run_summary_ar(summary)
         )
+
+    def run_all_queue_simulation(self) -> None:
+        if not self.job_queue:
+            self._write_log("لا توجد مهام في قائمة الانتظار")
+            return
+
+        warning_count = sum(
+            1 for job in self.job_queue if job.status == JobStatus.WARNING or bool(job.warnings)
+        )
+        summary = run_dry_queue(self.job_queue)
+        for row in range(len(self.job_queue)):
+            self._refresh_queue_job_row(row)
+
+        self._write_log(
+            self._format_run_all_queue_simulation_summary(
+                summary,
+                warnings=warning_count,
+            )
+        )
+
+    def _format_run_all_queue_simulation_summary(
+        self,
+        summary,
+        *,
+        warnings: int,
+    ) -> str:
+        visible_error_count = summary.failed_jobs + summary.skipped_jobs
+        lines = [
+            *summary.messages,
+            f"عدد المهام: {summary.total_jobs}",
+            f"تمت محاكاتها: {summary.completed_simulated_jobs}",
+            f"تم تخطيها: {summary.skipped_jobs}",
+            f"فيها أخطاء: {visible_error_count}",
+            f"فيها تحذيرات: {warnings}",
+        ]
+        return "\n".join(lines)
 
     def delete_selected_queue_job(self) -> None:
         row_numbers = self._selected_queue_rows()
@@ -1916,6 +1955,7 @@ class MainWindow(QMainWindow):
             self.save_queue_state_button,
             self.load_queue_state_button,
             self.run_selected_queue_job_button,
+            self.run_all_queue_simulation_button,
             self.validate_queue_job_button,
             self.validate_all_queue_jobs_button,
             self.delete_queue_job_button,
