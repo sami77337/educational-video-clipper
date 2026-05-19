@@ -47,7 +47,7 @@ from src.classification import (
 )
 from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
-from src.job_queue import JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
+from src.job_queue import ClipJob, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
 from src.job_queue_runner import format_queue_run_summary_ar, run_dry_queue
 from src.job_queue_validation import (
     apply_queue_validation_result,
@@ -286,6 +286,7 @@ class MainWindow(QMainWindow):
         self.queue_table = QTableWidget(0, 6)
         self.add_queue_local_video_button = QPushButton("إضافة فيديو محلي")
         self.add_queue_url_button = QPushButton("إضافة رابط")
+        self.save_queue_clips_button = QPushButton("حفظ المقاطع للمهمة المحددة")
         self.run_selected_queue_job_button = QPushButton("تشغيل المحدد فقط")
         self.validate_queue_job_button = QPushButton("إعادة فحص المحدد")
         self.delete_queue_job_button = QPushButton("إزالة المهمة المحددة")
@@ -461,6 +462,7 @@ class MainWindow(QMainWindow):
         button_row = QHBoxLayout()
         button_row.addWidget(self.add_queue_local_video_button)
         button_row.addWidget(self.add_queue_url_button)
+        button_row.addWidget(self.save_queue_clips_button)
         button_row.addWidget(self.run_selected_queue_job_button)
         button_row.addWidget(self.validate_queue_job_button)
         button_row.addWidget(self.delete_queue_job_button)
@@ -602,6 +604,7 @@ class MainWindow(QMainWindow):
         self.reset_classification_button.clicked.connect(self.reset_classification_rules)
         self.add_queue_local_video_button.clicked.connect(self.add_local_video_to_queue)
         self.add_queue_url_button.clicked.connect(self.add_url_to_queue)
+        self.save_queue_clips_button.clicked.connect(self.save_clips_to_selected_queue_job)
         self.run_selected_queue_job_button.clicked.connect(self.run_selected_queue_job)
         self.validate_queue_job_button.clicked.connect(self.validate_selected_queue_job)
         self.delete_queue_job_button.clicked.connect(self.delete_selected_queue_job)
@@ -760,6 +763,49 @@ class MainWindow(QMainWindow):
         apply_queue_validation_result(job, result)
         self._refresh_queue_job_row(row)
         self._write_log("تم فحص المهمة المحددة\n" + format_queue_validation_result_ar(result))
+
+    def save_clips_to_selected_queue_job(self) -> None:
+        row = self._selected_queue_row()
+        if row is None:
+            self._write_log("لا توجد مهمة محددة")
+            return
+
+        if self.clips_table.rowCount() == 0:
+            self._write_log("لا توجد مقاطع لحفظها")
+            return
+
+        job = self.job_queue[row]
+        if job.clips and not self._ask_replace_queue_clips_confirmation():
+            return
+
+        job.clips = self._clip_jobs_from_current_table()
+        self._refresh_queue_job_row(row)
+        self._write_log(
+            "تم حفظ المقاطع للمهمة المحددة\n"
+            "تم تحديث عدد المقاطع\n"
+            "لم يتم بدء أي قص أو تحميل"
+        )
+
+    def _clip_jobs_from_current_table(self) -> list[ClipJob]:
+        return [
+            ClipJob(
+                title=self._cell_text(row, TITLE_COLUMN),
+                start=self._cell_text(row, START_COLUMN),
+                end=self._cell_text(row, END_COLUMN),
+                exclusions=self._cell_text(row, EXCLUSIONS_COLUMN),
+            )
+            for row in range(self.clips_table.rowCount())
+        ]
+
+    def _ask_replace_queue_clips_confirmation(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("استبدال المقاطع المحفوظة")
+        dialog.setText("هذه المهمة تحتوي على مقاطع محفوظة. هل تريد استبدالها؟")
+        replace_button = dialog.addButton("استبدال", QMessageBox.AcceptRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(replace_button)
+        dialog.exec()
+        return dialog.clickedButton() == replace_button
 
     def run_selected_queue_job(self) -> None:
         row = self._selected_queue_row()
@@ -1534,6 +1580,7 @@ class MainWindow(QMainWindow):
             self.queue_table,
             self.add_queue_local_video_button,
             self.add_queue_url_button,
+            self.save_queue_clips_button,
             self.run_selected_queue_job_button,
             self.validate_queue_job_button,
             self.delete_queue_job_button,
