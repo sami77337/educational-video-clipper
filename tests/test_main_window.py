@@ -84,6 +84,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
         for column in range(window.queue_table.columnCount())
     ] == ["المصدر", "العنوان", "عدد المقاطع", "الحالة", "أولوية عالية", "الإجراء"]
     assert window.queue_table.rowCount() == 0
+    assert window.add_current_work_to_queue_button.text() == "إضافة العمل الحالي إلى قائمة الانتظار"
     assert window.add_queue_local_video_button.text() == "إضافة فيديو محلي"
     assert window.add_queue_url_button.text() == "إضافة رابط"
     assert window.save_queue_clips_button.text() == "حفظ المقاطع للمهمة المحددة"
@@ -94,6 +95,134 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.validate_queue_job_button.text() == "إعادة فحص المحدد"
     assert window.delete_queue_job_button.text() == "إزالة المهمة المحددة"
     assert window.clear_queue_button.text() == "مسح القائمة"
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_add_current_local_work_with_clip_rows() -> None:
+    app = _app()
+    window = MainWindow()
+    window.project_name_input.setText("مشروع محلي")
+    window.youtube_input.setText("https://youtu.be/unused")
+    window.local_file_radio.setChecked(True)
+    window.local_file_input.setText("C:/videos/lesson.mp4")
+    window._insert_clip_row(1, "المقطع الأول", "00:01:00", "00:02:00", "00:01:20-00:01:30")
+
+    window.add_current_work_to_queue()
+
+    assert len(window.job_queue) == 1
+    job = window.job_queue[0]
+    assert job.source_type == QueueVideoSourceType.LOCAL
+    assert job.source.replace("\\", "/") == "C:/videos/lesson.mp4"
+    assert job.title == "مشروع محلي"
+    assert job.settings.high_priority is False
+    assert job.status == JobStatus.DRAFT
+    assert len(job.clips) == 1
+    assert job.clips[0].title == "المقطع الأول"
+    assert job.clips[0].start == "00:01:00"
+    assert job.clips[0].end == "00:02:00"
+    assert job.clips[0].exclusions == "00:01:20-00:01:30"
+    assert window.queue_table.item(0, QUEUE_SOURCE_COLUMN).text() == "فيديو محلي"
+    assert window.queue_table.item(0, QUEUE_TITLE_COLUMN).text() == "مشروع محلي"
+    assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "1"
+    assert window.queue_table.item(0, QUEUE_HIGH_PRIORITY_COLUMN).checkState() == Qt.Unchecked
+    assert "تم إضافة العمل الحالي إلى قائمة الانتظار" in window.log_area.toPlainText()
+    assert "لم يتم بدء أي قص أو تحميل" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_add_current_url_work_with_clip_rows() -> None:
+    app = _app()
+    window = MainWindow()
+    window.project_name_input.setText("درس رابط")
+    window.youtube_radio.setChecked(True)
+    window.youtube_input.setText("https://youtu.be/abc123")
+    window._insert_clip_row(1, "المقطع", "00:01:00", "00:02:00")
+
+    window.add_current_work_to_queue()
+
+    assert len(window.job_queue) == 1
+    job = window.job_queue[0]
+    assert job.source_type == QueueVideoSourceType.YOUTUBE
+    assert job.source == "https://youtu.be/abc123"
+    assert job.title == "درس رابط"
+    assert len(job.clips) == 1
+    assert window.queue_table.item(0, QUEUE_SOURCE_COLUMN).text() == "رابط يوتيوب"
+    assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "1"
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_add_current_facebook_url_work() -> None:
+    app = _app()
+    window = MainWindow()
+    window.youtube_radio.setChecked(True)
+    window.youtube_input.setText("https://facebook.com/watch/example")
+    window._insert_clip_row(1, "المقطع", "00:01:00", "00:02:00")
+
+    window.add_current_work_to_queue()
+
+    assert len(window.job_queue) == 1
+    assert window.job_queue[0].source_type == QueueVideoSourceType.FACEBOOK
+    assert window.queue_table.item(0, QUEUE_SOURCE_COLUMN).text() == "رابط Facebook"
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_add_current_work_empty_clips_requires_confirmation() -> None:
+    app = _app()
+    window = MainWindow()
+    window.youtube_input.setText("https://youtu.be/abc123")
+
+    window._ask_add_current_work_without_clips_confirmation = lambda: False
+    window.add_current_work_to_queue()
+
+    assert window.job_queue == []
+    assert "لا توجد مقاطع في الجدول" in window.log_area.toPlainText()
+
+    window._ask_add_current_work_without_clips_confirmation = lambda: True
+    window.add_current_work_to_queue()
+
+    assert len(window.job_queue) == 1
+    assert window.job_queue[0].clip_count == 0
+    assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "0"
+    assert "تم إضافة العمل الحالي إلى قائمة الانتظار" in window.log_area.toPlainText()
+    assert "لم يتم بدء أي قص أو تحميل" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_add_current_work_rejects_missing_or_unsupported_source() -> None:
+    app = _app()
+    window = MainWindow()
+
+    window.add_current_work_to_queue()
+
+    assert window.job_queue == []
+    assert "لا يوجد مصدر فيديو لإضافته" in window.log_area.toPlainText()
+
+    window.youtube_input.setText("https://vimeo.com/123")
+    window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00")
+    window.add_current_work_to_queue()
+
+    assert window.job_queue == []
+    assert "الرابط غير مدعوم حاليًا" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
 
     window.close()
     app.processEvents()
