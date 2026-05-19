@@ -92,6 +92,9 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.smart_paste_button.text() == "استيراد ذكي"
     assert window.parse_message_button.text() == "تحويل بسيط إلى جدول"
     assert window.delete_row_button.text() == "حذف المقطع المحدد"
+    assert window.preview_clip_start_button.text() == "معاينة بداية المقطع"
+    assert window.preview_clip_end_button.text() == "معاينة نهاية المقطع"
+    assert window.preview_selected_clip_button.text() == "معاينة المقطع المحدد"
     assert [
         window.queue_table.horizontalHeaderItem(column).text()
         for column in range(window.queue_table.columnCount())
@@ -1717,6 +1720,100 @@ def test_delete_clip_without_selected_row_does_not_crash() -> None:
 
     assert window.clips_table.rowCount() == 1
     assert "لا يوجد مقطع محدد" in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
+def test_preview_without_selected_clip_shows_arabic_message() -> None:
+    app = _app()
+    window = MainWindow()
+
+    window.preview_selected_clip_start()
+
+    assert "لا يوجد مقطع محدد" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_youtube_preview_without_downloaded_input_shows_message() -> None:
+    app = _app()
+    window = MainWindow()
+    window.project_name_input.setText("مشروع")
+    window.youtube_radio.setChecked(True)
+    window.youtube_input.setText("https://youtube.com/watch?v=test")
+    window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00")
+    window.clips_table.setCurrentCell(0, TITLE_COLUMN)
+
+    window.preview_selected_clip_start()
+
+    assert "يجب تنزيل الفيديو أولًا قبل المعاينة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_selected_clip_preview_uses_local_video_without_final_processing(tmp_path, monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    source_video = tmp_path / "lesson.mp4"
+    source_video.write_bytes(b"video")
+    preview_output = tmp_path / "preview.mp4"
+    captured = {}
+
+    def fake_create_preview_clip(input_video_path, preview_range, **kwargs):
+        captured["input_video_path"] = input_video_path
+        captured["preview_range"] = preview_range
+        captured["kwargs"] = kwargs
+        preview_output.write_bytes(b"preview")
+        return preview_output
+
+    monkeypatch.setattr("src.main_window.probe_media_duration_seconds", lambda path: 120)
+    monkeypatch.setattr("src.main_window.create_preview_clip", fake_create_preview_clip)
+    monkeypatch.setattr("src.main_window.QDesktopServices.openUrl", lambda url: True)
+    window.local_file_radio.setChecked(True)
+    window.local_file_input.setText(str(source_video))
+    window.pre_padding_input.setValue(1)
+    window.post_padding_input.setValue(2)
+    window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00")
+    window.clips_table.setCurrentCell(0, TITLE_COLUMN)
+
+    window.preview_selected_clip()
+
+    assert captured["input_video_path"] == source_video
+    assert captured["preview_range"].start_seconds == 59
+    assert captured["preview_range"].end_seconds == 120
+    assert captured["kwargs"]["preview_kind"].value == "full"
+    assert "تم فتح المعاينة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_selected_clip_preview_notes_exclusions_are_ignored(tmp_path, monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    source_video = tmp_path / "lesson.mp4"
+    source_video.write_bytes(b"video")
+
+    monkeypatch.setattr("src.main_window.probe_media_duration_seconds", lambda path: 120)
+    monkeypatch.setattr("src.main_window.create_preview_clip", lambda *args, **kwargs: tmp_path / "preview.mp4")
+    monkeypatch.setattr("src.main_window.QDesktopServices.openUrl", lambda url: True)
+    window.local_file_radio.setChecked(True)
+    window.local_file_input.setText(str(source_video))
+    window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00", "00:01:10-00:01:20")
+    window.clips_table.setCurrentCell(0, TITLE_COLUMN)
+
+    window.preview_selected_clip()
+
+    assert "ملاحظة: المعاينة لا تطبق الاستثناءات في هذه النسخة" in window.log_area.toPlainText()
 
     window.close()
     app.processEvents()

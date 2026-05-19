@@ -47,6 +47,13 @@ from src.classification import (
     validate_classification_rules,
 )
 from src.clip_padding import ClipPadding
+from src.clip_preview import (
+    MAX_FULL_CLIP_PREVIEW_SECONDS,
+    ClipPreviewError,
+    ClipPreviewKind,
+    calculate_preview_range,
+    create_preview_clip,
+)
 from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.job_queue import ClipJob, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
@@ -61,10 +68,11 @@ from src.message_parser import ParsedClipLine, parse_clip_message
 from src.readiness import format_readiness_report_ar, run_readiness_check
 from src.smart_paste_parser import SmartPasteClip, SmartPastePreview, parse_smart_paste_message
 from src.smart_validation import format_smart_validation_report_ar, validate_clips_before_cutting
-from src.time_utils import normalize_timestamp_text
+from src.time_utils import normalize_timestamp_text, parse_timestamp
 from src.version import APP_NAME, APP_SUBTITLE
 from src.validation import ClipRowInput, normalize_clip_exclusions, validate_clip_rows, validate_required_text
 from src.video_processor import (
+    INPUT_VIDEO_NAME,
     TEMP_SEGMENTS_FOLDER_NAME,
     VideoProcessor,
     VideoProcessingError,
@@ -324,6 +332,9 @@ class MainWindow(QMainWindow):
         self.import_excel_button = QPushButton("استيراد من Excel")
         self.delete_row_button = QPushButton("حذف المقطع المحدد")
         self.clear_table_button = QPushButton("مسح الجدول")
+        self.preview_clip_start_button = QPushButton("معاينة بداية المقطع")
+        self.preview_clip_end_button = QPushButton("معاينة نهاية المقطع")
+        self.preview_selected_clip_button = QPushButton("معاينة المقطع المحدد")
         self.add_classification_button = QPushButton("إضافة تصنيف")
         self.delete_classification_button = QPushButton("حذف التصنيف المحدد")
         self.reset_classification_button = QPushButton("استعادة الافتراضي")
@@ -625,8 +636,15 @@ class MainWindow(QMainWindow):
         table_buttons.addStretch(1)
         table_buttons.addWidget(self.import_excel_button)
 
+        preview_buttons = QHBoxLayout()
+        preview_buttons.addWidget(self.preview_clip_start_button)
+        preview_buttons.addWidget(self.preview_clip_end_button)
+        preview_buttons.addWidget(self.preview_selected_clip_button)
+        preview_buttons.addStretch(1)
+
         layout.addWidget(self.clips_table)
         layout.addLayout(table_buttons)
+        layout.addLayout(preview_buttons)
 
         return group
 
@@ -662,6 +680,9 @@ class MainWindow(QMainWindow):
         self.import_excel_button.clicked.connect(self.import_from_excel)
         self.delete_row_button.clicked.connect(self.delete_selected_row)
         self.clear_table_button.clicked.connect(self.clear_table)
+        self.preview_clip_start_button.clicked.connect(self.preview_selected_clip_start)
+        self.preview_clip_end_button.clicked.connect(self.preview_selected_clip_end)
+        self.preview_selected_clip_button.clicked.connect(self.preview_selected_clip)
         self.add_classification_button.clicked.connect(self.add_classification_rule)
         self.delete_classification_button.clicked.connect(self.delete_selected_classification_rule)
         self.reset_classification_button.clicked.connect(self.reset_classification_rules)
@@ -712,6 +733,15 @@ class MainWindow(QMainWindow):
         self.clips_table.setItem(row, START_COLUMN, QTableWidgetItem(start))
         self.clips_table.setItem(row, END_COLUMN, QTableWidgetItem(end))
         self.clips_table.setItem(row, EXCLUSIONS_COLUMN, QTableWidgetItem(exclusions))
+
+    def preview_selected_clip_start(self) -> None:
+        self._preview_selected_clip(ClipPreviewKind.START)
+
+    def preview_selected_clip_end(self) -> None:
+        self._preview_selected_clip(ClipPreviewKind.END)
+
+    def preview_selected_clip(self) -> None:
+        self._preview_selected_clip(ClipPreviewKind.FULL)
 
     def add_local_video_to_queue(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1365,11 +1395,7 @@ class MainWindow(QMainWindow):
         self.classification_rules_table.setItem(row, RULE_FOLDER_COLUMN, QTableWidgetItem(rule.folder_name))
 
     def delete_selected_row(self) -> None:
-        selected_row_numbers = [index.row() for index in self.clips_table.selectionModel().selectedRows()]
-        if not selected_row_numbers:
-            selected_row_numbers = [index.row() for index in self.clips_table.selectedIndexes()]
-        if not selected_row_numbers and self.clips_table.currentRow() >= 0:
-            selected_row_numbers = [self.clips_table.currentRow()]
+        selected_row_numbers = self._selected_clip_rows()
         if not selected_row_numbers:
             self._write_log("لا يوجد مقطع محدد")
             return
@@ -1379,6 +1405,18 @@ class MainWindow(QMainWindow):
 
         self._renumber_rows()
         self._write_log("تم حذف الصف المحدد.")
+
+    def _selected_clip_row(self) -> int | None:
+        selected_rows = self._selected_clip_rows()
+        return selected_rows[0] if selected_rows else None
+
+    def _selected_clip_rows(self) -> list[int]:
+        selected_row_numbers = [index.row() for index in self.clips_table.selectionModel().selectedRows()]
+        if not selected_row_numbers:
+            selected_row_numbers = [index.row() for index in self.clips_table.selectedIndexes()]
+        if not selected_row_numbers and self.clips_table.currentRow() >= 0:
+            selected_row_numbers = [self.clips_table.currentRow()]
+        return sorted(set(row for row in selected_row_numbers if 0 <= row < self.clips_table.rowCount()))
 
     def clear_table(self) -> None:
         if self.clips_table.rowCount() == 0:
@@ -1569,6 +1607,95 @@ class MainWindow(QMainWindow):
             return
 
         self._append_log(f"تم فتح مجلد الإخراج: {output_dir}")
+
+    def _preview_selected_clip(self, preview_kind: ClipPreviewKind) -> None:
+        row = self._selected_clip_row()
+        if row is None:
+            self._write_log("لا يوجد مقطع محدد")
+            return
+
+        input_video_path = self._current_preview_video_path()
+        if input_video_path is None:
+            return
+
+        try:
+            clip_number = self._row_number(row)
+            clip_start_seconds = parse_timestamp(self._cell_text(row, START_COLUMN))
+            clip_end_seconds = parse_timestamp(self._cell_text(row, END_COLUMN))
+            video_duration_seconds = self._preview_video_duration(input_video_path)
+            preview_range = calculate_preview_range(
+                preview_kind,
+                clip_start_seconds,
+                clip_end_seconds,
+                video_duration_seconds=video_duration_seconds,
+                clip_padding=self._collect_clip_padding() if preview_kind is ClipPreviewKind.FULL else ClipPadding(),
+            )
+        except ValueError as error:
+            self._write_log(f"فشل إنشاء المعاينة: {error}")
+            return
+
+        if (
+            preview_kind is ClipPreviewKind.FULL
+            and preview_range.duration_seconds > MAX_FULL_CLIP_PREVIEW_SECONDS
+            and not self._ask_long_clip_preview_confirmation(preview_range.duration_seconds)
+        ):
+            self._write_log("تم إلغاء إنشاء المعاينة.")
+            return
+
+        messages = ["جاري إنشاء المعاينة"]
+        if preview_kind is ClipPreviewKind.FULL and self._cell_text(row, EXCLUSIONS_COLUMN):
+            messages.append("ملاحظة: المعاينة لا تطبق الاستثناءات في هذه النسخة")
+        self._write_log("\n".join(messages))
+
+        try:
+            preview_path = create_preview_clip(
+                input_video_path,
+                preview_range,
+                clip_number=clip_number,
+                preview_kind=preview_kind,
+            )
+        except ClipPreviewError as error:
+            self._append_log(f"فشل إنشاء المعاينة: {error}")
+            return
+
+        if QDesktopServices.openUrl(QUrl.fromLocalFile(str(preview_path))):
+            self._append_log(f"تم فتح المعاينة: {preview_path}")
+        else:
+            self._append_log("فشل إنشاء المعاينة: تعذر فتح ملف المعاينة")
+
+    def _current_preview_video_path(self) -> Path | None:
+        if self.local_file_radio.isChecked():
+            try:
+                return validate_local_video_file(self.local_file_input.text())
+            except VideoSourceError:
+                self._write_log("يجب اختيار فيديو محلي أو تنزيل الفيديو أولًا")
+                return None
+
+        project_folder = self.output_root / sanitize_project_name(self.project_name_input.text())
+        input_video_path = project_folder / INPUT_VIDEO_NAME
+        if input_video_path.is_file():
+            return input_video_path
+
+        self._write_log("يجب تنزيل الفيديو أولًا قبل المعاينة")
+        return None
+
+    def _preview_video_duration(self, input_video_path: Path) -> float | None:
+        try:
+            return probe_media_duration_seconds(input_video_path)
+        except Exception:
+            return None
+
+    def _ask_long_clip_preview_confirmation(self, duration_seconds: float) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("معاينة المقطع المحدد")
+        dialog.setText(
+            "المقطع المحدد طويل وقد يستغرق إنشاء المعاينة وقتًا. هل تريد إنشاء المعاينة؟"
+        )
+        preview_button = dialog.addButton("إنشاء المعاينة", QMessageBox.AcceptRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(preview_button)
+        dialog.exec()
+        return dialog.clickedButton() == preview_button
 
     def _open_output_folder_automatically(self) -> None:
         """Open the output folder immediately after a successful run."""
@@ -2092,6 +2219,9 @@ class MainWindow(QMainWindow):
             self.import_excel_button,
             self.delete_row_button,
             self.clear_table_button,
+            self.preview_clip_start_button,
+            self.preview_clip_end_button,
+            self.preview_selected_clip_button,
             self.add_classification_button,
             self.delete_classification_button,
             self.reset_classification_button,
