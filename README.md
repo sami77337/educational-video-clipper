@@ -162,7 +162,7 @@ They show a scissors-and-video-strip concept for **المقص البسيط**.
 
 ## Packaging
 
-This project is not packaged as an EXE yet.
+يمكن بناء نسخة Windows محمولة باستخدام ملفات البناء الموجودة في هذا المستودع.
 
 
 ## ملاحظة مهمة حول خطأ Windows Long Path
@@ -227,6 +227,12 @@ install_desktop.bat
 build_app.bat
 ```
 
+للبناء الآلي أو التحقق غير التفاعلي بدون فتح Explorer وبدون انتظار ضغط زر، شغّل:
+
+```bat
+build_app_ci.bat
+```
+
 سينتج مجلد:
 
 ```text
@@ -259,4 +265,3 @@ START_APP_NO_CONSOLE.vbs
 ```
 
 أما `run_app.bat` فهو للتشخيص فقط، وسيُظهر نافذة CMD طبيعيًا.
-
