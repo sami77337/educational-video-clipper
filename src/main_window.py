@@ -47,6 +47,7 @@ from src.export_utils import ExportError, validate_output_folder_path
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.message_parser import ParsedClipLine, parse_clip_message
 from src.readiness import format_readiness_report_ar, run_readiness_check
+from src.smart_validation import format_smart_validation_report_ar, validate_clips_before_cutting
 from src.time_utils import normalize_timestamp_text
 from src.version import APP_NAME, APP_SUBTITLE
 from src.validation import ClipRowInput, normalize_clip_exclusions, validate_clip_rows, validate_required_text
@@ -57,6 +58,7 @@ from src.video_processor import (
     VideoSourceError,
     VideoSourceRequest,
     VideoSourceType,
+    probe_media_duration_seconds,
     sanitize_project_name,
     validate_local_video_file,
     validate_youtube_url,
@@ -155,6 +157,7 @@ class MainWindow(QMainWindow):
         self.delete_classification_button = QPushButton("حذف التصنيف المحدد")
         self.reset_classification_button = QPushButton("استعادة الافتراضي")
         self.readiness_button = QPushButton("فحص جاهزية البرنامج")
+        self.smart_validation_button = QPushButton("فحص ذكي قبل القص")
         self.validate_button = QPushButton("فحص الجدول")
         self.start_button = QPushButton("بدء القص")
         self.open_output_button = QPushButton("فتح مجلد النتائج")
@@ -388,6 +391,7 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(group)
 
         layout.addWidget(self.readiness_button)
+        layout.addWidget(self.smart_validation_button)
         layout.addWidget(self.validate_button)
         layout.addWidget(self.start_button)
         layout.addWidget(self.open_output_button)
@@ -420,6 +424,7 @@ class MainWindow(QMainWindow):
         self.reset_classification_button.clicked.connect(self.reset_classification_rules)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
         self.readiness_button.clicked.connect(self.check_readiness)
+        self.smart_validation_button.clicked.connect(self.run_smart_pre_cut_validation)
         self.validate_button.clicked.connect(self.validate_inputs)
         self.start_button.clicked.connect(self.start_processing)
         self.open_output_button.clicked.connect(self.open_output_folder)
@@ -613,6 +618,13 @@ class MainWindow(QMainWindow):
             selected_paths=selected_paths,
         )
         self._write_log("نتيجة فحص جاهزية البرنامج:\n" + format_readiness_report_ar(report))
+
+    def run_smart_pre_cut_validation(self) -> None:
+        report = validate_clips_before_cutting(
+            self._collect_clip_rows(),
+            known_video_duration_seconds=self._known_video_duration_for_smart_validation(),
+        )
+        self._write_log(format_smart_validation_report_ar(report))
 
     def start_processing(self) -> None:
         if self._processing_thread is not None:
@@ -809,6 +821,15 @@ class MainWindow(QMainWindow):
             )
 
         return VideoSourceRequest(VideoSourceType.LOCAL_FILE, self.local_file_input.text())
+
+    def _known_video_duration_for_smart_validation(self) -> float | None:
+        if not self.local_file_radio.isChecked():
+            return None
+        try:
+            local_video_path = validate_local_video_file(self.local_file_input.text())
+            return probe_media_duration_seconds(local_video_path)
+        except Exception:
+            return None
 
     def _selected_browser_identifier(self) -> str:
         mapping = {
@@ -1015,6 +1036,7 @@ class MainWindow(QMainWindow):
             self.delete_classification_button,
             self.reset_classification_button,
             self.readiness_button,
+            self.smart_validation_button,
             self.validate_button,
             self.start_button,
             self.open_output_button,

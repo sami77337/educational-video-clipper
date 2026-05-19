@@ -17,6 +17,7 @@ from src.main_window import (
     MainWindow,
 )
 from src.readiness import STATUS_READY, ReadinessCheckItem, ReadinessReport
+from src.smart_validation import SmartValidationReport
 
 
 def _app() -> QApplication:
@@ -57,6 +58,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     ]
     assert window.validate_button.text() == "فحص الجدول"
     assert window.readiness_button.text() == "فحص جاهزية البرنامج"
+    assert window.smart_validation_button.text() == "فحص ذكي قبل القص"
     assert window.start_button.text() == "بدء القص"
     assert window.open_output_button.text() == "فتح مجلد النتائج"
     assert window.import_excel_button.text() == "استيراد من Excel"
@@ -85,6 +87,33 @@ def test_readiness_button_writes_arabic_report(monkeypatch) -> None:
     assert "جاهز: ffmpeg جاهز" in window.log_area.toPlainText()
     assert captured["output_folder"].name == "مشروع-بدون-اسم"
     assert captured["temp_folder"].name == "_temp_segments"
+
+    window.close()
+    app.processEvents()
+
+
+def test_smart_validation_button_writes_arabic_summary(monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    captured = {}
+
+    def fake_smart_validation(rows, *, known_video_duration_seconds):
+        captured["rows"] = list(rows)
+        captured["known_video_duration_seconds"] = known_video_duration_seconds
+        return SmartValidationReport(total_clips_count=1, issues=[])
+
+    monkeypatch.setattr("src.main_window.validate_clips_before_cutting", fake_smart_validation)
+
+    window.add_clip_row()
+    window.clips_table.item(0, TITLE_COLUMN).setText("مقطع")
+    window.clips_table.item(0, START_COLUMN).setText("00:00:01")
+    window.clips_table.item(0, END_COLUMN).setText("00:00:10")
+    window.run_smart_pre_cut_validation()
+
+    assert len(captured["rows"]) == 1
+    assert captured["known_video_duration_seconds"] is None
+    assert "نتيجة الفحص الذكي قبل القص" in window.log_area.toPlainText()
+    assert "النتيجة: يمكن بدء القص" in window.log_area.toPlainText()
 
     window.close()
     app.processEvents()
