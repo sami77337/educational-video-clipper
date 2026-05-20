@@ -84,6 +84,7 @@ def test_create_preview_clip_builds_temp_ffmpeg_command(tmp_path) -> None:
     assert commands[0][0] == "ffmpeg"
     assert commands[0][commands[0].index("-ss") + 1] == "0"
     assert commands[0][commands[0].index("-t") + 1] == "30"
+    assert "-filter:a" not in commands[0]
     assert commands[0][-1] == str(output_path)
 
 

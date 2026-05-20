@@ -17,6 +17,7 @@ from src.classification import (
 )
 from src.file_utils import ensure_directory
 from src.video_speed import DEFAULT_VIDEO_SPEED, format_video_speed, normalize_video_speed
+from src.video_volume import DEFAULT_VOLUME_PERCENT, format_volume_percent, normalize_volume_percent
 
 
 REELS_FOLDER_NAME = "ريلز"
@@ -72,6 +73,7 @@ class ProcessingReportData:
     pre_padding_seconds: float = 0.0
     post_padding_seconds: float = 0.0
     video_speed: float = DEFAULT_VIDEO_SPEED
+    volume_percent: int = DEFAULT_VOLUME_PERCENT
 
 
 @dataclass(frozen=True)
@@ -170,6 +172,8 @@ def build_processing_report(data: ProcessingReportData) -> str:
         )
     if _has_video_speed(data):
         lines.append(f"سرعة الفيديو: {format_video_speed(data.video_speed)}")
+    if _has_volume(data):
+        lines.append(f"مستوى الصوت: {format_volume_percent(data.volume_percent)}")
     lines.append("Classification rules:")
     lines.extend(_format_classification_rule(rule) for rule in classification_rules)
     lines.append("Clip counts by folder:")
@@ -285,6 +289,10 @@ def _has_clip_padding(data: ProcessingReportData) -> bool:
 
 def _has_video_speed(data: ProcessingReportData) -> bool:
     return normalize_video_speed(data.video_speed) != DEFAULT_VIDEO_SPEED
+
+
+def _has_volume(data: ProcessingReportData) -> bool:
+    return normalize_volume_percent(data.volume_percent) != DEFAULT_VOLUME_PERCENT
 
 
 def _format_seconds_value(value: float) -> str:

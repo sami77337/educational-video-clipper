@@ -112,6 +112,44 @@ def test_speed_is_preserved_independently_per_queue_job() -> None:
     assert loaded[1].settings.speed == 1.25
 
 
+def test_volume_is_preserved_independently_per_queue_job() -> None:
+    first = VideoJob(
+        source_type=VideoSourceType.LOCAL,
+        source="C:/videos/first.mp4",
+        title="الأول",
+        settings=JobSettings(volume_percent=75),
+    )
+    second = VideoJob(
+        source_type=VideoSourceType.YOUTUBE,
+        source="https://youtu.be/second",
+        title="الثاني",
+        settings=JobSettings(volume_percent=200),
+    )
+
+    loaded = queue_jobs_from_data(json.loads(queue_jobs_to_json([first, second])))
+
+    assert loaded[0].settings.volume_percent == 75
+    assert loaded[1].settings.volume_percent == 200
+
+
+def test_invalid_saved_volume_defaults_safely() -> None:
+    loaded = queue_jobs_from_data(
+        {
+            "schema_version": 1,
+            "jobs": [
+                {
+                    "source_type": "local",
+                    "source": "C:/videos/lesson.mp4",
+                    "title": "درس",
+                    "settings": {"volume_percent": 0},
+                }
+            ],
+        }
+    )
+
+    assert loaded[0].settings.volume_percent == 100
+
+
 def test_cookies_and_tokens_are_not_saved() -> None:
     job = VideoJob(
         source_type=VideoSourceType.YOUTUBE,
