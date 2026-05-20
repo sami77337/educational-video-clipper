@@ -8,7 +8,7 @@ the current table import, download, or cutting workflows.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from src.time_utils import parse_timestamp, normalize_digits, normalize_time_symbols, normalize_timestamp_text
 
@@ -42,6 +42,8 @@ _INTERNAL_CUT_PHRASES = (
     "مابين القوسين",
     "ما بين القوسين",
     "يحتاج قص من الداخل",
+    "قص داخل المقطع",
+    "احذف من داخل المقطع",
     "استثناء",
     "احذف",
     "حذف",
@@ -58,7 +60,9 @@ _WORD_MARKER_PHRASES = (
     "إلى كلمة",
     "الى كلمة",
 )
-_EXCLUSION_CUE_PATTERN = re.compile(r"(?:استثناء|حذف|احذف|يقطع|يحتاج\s+قص\s+من\s+الداخل)\s*:?\s*")
+_EXCLUSION_CUE_PATTERN = re.compile(
+    r"(?:استثناء|حذف|احذف|يقطع|يحتاج\s+قص\s+من\s+الداخل|قص\s+داخل\s+المقطع|احذف\s+من\s+داخل\s+المقطع)\s*:?\s*"
+)
 _START_NOTE_PATTERN = re.compile(
     r"(?:اول\s+كلمة|أول\s+كلمة|كلمة\s+البداية|البداية)\s*:?\s*"
     r"(.+?)(?=(?:اخر\s+كلمة|آخر\s+كلمة|كلمة\s+النهاية|النهاية)\s*:?|$)"
@@ -196,6 +200,58 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
     warnings: list[SmartPasteWarning] = []
     unparsed_lines: list[SmartPasteUnparsedLine] = []
     project_title = ""
+    pending_candidate: _ClipCandidate | None = None
+    pending_context: _LineContext | None = None
+    pending_extra_warnings: list[SmartPasteWarning] = []
+    pending_exclusion_clip_index: int | None = None
+
+    def append_candidate(
+        candidate: _ClipCandidate,
+        context: _LineContext,
+        *,
+        title_override: str = "",
+        extra_warnings: list[SmartPasteWarning] | None = None,
+    ) -> SmartPasteClip:
+        nonlocal clips, warnings
+        if title_override:
+            candidate = replace(candidate, title=_clean_title(title_override))
+
+        if extra_warnings:
+            warnings.extend(extra_warnings)
+        warnings.extend(_warnings_for_candidate(candidate, context))
+
+        clip_number = len(clips) + 1
+        clip = SmartPasteClip(
+            number=clip_number,
+            title=candidate.title or f"مقطع {clip_number:02d}",
+            start=candidate.start,
+            end=candidate.end,
+            line_number=context.line_number,
+            raw_line=context.raw_line,
+            exclusions=candidate.exclusions,
+            parts=candidate.parts,
+            start_note=candidate.start_note,
+            end_note=candidate.end_note,
+            general_notes=candidate.general_notes,
+        )
+        clips.append(clip)
+        return clip
+
+    def finalize_pending_candidate(title_override: str = "") -> SmartPasteClip | None:
+        nonlocal pending_candidate, pending_context, pending_extra_warnings
+        if pending_candidate is None or pending_context is None:
+            return None
+
+        clip = append_candidate(
+            pending_candidate,
+            pending_context,
+            title_override=title_override,
+            extra_warnings=pending_extra_warnings,
+        )
+        pending_candidate = None
+        pending_context = None
+        pending_extra_warnings = []
+        return clip
 
     for line_number, raw_line in enumerate(str(raw_text or "").splitlines(), start=1):
         context = _prepare_line(raw_line, line_number)
@@ -215,76 +271,81 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
 
         candidate = _parse_multi_part_clip(context.text) or _parse_begin_end_clip(context.text) or _parse_range_clip(context.text)
         if candidate is not None:
-            warnings.extend(unsupported_warnings)
-            warnings.extend(_validate_candidate_exclusions(candidate, context))
-            warnings.extend(_validate_candidate_parts(candidate, context))
-            if candidate.parts:
-                warnings.append(
-                    SmartPasteWarning(
-                        context.line_number,
-                        "تم العثور على مقطع مركب من أكثر من جزء",
-                        context.raw_line,
+            if pending_exclusion_clip_index is not None:
+                exclusion = SmartPasteExclusion(candidate.start, candidate.end, context.text)
+                previous_clip = clips[pending_exclusion_clip_index]
+                if _exclusion_has_valid_order(exclusion) and _exclusion_inside_clip(
+                    exclusion,
+                    previous_clip.start,
+                    previous_clip.end,
+                ):
+                    clips[pending_exclusion_clip_index] = replace(
+                        previous_clip,
+                        exclusions=[*previous_clip.exclusions, exclusion],
                     )
-                )
-                warnings.append(
-                    SmartPasteWarning(
-                        context.line_number,
-                        "هذا المقطع يحتوي على أكثر من جزء. سيتم دعمه في القص لاحقًا.",
-                        context.raw_line,
+                    warnings.append(
+                        SmartPasteWarning(
+                            context.line_number,
+                            "تم اكتشاف وقت قد يكون استثناء داخل المقطع",
+                            context.raw_line,
+                        )
                     )
-                )
-                warnings.append(
-                    SmartPasteWarning(
-                        context.line_number,
-                        "هذا المقطع يحتاج دعم الدمج لاحقًا قبل القص",
-                        context.raw_line,
+                else:
+                    warnings.append(
+                        SmartPasteWarning(
+                            context.line_number,
+                            "تحذير: وقت الاستثناء غير صحيح أو خارج حدود المقطع",
+                            context.raw_line,
+                        )
                     )
-                )
-            if candidate.exclusions:
-                warnings.append(
-                    SmartPasteWarning(
-                        context.line_number,
-                        f"تم العثور على استثناء داخل المقطع في السطر {context.line_number}",
-                        context.raw_line,
-                    )
-                )
-            if candidate.start_note:
-                warnings.append(
-                    SmartPasteWarning(
-                        context.line_number,
-                        f"ملاحظة بداية المقطع في السطر {context.line_number}: {candidate.start_note}",
-                        context.raw_line,
-                    )
-                )
-            if candidate.end_note:
-                warnings.append(
-                    SmartPasteWarning(
-                        context.line_number,
-                        f"ملاحظة نهاية المقطع في السطر {context.line_number}: {candidate.end_note}",
-                        context.raw_line,
-                    )
-                )
-            clip_number = len(clips) + 1
-            clips.append(
-                SmartPasteClip(
-                    number=clip_number,
-                    title=candidate.title or f"مقطع {clip_number:02d}",
-                    start=candidate.start,
-                    end=candidate.end,
-                    line_number=context.line_number,
-                    raw_line=context.raw_line,
-                    exclusions=candidate.exclusions,
-                    parts=candidate.parts,
-                    start_note=candidate.start_note,
-                    end_note=candidate.end_note,
-                    general_notes=candidate.general_notes,
-                )
-            )
+                pending_exclusion_clip_index = None
+                continue
+
+            finalize_pending_candidate()
+            if not candidate.title and not candidate.parts:
+                pending_candidate = candidate
+                pending_context = context
+                pending_extra_warnings = list(unsupported_warnings)
+                continue
+
+            append_candidate(candidate, context, extra_warnings=unsupported_warnings)
             continue
 
         if unsupported_warnings:
+            finalize_pending_candidate()
             warnings.extend(unsupported_warnings)
             unparsed_lines.append(SmartPasteUnparsedLine(context.line_number, context.raw_line))
+            continue
+
+        if pending_candidate is not None:
+            if _line_has_exclusion_cue(context.text):
+                finalized_clip = finalize_pending_candidate()
+                if finalized_clip is not None:
+                    pending_exclusion_clip_index = len(clips) - 1
+                    warnings.append(
+                        SmartPasteWarning(
+                            context.line_number,
+                            "تم اكتشاف وقت قد يكون استثناء داخل المقطع",
+                            context.raw_line,
+                        )
+                    )
+                continue
+
+            finalize_pending_candidate(title_override=context.text)
+            continue
+
+        if pending_exclusion_clip_index is not None:
+            pending_exclusion_clip_index = None
+
+        if clips and _line_has_exclusion_cue(context.text):
+            pending_exclusion_clip_index = len(clips) - 1
+            warnings.append(
+                SmartPasteWarning(
+                    context.line_number,
+                    "تم اكتشاف وقت قد يكون استثناء داخل المقطع",
+                    context.raw_line,
+                )
+            )
             continue
 
         if not project_title and _looks_like_project_title(context.text):
@@ -292,6 +353,8 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
             continue
 
         unparsed_lines.append(SmartPasteUnparsedLine(context.line_number, context.raw_line))
+
+    finalize_pending_candidate()
 
     return SmartPastePreview(
         video_urls=video_urls,
@@ -584,6 +647,59 @@ def _validate_candidate_parts(
     return warnings
 
 
+def _warnings_for_candidate(candidate: _ClipCandidate, context: _LineContext) -> list[SmartPasteWarning]:
+    warnings: list[SmartPasteWarning] = []
+    warnings.extend(_validate_candidate_exclusions(candidate, context))
+    warnings.extend(_validate_candidate_parts(candidate, context))
+    if candidate.parts:
+        warnings.append(
+            SmartPasteWarning(
+                context.line_number,
+                "تم العثور على مقطع مركب من أكثر من جزء",
+                context.raw_line,
+            )
+        )
+        warnings.append(
+            SmartPasteWarning(
+                context.line_number,
+                "هذا المقطع يحتوي على أكثر من جزء. سيتم دعمه في القص لاحقًا.",
+                context.raw_line,
+            )
+        )
+        warnings.append(
+            SmartPasteWarning(
+                context.line_number,
+                "هذا المقطع يحتاج دعم الدمج لاحقًا قبل القص",
+                context.raw_line,
+            )
+        )
+    if candidate.exclusions:
+        warnings.append(
+            SmartPasteWarning(
+                context.line_number,
+                f"تم العثور على استثناء داخل المقطع في السطر {context.line_number}",
+                context.raw_line,
+            )
+        )
+    if candidate.start_note:
+        warnings.append(
+            SmartPasteWarning(
+                context.line_number,
+                f"ملاحظة بداية المقطع في السطر {context.line_number}: {candidate.start_note}",
+                context.raw_line,
+            )
+        )
+    if candidate.end_note:
+        warnings.append(
+            SmartPasteWarning(
+                context.line_number,
+                f"ملاحظة نهاية المقطع في السطر {context.line_number}: {candidate.end_note}",
+                context.raw_line,
+            )
+        )
+    return warnings
+
+
 def _exclusion_has_valid_order(exclusion: SmartPasteExclusion) -> bool:
     return parse_timestamp(exclusion.start) < parse_timestamp(exclusion.end)
 
@@ -602,6 +718,10 @@ def _clean_note_text(value: str) -> str:
 
 def _detect_unsupported_patterns(context: _LineContext) -> list[SmartPasteWarning]:
     return []
+
+
+def _line_has_exclusion_cue(text: str) -> bool:
+    return bool(_EXCLUSION_CUE_PATTERN.search(text))
 
 
 def _has_internal_cut_pattern(text: str) -> bool:
@@ -640,9 +760,10 @@ def _clean_title(value: str) -> str:
     title = _INTERNAL_RANGE_IN_PARENTHESES_PATTERN.sub(" ", title)
     for phrase in _INTERNAL_CUT_PHRASES:
         title = title.replace(phrase, " ")
-    title = re.sub(r"\s+", " ", title).strip(" :：-–—,،؛()[]")
+    title = re.sub(r"\s+", " ", title).strip(" :：-–—,،؛[]")
     if title.startswith("(") and title.endswith(")"):
         title = title[1:-1].strip()
+    title = re.sub(r"^\(([^()]+)\)\s*([,،])", r"\1 \2", title).strip()
     return title
 
 

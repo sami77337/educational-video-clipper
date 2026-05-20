@@ -3,6 +3,82 @@ from __future__ import annotations
 from src.smart_paste_parser import parse_smart_paste_message
 
 
+REAL_ARABIC_STRUCTURE_SAMPLE = """مقاطع من لمعة الإعتقاد ، الدرس الثاني
+https://youtu.be/05spuILAwrQ
+
+6:20 - 8:50
+, إثبات صحة النبوة
+
+9:26 - 27:33
+, تاريخ ظهور البدع
+
+27:35 - 38:59
+, النجاة من البدع
+
+38:05 - 46:13
+(الكتب في العقيدة)
+
+46:16 - 47:44
+, (ميزات كتب اهل السنة)
+
+58:03- 1:00:02
+، ميزات كتاب اللمعة
+
+1:03:29 - 1:10:03
+، رجل يقول أنا أعتقد أني مسلم على صواب و النصراني يعتقد أنه على صواب ، كيف ترد عليه؟(ما عنه الذكر الحكمي)
+
+1:14:09 - 1:16:09
+(مبتدعا أو ضالاً) ، عن التعصب
+
+1:17:24 - 1:18:27
+، الهداية هدايتان إطلبهما من الله الآن
+
+1:18:51 - 1:20:51
+, فضل البسملة
+
+1:21:35 - 1:23:52
+, تسبيح الضفادع
+
+1:24:04 - 1:25:13
+(المعبود في كل زمان)
+
+1:25:14 - 1:26:04
+"""
+
+
+EXPECTED_REAL_ARABIC_STRUCTURE_CLIPS = [
+    ("00:06:20", "00:08:50", "إثبات صحة النبوة"),
+    ("00:09:26", "00:27:33", "تاريخ ظهور البدع"),
+    ("00:27:35", "00:38:59", "النجاة من البدع"),
+    ("00:38:05", "00:46:13", "الكتب في العقيدة"),
+    ("00:46:16", "00:47:44", "ميزات كتب اهل السنة"),
+    ("00:58:03", "01:00:02", "ميزات كتاب اللمعة"),
+    (
+        "01:03:29",
+        "01:10:03",
+        "رجل يقول أنا أعتقد أني مسلم على صواب و النصراني يعتقد أنه على صواب ، كيف ترد عليه؟(ما عنه الذكر الحكمي)",
+    ),
+    ("01:14:09", "01:16:09", "مبتدعا أو ضالاً ، عن التعصب"),
+    ("01:17:24", "01:18:27", "الهداية هدايتان إطلبهما من الله الآن"),
+    ("01:18:51", "01:20:51", "فضل البسملة"),
+    ("01:21:35", "01:23:52", "تسبيح الضفادع"),
+    ("01:24:04", "01:25:13", "المعبود في كل زمان"),
+    ("01:25:14", "01:26:04", "مقطع 13"),
+]
+
+
+def test_smart_paste_parses_real_arabic_title_structure_sample() -> None:
+    result = parse_smart_paste_message(REAL_ARABIC_STRUCTURE_SAMPLE)
+
+    assert result.project_title == "مقاطع من لمعة الإعتقاد ، الدرس الثاني"
+    assert result.video_urls == ["https://youtu.be/05spuILAwrQ"]
+    assert result.unparsed_lines == []
+    assert [
+        (clip.start, clip.end, clip.title)
+        for clip in result.clips
+    ] == EXPECTED_REAL_ARABIC_STRUCTURE_CLIPS
+
+
 def test_smart_paste_extracts_youtube_urls_from_anywhere() -> None:
     result = parse_smart_paste_message(
         "الرابط: https://www.youtube.com/watch?v=abc123\n"
@@ -146,6 +222,19 @@ def test_smart_paste_detects_delete_cue_for_internal_cut() -> None:
     result = parse_smart_paste_message("26:56 - 29:14 حذف: 27:40 - 28:20")
 
     assert result.clips[0].exclusions_text == "00:27:40-00:28:20"
+
+
+def test_smart_paste_treats_following_range_as_exclusion_after_clear_cue() -> None:
+    result = parse_smart_paste_message(
+        "26:56 - 29:14 عنوان المقطع\n"
+        "قص داخل المقطع\n"
+        "27:40 - 28:20"
+    )
+
+    assert len(result.clips) == 1
+    assert result.clips[0].title == "عنوان المقطع"
+    assert result.clips[0].exclusions_text == "00:27:40-00:28:20"
+    assert any("تم اكتشاف وقت قد يكون استثناء داخل المقطع" in warning.message_ar for warning in result.warnings)
 
 
 def test_smart_paste_preserves_internal_cut_note() -> None:
