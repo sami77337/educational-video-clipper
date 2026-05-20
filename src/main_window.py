@@ -79,7 +79,12 @@ from src.job_queue_validation import (
 )
 from src.message_parser import ParsedClipLine, parse_clip_message
 from src.readiness import format_readiness_report_ar, run_readiness_check
-from src.smart_paste_parser import SmartPasteClip, SmartPastePreview, parse_smart_paste_message
+from src.smart_paste_parser import (
+    SmartPasteClip,
+    SmartPastePreview,
+    format_smart_paste_debug_report,
+    parse_smart_paste_message,
+)
 from src.smart_validation import format_smart_validation_report_ar, validate_clips_before_cutting
 from src.time_utils import normalize_timestamp_text, parse_timestamp
 from src.version import APP_NAME, APP_SUBTITLE
@@ -140,6 +145,10 @@ SMART_PASTE_APPEND_LABEL = "إضافة كمقاطع جديدة"
 SMART_PASTE_QUEUE_LABEL = "إضافة كمهمة جديدة في قائمة الانتظار"
 SMART_PASTE_CANCEL_LABEL = "إلغاء"
 URL_IN_LOG_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+SMART_PASTE_BLOCKING_WARNING_MARKERS = (
+    "نهاية المقطع قبل بدايته",
+    "وقت الاستثناء غير صحيح",
+)
 
 
 def safe_log_text(message: str) -> str:
@@ -199,18 +208,24 @@ class SmartPasteImportDialog(QDialog):
 
         self.summary_label = QLabel("الصق الرسالة ثم اضغط فحص الرسالة.")
         self.summary_label.setWordWrap(True)
+        self.review_status_label = QLabel("")
+        self.review_status_label.setWordWrap(True)
+        self.detected_url_label = QLabel("غير مكتشف")
+        self.detected_url_label.setWordWrap(True)
+        self.detected_project_label = QLabel("غير مكتشف")
+        self.detected_project_label.setWordWrap(True)
 
         self.clips_preview_table = QTableWidget(0, 6)
         self.clips_preview_table.setHorizontalHeaderLabels(
-            ["العنوان", "البداية", "النهاية", "الأجزاء", "الاستثناءات", "الملاحظات"]
+            ["الرقم", "العنوان", "البداية", "النهاية", "الاستثناءات", "الحالة / الملاحظات"]
         )
         self.clips_preview_table.verticalHeader().setVisible(False)
         self.clips_preview_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.clips_preview_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.clips_preview_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.clips_preview_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.clips_preview_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.clips_preview_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.clips_preview_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.clips_preview_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.clips_preview_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.clips_preview_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
         self.clips_preview_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
 
@@ -222,14 +237,21 @@ class SmartPasteImportDialog(QDialog):
         self.unparsed_area.setReadOnly(True)
         self.unparsed_area.setMaximumHeight(95)
 
+        self.analysis_details_area = QTextEdit()
+        self.analysis_details_area.setReadOnly(True)
+        self.analysis_details_area.setMaximumHeight(130)
+
         self.parse_button = QPushButton("فحص الرسالة")
         self.apply_button = QPushButton("تطبيق النتائج")
+        self.copy_debug_button = QPushButton("نسخ تقرير التحليل")
         self.cancel_button = QPushButton("إلغاء")
         self.apply_button.setEnabled(False)
+        self.copy_debug_button.setEnabled(False)
 
         self._build_ui()
         self.parse_button.clicked.connect(self.generate_preview)
         self.apply_button.clicked.connect(self._accept_preview)
+        self.copy_debug_button.clicked.connect(self.copy_debug_report)
         self.cancel_button.clicked.connect(self.reject)
         if initial_text:
             self.message_input.setPlainText(initial_text)
@@ -243,16 +265,34 @@ class SmartPasteImportDialog(QDialog):
         layout.addWidget(QLabel("الصق الرسالة هنا"))
         layout.addWidget(self.message_input)
         layout.addWidget(self.parse_button)
-        layout.addWidget(self.summary_label)
+
+        summary_group = QGroupBox("ملخص الاستيراد")
+        summary_layout = QVBoxLayout(summary_group)
+        summary_layout.addWidget(self.summary_label)
+        summary_layout.addWidget(self.review_status_label)
+        layout.addWidget(summary_group)
+
+        source_group = QGroupBox("المصدر المكتشف")
+        source_layout = QGridLayout(source_group)
+        source_layout.addWidget(QLabel("رابط الفيديو"), 0, 0)
+        source_layout.addWidget(self.detected_url_label, 0, 1)
+        source_layout.addWidget(QLabel("اسم المشروع"), 1, 0)
+        source_layout.addWidget(self.detected_project_label, 1, 1)
+        source_layout.setColumnStretch(1, 1)
+        layout.addWidget(source_group)
+
         layout.addWidget(QLabel("المقاطع المكتشفة"))
         layout.addWidget(self.clips_preview_table, stretch=1)
         layout.addWidget(QLabel("التحذيرات"))
         layout.addWidget(self.warnings_area)
         layout.addWidget(QLabel("أسطر تحتاج مراجعة"))
         layout.addWidget(self.unparsed_area)
+        layout.addWidget(QLabel("تفاصيل التحليل"))
+        layout.addWidget(self.analysis_details_area)
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
+        button_row.addWidget(self.copy_debug_button)
         button_row.addWidget(self.apply_button)
         button_row.addWidget(self.cancel_button)
         layout.addLayout(button_row)
@@ -264,31 +304,32 @@ class SmartPasteImportDialog(QDialog):
 
     def _show_preview(self, preview: SmartPastePreview) -> None:
         needs_review = bool(preview.warnings or preview.unparsed_lines or any(clip.confidence != "high" for clip in preview.clips))
+        blocking_errors = self._blocking_preview_errors(preview)
         self.summary_label.setText(
             "\n".join(
                 [
-                    f"عدد الروابط: {len(preview.video_urls)}",
-                    f"عدد المقاطع: {len(preview.clips)}",
+                    f"عدد المقاطع المكتشفة: {len(preview.clips)}",
                     f"عدد التحذيرات: {len(preview.warnings)}",
-                    "عدد الأخطاء: 0",
-                    f"أسطر تحتاج مراجعة: {len(preview.unparsed_lines)}",
+                    f"عدد الأخطاء: {len(blocking_errors)}",
+                    f"هل توجد أسطر تحتاج مراجعة: {'نعم' if preview.unparsed_lines else 'لا'}",
                     f"هل يوجد مقاطع تحتاج مراجعة: {'نعم' if needs_review else 'لا'}",
-                    f"عنوان المشروع: {preview.project_title or 'غير مكتشف'}",
-                    f"الرابط: {preview.video_urls[0] if preview.video_urls else 'غير مكتشف'}",
                 ]
             )
         )
+        self.review_status_label.setText(self._preview_review_status(preview, blocking_errors))
+        self.detected_url_label.setText(self._safe_preview_url(preview.video_urls[0]) if preview.video_urls else "غير مكتشف")
+        self.detected_project_label.setText(preview.project_title or "غير مكتشف")
 
         self.clips_preview_table.setRowCount(0)
         for clip in preview.clips:
             row = self.clips_preview_table.rowCount()
             self.clips_preview_table.insertRow(row)
-            self.clips_preview_table.setItem(row, 0, QTableWidgetItem(clip.title))
-            self.clips_preview_table.setItem(row, 1, QTableWidgetItem(clip.start))
-            self.clips_preview_table.setItem(row, 2, QTableWidgetItem(clip.end))
-            self.clips_preview_table.setItem(row, 3, QTableWidgetItem(clip.parts_text))
+            self.clips_preview_table.setItem(row, 0, QTableWidgetItem(str(clip.number)))
+            self.clips_preview_table.setItem(row, 1, QTableWidgetItem(clip.title))
+            self.clips_preview_table.setItem(row, 2, QTableWidgetItem(clip.start))
+            self.clips_preview_table.setItem(row, 3, QTableWidgetItem(clip.end))
             self.clips_preview_table.setItem(row, 4, QTableWidgetItem(clip.exclusions_text))
-            self.clips_preview_table.setItem(row, 5, QTableWidgetItem(clip.notes_text))
+            self.clips_preview_table.setItem(row, 5, QTableWidgetItem(self._clip_review_notes(clip, preview)))
 
         self.warnings_area.setPlainText(
             "\n".join(warning.message_ar for warning in preview.warnings) or "لا توجد تحذيرات."
@@ -300,13 +341,69 @@ class SmartPasteImportDialog(QDialog):
             )
             or "لا توجد أسطر غير مفهومة."
         )
-        self.apply_button.setEnabled(bool(preview.video_urls or preview.clips))
+        self.analysis_details_area.setPlainText(
+            safe_log_text(format_smart_paste_debug_report(preview, self.message_input.toPlainText()))
+        )
+        self.apply_button.setEnabled(bool(preview.video_urls or preview.clips) and not blocking_errors)
+        self.copy_debug_button.setEnabled(True)
+
+    def _blocking_preview_errors(self, preview: SmartPastePreview) -> list[str]:
+        return [
+            warning.message_ar
+            for warning in preview.warnings
+            if any(marker in warning.message_ar for marker in SMART_PASTE_BLOCKING_WARNING_MARKERS)
+        ]
+
+    def _preview_review_status(self, preview: SmartPastePreview, blocking_errors: list[str]) -> str:
+        if blocking_errors:
+            return "توجد أخطاء تحتاج مراجعة قبل الاستيراد"
+        if preview.warnings:
+            return "توجد تحذيرات، راجعها قبل الاستيراد"
+        return "لا توجد تحذيرات واضحة."
+
+    def _safe_preview_url(self, url: str) -> str:
+        return safe_log_text(url)
+
+    def _clip_review_notes(self, clip: SmartPasteClip, preview: SmartPastePreview) -> str:
+        notes: list[str] = []
+        if clip.confidence != "high":
+            notes.append("هذا المقطع يحتاج مراجعة قبل الاعتماد")
+        if clip.multi_part:
+            notes.append(f"مقطع مركب: {clip.parts_text}")
+        if clip.notes_text:
+            notes.append(clip.notes_text)
+
+        source_line_numbers = {clip.line_number}
+        for line_numbers in clip.source_lines.values():
+            source_line_numbers.update(line_numbers)
+        for warning in preview.warnings:
+            if warning.line_number in source_line_numbers and warning.message_ar not in notes:
+                notes.append(warning.message_ar)
+        if clip.source_lines:
+            notes.append(f"تفاصيل التحليل: {clip.source_lines}")
+        return "\n".join(notes) if notes else "جاهز"
 
     def _accept_preview(self) -> None:
         if self.preview is None:
             self.generate_preview()
-        if self.preview is not None and (self.preview.video_urls or self.preview.clips):
+        if self.preview is None:
+            return
+        if self._blocking_preview_errors(self.preview):
+            self.review_status_label.setText("توجد أخطاء تحتاج مراجعة قبل الاستيراد")
+            self.apply_button.setEnabled(False)
+            return
+        if self.preview.video_urls or self.preview.clips:
             self.accept()
+
+    def copy_debug_report(self) -> None:
+        if self.preview is None:
+            self.generate_preview()
+        if self.preview is None:
+            return
+        QApplication.clipboard().setText(
+            safe_log_text(format_smart_paste_debug_report(self.preview, self.message_input.toPlainText()))
+        )
+        self.review_status_label.setText("تم نسخ تقرير التحليل")
 
 
 class ProcessingWorker(QObject):

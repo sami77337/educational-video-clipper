@@ -40,14 +40,23 @@ from src.smart_paste_parser import (
     SmartPasteExclusion,
     SmartPastePart,
     SmartPastePreview,
+    SmartPasteUnparsedLine,
     SmartPasteWarning,
     parse_smart_paste_message,
 )
 from src.smart_validation import SmartValidationReport
+from tests.fixtures.smart_import_real_messages import SMART_IMPORT_REAL_MESSAGES
 
 
 def _app() -> QApplication:
     return QApplication.instance() or QApplication([])
+
+
+def _smart_import_fixture(name: str) -> dict:
+    for sample in SMART_IMPORT_REAL_MESSAGES:
+        if sample["name"] == name:
+            return sample
+    raise AssertionError(f"Unknown smart import fixture: {name}")
 
 
 def _ancestor_group_titles(widget) -> list[str]:
@@ -2636,11 +2645,18 @@ def test_smart_paste_preview_dialog_generates_summary_and_clip_table() -> None:
 
     assert len(preview.video_urls) == 1
     assert len(preview.clips) == 2
-    assert "عدد الروابط: 1" in dialog.summary_label.text()
-    assert "عدد المقاطع: 2" in dialog.summary_label.text()
+    assert "عدد المقاطع المكتشفة: 2" in dialog.summary_label.text()
+    assert "عدد التحذيرات: 0" in dialog.summary_label.text()
+    assert dialog.detected_url_label.text() == "https://youtu.be/abc123"
     assert dialog.clips_preview_table.rowCount() == 2
-    assert dialog.clips_preview_table.item(0, 0).text() == "اسم الله الوهاب"
+    assert [
+        dialog.clips_preview_table.horizontalHeaderItem(column).text()
+        for column in range(dialog.clips_preview_table.columnCount())
+    ] == ["الرقم", "العنوان", "البداية", "النهاية", "الاستثناءات", "الحالة / الملاحظات"]
+    assert dialog.clips_preview_table.item(0, 0).text() == "1"
+    assert dialog.clips_preview_table.item(0, 1).text() == "اسم الله الوهاب"
     assert dialog.apply_button.isEnabled()
+    assert dialog.copy_debug_button.isEnabled()
 
     dialog.close()
     app.processEvents()
@@ -2671,9 +2687,54 @@ def test_smart_paste_preview_dialog_shows_multi_part_clips() -> None:
 
     assert len(preview.clips) == 1
     assert preview.clips[0].multi_part
-    assert "00:10:12 - 00:11:35" in dialog.clips_preview_table.item(0, 3).text()
-    assert "00:12:33 - 00:17:51" in dialog.clips_preview_table.item(0, 3).text()
+    assert "00:10:12 - 00:11:35" in dialog.clips_preview_table.item(0, 5).text()
+    assert "00:12:33 - 00:17:51" in dialog.clips_preview_table.item(0, 5).text()
     assert "مقطع مركب" in dialog.warnings_area.toPlainText()
+    assert "توجد تحذيرات، راجعها قبل الاستيراد" in dialog.review_status_label.text()
+
+    dialog.close()
+    app.processEvents()
+
+
+def test_smart_paste_preview_dialog_blocks_end_before_start_error() -> None:
+    app = _app()
+    dialog = SmartPasteImportDialog()
+    dialog.message_input.setPlainText("26:34 - 26:18 (تشميت العاطس)")
+
+    preview = dialog.generate_preview()
+
+    assert len(preview.clips) == 1
+    assert "عدد الأخطاء: 1" in dialog.summary_label.text()
+    assert "توجد أخطاء تحتاج مراجعة قبل الاستيراد" in dialog.review_status_label.text()
+    assert "نهاية المقطع قبل بدايته" in dialog.warnings_area.toPlainText()
+    assert not dialog.apply_button.isEnabled()
+
+    dialog.close()
+    app.processEvents()
+
+
+def test_smart_paste_preview_dialog_shows_unparsed_lines_and_debug_copy() -> None:
+    app = _app()
+    dialog = SmartPasteImportDialog()
+    preview = SmartPastePreview(
+        video_urls=["https://youtube.com/watch?v=abc123&token=secret"],
+        project_title="مشروع",
+        clips=[SmartPasteClip(1, "مقطع", "00:01:00", "00:02:00", 1, "1:00 - 2:00 مقطع")],
+        warnings=[SmartPasteWarning(3, "توجد حدود نصية تحتاج مراجعة يدوية", "آخر كلمة")],
+        unparsed_lines=[SmartPasteUnparsedLine(4, "سطر غير مفهوم")],
+    )
+
+    dialog.preview = preview
+    dialog._show_preview(preview)
+    dialog.copy_debug_report()
+
+    assert "هل توجد أسطر تحتاج مراجعة: نعم" in dialog.summary_label.text()
+    assert "سطر غير مفهوم" in dialog.unparsed_area.toPlainText()
+    assert "توجد حدود نصية تحتاج مراجعة يدوية" in dialog.warnings_area.toPlainText()
+    assert "تقرير فحص الاستيراد الذكي" in dialog.analysis_details_area.toPlainText()
+    assert "secret" not in dialog.detected_url_label.text()
+    assert "secret" not in QApplication.clipboard().text()
+    assert dialog.apply_button.isEnabled()
 
     dialog.close()
     app.processEvents()
@@ -2862,6 +2923,7 @@ def test_smart_paste_main_paste_box_opens_preview_without_processing(monkeypatch
     def fake_exec(dialog):
         captured["text"] = dialog.message_input.toPlainText()
         captured["summary"] = dialog.summary_label.text()
+        captured["url"] = dialog.detected_url_label.text()
         assert dialog.preview is not None
         return QDialog.Accepted
 
@@ -2875,7 +2937,8 @@ def test_smart_paste_main_paste_box_opens_preview_without_processing(monkeypatch
     window.import_smart_paste_message()
 
     assert captured["text"].startswith("https://youtu.be/abc123")
-    assert "عدد الروابط: 1" in captured["summary"]
+    assert "عدد المقاطع المكتشفة: 1" in captured["summary"]
+    assert captured["url"] == "https://youtu.be/abc123"
     assert window.youtube_input.text() == "https://youtu.be/abc123"
     assert window.clips_table.rowCount() == 1
     assert window._processing_thread is None
@@ -2898,11 +2961,87 @@ def test_smart_paste_preview_shows_detected_project_title_url_and_clip_titles() 
     )
 
     assert dialog.preview is not None
-    assert "عنوان المشروع: مقاطع من لمعة الإعتقاد ، الدرس الثاني" in dialog.summary_label.text()
-    assert "الرابط: https://youtu.be/05spuILAwrQ" in dialog.summary_label.text()
-    assert dialog.clips_preview_table.item(0, 0).text() == "إثبات صحة النبوة"
-    assert dialog.clips_preview_table.item(0, 1).text() == "00:06:20"
-    assert dialog.clips_preview_table.item(0, 2).text() == "00:08:50"
+    assert dialog.detected_project_label.text() == "مقاطع من لمعة الإعتقاد ، الدرس الثاني"
+    assert dialog.detected_url_label.text() == "https://youtu.be/05spuILAwrQ"
+    assert dialog.clips_preview_table.item(0, 0).text() == "1"
+    assert dialog.clips_preview_table.item(0, 1).text() == "إثبات صحة النبوة"
+    assert dialog.clips_preview_table.item(0, 2).text() == "00:06:20"
+    assert dialog.clips_preview_table.item(0, 3).text() == "00:08:50"
+
+    dialog.close()
+    app.processEvents()
+
+
+def test_smart_paste_preview_old_pr35_sample_still_shows_all_detected_clips() -> None:
+    app = _app()
+    sample = _smart_import_fixture("old_pr35_lumaat_13_clips")
+    dialog = SmartPasteImportDialog(initial_text=sample["input_text"], auto_generate=True)
+
+    assert dialog.preview is not None
+    assert dialog.preview.video_urls == [sample["expected_url"]]
+    assert dialog.detected_project_label.text() == sample["expected_project_title"]
+    assert "عدد المقاطع المكتشفة: 13" in dialog.summary_label.text()
+    assert dialog.clips_preview_table.rowCount() == 13
+    first_start, first_end, first_title = sample["expected_clips"][0]
+    last_start, last_end, last_title = sample["expected_clips"][-1]
+    assert dialog.clips_preview_table.item(0, 1).text() == first_title
+    assert dialog.clips_preview_table.item(0, 2).text() == first_start
+    assert dialog.clips_preview_table.item(0, 3).text() == first_end
+    assert dialog.clips_preview_table.item(12, 1).text() == last_title
+    assert dialog.clips_preview_table.item(12, 2).text() == last_start
+    assert dialog.clips_preview_table.item(12, 3).text() == last_end
+    assert "يوجد تداخل بين المقاطع" in dialog.warnings_area.toPlainText()
+
+    dialog.close()
+    app.processEvents()
+
+
+def test_smart_paste_preview_real_world_evidence_samples_show_review_metadata() -> None:
+    app = _app()
+    sample_names = [
+        "youtube_live_arabic_until_separator",
+        "labeled_start_end_minutes_nearby",
+        "parenthesized_internal_exclusion_with_previous_title",
+        "plus_joined_multi_part_one_clip_candidate",
+    ]
+
+    for sample_name in sample_names:
+        sample = _smart_import_fixture(sample_name)
+        dialog = SmartPasteImportDialog(initial_text=sample["input_text"], auto_generate=True)
+
+        assert dialog.preview is not None
+        assert dialog.preview.video_urls == ([sample["expected_url"]] if sample["expected_url"] else [])
+        assert dialog.preview.project_title == sample["expected_project_title"]
+        assert dialog.clips_preview_table.rowCount() == len(sample["expected_clips"])
+        if sample["expected_url"]:
+            assert sample["expected_url"].split("?")[0] in dialog.detected_url_label.text()
+        for row, (expected_start, expected_end, expected_title) in enumerate(sample["expected_clips"]):
+            assert dialog.clips_preview_table.item(row, 1).text() == expected_title
+            assert dialog.clips_preview_table.item(row, 2).text() == expected_start
+            assert dialog.clips_preview_table.item(row, 3).text() == expected_end
+        for row, exclusions in sample["expected_exclusions"].items():
+            exclusions_text = dialog.clips_preview_table.item(row, 4).text()
+            for exclusion_start, exclusion_end in exclusions:
+                assert f"{exclusion_start}-{exclusion_end}" in exclusions_text
+        for expected_warning in sample["expected_warnings"]:
+            assert expected_warning in dialog.warnings_area.toPlainText()
+        assert "عدد المقاطع المكتشفة" in dialog.summary_label.text()
+
+        dialog.close()
+        app.processEvents()
+
+
+def test_smart_paste_preview_marks_multi_part_sample_for_review_without_splitting() -> None:
+    app = _app()
+    sample = _smart_import_fixture("plus_joined_multi_part_one_clip_candidate")
+    dialog = SmartPasteImportDialog(initial_text=sample["input_text"], auto_generate=True)
+
+    assert dialog.preview is not None
+    assert len(dialog.preview.clips) == 1
+    assert dialog.preview.clips[0].multi_part
+    assert "تم اكتشاف مقطع متعدد الأجزاء، قد يحتاج مراجعة قبل القص" in dialog.warnings_area.toPlainText()
+    assert "مقطع مركب" in dialog.clips_preview_table.item(0, 5).text()
+    assert "توجد تحذيرات، راجعها قبل الاستيراد" in dialog.review_status_label.text()
 
     dialog.close()
     app.processEvents()
@@ -2949,7 +3088,17 @@ def test_smart_paste_can_add_detected_data_as_queue_job_without_processing() -> 
     preview = SmartPastePreview(
         video_urls=["https://youtu.be/abc123"],
         project_title="عنوان من الرسالة",
-        clips=[SmartPasteClip(1, "مقطع", "00:01:00", "00:02:00", 1, "01:00 - 02:00 مقطع")],
+        clips=[
+            SmartPasteClip(
+                1,
+                "مقطع",
+                "00:01:00",
+                "00:02:00",
+                1,
+                "01:00 - 02:00 مقطع (01:20 - 01:30)",
+                exclusions=[SmartPasteExclusion("00:01:20", "00:01:30")],
+            )
+        ],
         warnings=[],
         unparsed_lines=[],
     )
@@ -2961,6 +3110,12 @@ def test_smart_paste_can_add_detected_data_as_queue_job_without_processing() -> 
     assert window.job_queue[0].source == "https://youtu.be/abc123"
     assert window.job_queue[0].title == "عنوان من الرسالة"
     assert len(window.job_queue[0].clips) == 1
+    assert window.job_queue[0].clips[0].title == "مقطع"
+    assert window.job_queue[0].clips[0].exclusions == "00:01:20-00:01:30"
+    assert window.job_queue[0].settings.speed_adjustment_enabled is False
+    assert window.job_queue[0].settings.speed == 1.0
+    assert window.job_queue[0].settings.volume_adjustment_enabled is False
+    assert window.job_queue[0].settings.volume_percent == 100
     assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "1"
     assert window._processing_thread is None
     assert window._processing_worker is None
