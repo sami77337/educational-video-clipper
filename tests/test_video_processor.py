@@ -10,6 +10,7 @@ from src.video_processor import (
     AR_FFMPEG_NOT_FOUND,
     AR_MULTIPLE_EXCLUSIONS_APPLIED,
     AR_PROJECT_NAME_CLEANED,
+    AR_VIDEO_SPEED_APPLIED,
     AR_EMPTY_LOCAL_VIDEO,
     AR_EMPTY_YOUTUBE_URL,
     AR_UNSUPPORTED_LOCAL_VIDEO,
@@ -282,6 +283,73 @@ def test_cut_clips_applies_pre_and_post_padding_to_ffmpeg_command(tmp_path) -> N
     assert AR_CLIP_PADDING_APPLIED in messages
 
 
+def test_cut_clips_speed_one_preserves_existing_ffmpeg_command(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(number=1, title="clip", start_seconds=5, end_seconds=25)
+    commands: list[list[str]] = []
+
+    def fake_runner(command, **kwargs):
+        commands.append(command)
+
+    cut_clips(prepared_video, [clip], runner=fake_runner, video_speed=1.0)
+
+    assert "-filter:v" not in commands[0]
+    assert "-filter:a" not in commands[0]
+    assert commands[0][commands[0].index("-ss") + 1] == "5"
+    assert commands[0][commands[0].index("-t") + 1] == "20"
+
+
+def test_cut_clips_applies_video_speed_to_ffmpeg_command(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(number=1, title="clip", start_seconds=5, end_seconds=25)
+    commands: list[list[str]] = []
+    messages: list[str] = []
+
+    def fake_runner(command, **kwargs):
+        commands.append(command)
+
+    cut_clips(prepared_video, [clip], messages.append, fake_runner, video_speed=1.05)
+
+    assert commands[0][commands[0].index("-filter:v") + 1] == "setpts=PTS/1.05"
+    assert commands[0][commands[0].index("-filter:a") + 1] == "atempo=1.05"
+    assert AR_VIDEO_SPEED_APPLIED in messages
+
+
+def test_cut_clips_accepts_precise_video_speed(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(number=1, title="clip", start_seconds=5, end_seconds=25)
+    commands: list[list[str]] = []
+
+    def fake_runner(command, **kwargs):
+        commands.append(command)
+
+    cut_clips(prepared_video, [clip], runner=fake_runner, video_speed=1.10)
+
+    assert commands[0][commands[0].index("-filter:v") + 1] == "setpts=PTS/1.1"
+    assert commands[0][commands[0].index("-filter:a") + 1] == "atempo=1.1"
+
+
 def test_cut_clips_clamps_post_padding_to_known_video_duration(tmp_path) -> None:
     input_path = tmp_path / "project" / INPUT_VIDEO_NAME
     input_path.parent.mkdir()
@@ -410,6 +478,39 @@ def test_cut_clip_with_one_exclusion_builds_segment_and_concat_commands(tmp_path
     assert "تم حذف الجزء 00:27:40 - 00:28:20" in messages
     assert "تم دمج أجزاء المقطع 01" in messages
     assert not (input_path.parent / "_temp_segments").exists()
+
+
+def test_cut_clip_with_exclusion_applies_speed_to_segments(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    output_path = input_path.parent / REELS_FOLDER_NAME / "1_clip.mp4"
+    clip = ClipDefinition(
+        number=1,
+        title="clip",
+        start_seconds=1616,
+        end_seconds=1754,
+        exclusions="00:27:40-00:28:20",
+    )
+    commands: list[list[str]] = []
+
+    def fake_runner(command, **kwargs):
+        commands.append(command)
+
+    cut_clip_with_exclusions(
+        input_path,
+        output_path,
+        clip,
+        input_path.parent / "_temp_segments",
+        runner=fake_runner,
+        video_speed=1.05,
+    )
+
+    assert commands[0][commands[0].index("-filter:v") + 1] == "setpts=PTS/1.05"
+    assert commands[0][commands[0].index("-filter:a") + 1] == "atempo=1.05"
+    assert commands[1][commands[1].index("-filter:v") + 1] == "setpts=PTS/1.05"
+    assert commands[1][commands[1].index("-filter:a") + 1] == "atempo=1.05"
+    assert commands[2][0:6] == ["ffmpeg", "-y", "-f", "concat", "-safe", "0"]
 
 
 def test_cut_clip_with_exclusion_uses_effective_padded_bounds(tmp_path) -> None:

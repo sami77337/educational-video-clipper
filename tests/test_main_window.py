@@ -86,12 +86,16 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.open_output_button.text() == "فتح مجلد النتائج"
     assert window.pre_padding_input.value() == 0
     assert window.post_padding_input.value() == 0
+    assert window.video_speed_input.value() == 1.0
     assert window.pre_padding_input.minimum() == 0
     assert window.post_padding_input.minimum() == 0
+    assert window.video_speed_input.minimum() > 0
     window.pre_padding_input.setValue(-1)
     window.post_padding_input.setValue(-1)
+    window.video_speed_input.setValue(0)
     assert window.pre_padding_input.value() == 0
     assert window.post_padding_input.value() == 0
+    assert window.video_speed_input.value() > 0
     assert window.import_excel_button.text() == "استيراد من Excel"
     assert window.smart_paste_button.text() == "استيراد ذكي"
     assert window.parse_message_button.text() == "تحويل بسيط إلى جدول"
@@ -171,6 +175,7 @@ def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> 
     window.local_file_input.setText("C:/videos/lesson.mp4")
     window.pre_padding_input.setValue(1.5)
     window.post_padding_input.setValue(2.0)
+    window.video_speed_input.setValue(1.10)
     window._insert_clip_row(1, "قديم", "00:01:00", "00:02:00", "00:01:20-00:01:30")
 
     window.add_current_work_to_queue()
@@ -178,12 +183,14 @@ def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> 
     window.clips_table.item(0, START_COLUMN).setText("00:05:00")
     window.pre_padding_input.setValue(0)
     window.post_padding_input.setValue(0)
+    window.video_speed_input.setValue(1.0)
 
     job = window.job_queue[0]
     assert job.clips[0].title == "قديم"
     assert job.clips[0].start == "00:01:00"
     assert job.settings.pre_roll_seconds == 1.5
     assert job.settings.post_roll_seconds == 2.0
+    assert job.settings.speed == 1.1
 
     window.close()
     app.processEvents()
@@ -225,6 +232,7 @@ def test_main_queue_cut_button_click_creates_job_and_starts_idle_queue(tmp_path,
     window.local_file_input.setText(str(video_path))
     window.pre_padding_input.setValue(0.5)
     window.post_padding_input.setValue(1.0)
+    window.video_speed_input.setValue(1.05)
     window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00", "00:01:20-00:01:30")
     monkeypatch.setattr(window, "_start_queue_processing_worker", lambda rules: started.append(len(rules)))
 
@@ -240,6 +248,7 @@ def test_main_queue_cut_button_click_creates_job_and_starts_idle_queue(tmp_path,
     assert job.status == JobStatus.QUEUED
     assert job.settings.pre_roll_seconds == 0.5
     assert job.settings.post_roll_seconds == 1.0
+    assert job.settings.speed == 1.05
     assert job.clips[0].title == "مقطع"
     assert job.clips[0].exclusions == "00:01:20-00:01:30"
     window.clips_table.item(0, TITLE_COLUMN).setText("تعديل لاحق")
@@ -263,6 +272,7 @@ def test_direct_cut_fallback_button_still_uses_direct_processing_path(tmp_path, 
     video_path = tmp_path / "lesson.mp4"
     video_path.write_bytes(b"video")
     captured = {}
+    window.video_speed_input.setValue(1.25)
     window.project_name_input.setText("قص مباشر")
     window.local_file_radio.setChecked(True)
     window.local_file_input.setText(str(video_path))
@@ -279,6 +289,7 @@ def test_direct_cut_fallback_button_still_uses_direct_processing_path(tmp_path, 
     assert window.start_button.text() == "جاري المعالجة..."
     assert captured["project_name"] == "قص مباشر"
     assert captured["source_request"].value == str(video_path)
+    assert captured["video_speed"] == 1.25
     assert captured["clip_rows"][0].title == "مقطع مباشر"
     assert len(window.job_queue) == 0
     assert window._queue_processing_thread is None
@@ -1346,6 +1357,7 @@ def test_queue_processing_worker_processes_one_local_job_with_snapshot() -> None
     )
     job.settings.pre_roll_seconds = 1.0
     job.settings.post_roll_seconds = 2.0
+    job.settings.speed = 1.10
 
     class FakeVideoProcessor:
         def process_project(self, source_request, project_name, clip_rows, **kwargs):
@@ -1355,6 +1367,7 @@ def test_queue_processing_worker_processes_one_local_job_with_snapshot() -> None
                     "project_name": project_name,
                     "clip_rows": clip_rows,
                     "clip_padding": kwargs["clip_padding"],
+                    "video_speed": kwargs["video_speed"],
                 }
             )
             return SimpleNamespace(project_output_folder=Path("C:/output/lesson"))
@@ -1369,6 +1382,7 @@ def test_queue_processing_worker_processes_one_local_job_with_snapshot() -> None
     assert calls[0]["clip_rows"][0].exclusions == "00:01:20-00:01:30"
     assert calls[0]["clip_padding"].pre_seconds == 1.0
     assert calls[0]["clip_padding"].post_seconds == 2.0
+    assert calls[0]["video_speed"] == 1.1
     assert app is not None
 
 

@@ -78,6 +78,7 @@ from src.smart_validation import format_smart_validation_report_ar, validate_cli
 from src.time_utils import normalize_timestamp_text, parse_timestamp
 from src.version import APP_NAME, APP_SUBTITLE
 from src.validation import ClipRowInput, normalize_clip_exclusions, validate_clip_rows, validate_required_text
+from src.video_speed import AR_INVALID_VIDEO_SPEED, DEFAULT_VIDEO_SPEED, VideoSpeedError, normalize_video_speed
 from src.video_processor import (
     INPUT_VIDEO_NAME,
     TEMP_SEGMENTS_FOLDER_NAME,
@@ -259,6 +260,7 @@ class ProcessingWorker(QObject):
         clip_rows: list[ClipRowInput],
         classification_rules: list[ClassificationRule],
         clip_padding: ClipPadding,
+        video_speed: float = DEFAULT_VIDEO_SPEED,
     ) -> None:
         super().__init__()
         self.video_processor = video_processor
@@ -267,6 +269,7 @@ class ProcessingWorker(QObject):
         self.clip_rows = clip_rows
         self.classification_rules = classification_rules
         self.clip_padding = clip_padding
+        self.video_speed = video_speed
 
     @Slot()
     def run(self) -> None:
@@ -278,6 +281,7 @@ class ProcessingWorker(QObject):
                 progress_callback=self.progress.emit,
                 classification_rules=self.classification_rules,
                 clip_padding=self.clip_padding,
+                video_speed=self.video_speed,
             )
         except (VideoSourceError, VideoProcessingError, ExportError) as error:
             self.failed.emit(str(error))
@@ -342,6 +346,7 @@ class QueueProcessingWorker(QObject):
                 pre_seconds=job.settings.pre_roll_seconds,
                 post_seconds=job.settings.post_roll_seconds,
             ),
+            video_speed=job.settings.speed,
         )
         self.progress.emit(f"تم حفظ النتائج داخل: {result.project_output_folder}")
 
@@ -431,6 +436,7 @@ class MainWindow(QMainWindow):
         self.reset_classification_button = QPushButton("استعادة الافتراضي")
         self.pre_padding_input = QDoubleSpinBox()
         self.post_padding_input = QDoubleSpinBox()
+        self.video_speed_input = QDoubleSpinBox()
         self.readiness_button = QPushButton("فحص جاهزية البرنامج")
         self.smart_validation_button = QPushButton("فحص الجدول قبل القص")
         self.validate_button = QPushButton("فحص الجدول قبل القص")
@@ -690,11 +696,14 @@ class MainWindow(QMainWindow):
 
         self._configure_padding_input(self.pre_padding_input)
         self._configure_padding_input(self.post_padding_input)
+        self._configure_video_speed_input(self.video_speed_input)
 
         layout.addWidget(QLabel("وقت قبل بداية المقطع"), 0, 0)
         layout.addWidget(self.pre_padding_input, 0, 1)
         layout.addWidget(QLabel("وقت بعد نهاية المقطع"), 0, 2)
         layout.addWidget(self.post_padding_input, 0, 3)
+        layout.addWidget(QLabel("سرعة الفيديو"), 1, 0)
+        layout.addWidget(self.video_speed_input, 1, 1)
         layout.setColumnStretch(4, 1)
 
         return group
@@ -706,6 +715,14 @@ class MainWindow(QMainWindow):
         widget.setValue(0.0)
         widget.setSuffix(" ثانية")
         widget.setToolTip("الافتراضي: 0 ثانية")
+
+    def _configure_video_speed_input(self, widget: QDoubleSpinBox) -> None:
+        widget.setRange(0.01, 4.0)
+        widget.setDecimals(2)
+        widget.setSingleStep(0.05)
+        widget.setValue(DEFAULT_VIDEO_SPEED)
+        widget.setSuffix("x")
+        widget.setToolTip("السرعة الافتراضية: 1.0")
 
     def _build_clips_section(self) -> QGroupBox:
         group = QGroupBox("جدول المقاطع")
@@ -1175,6 +1192,7 @@ class MainWindow(QMainWindow):
         return JobSettings(
             pre_roll_seconds=self.pre_padding_input.value(),
             post_roll_seconds=self.post_padding_input.value(),
+            speed=self._collect_video_speed(),
         )
 
     def _ask_replace_queue_clips_confirmation(self) -> bool:
@@ -1843,6 +1861,7 @@ class MainWindow(QMainWindow):
         clip_rows = self._collect_clip_rows()
         classification_rules = self._collect_classification_rules()
         clip_padding = self._collect_clip_padding()
+        video_speed = self._collect_video_speed()
 
         try:
             project_name = validate_required_text(self.project_name_input.text(), "Project name")
@@ -1872,6 +1891,7 @@ class MainWindow(QMainWindow):
             clip_rows=clip_rows,
             classification_rules=classification_rules,
             clip_padding=clip_padding,
+            video_speed=video_speed,
         )
 
     def open_output_folder(self) -> None:
@@ -2039,6 +2059,9 @@ class MainWindow(QMainWindow):
             post_seconds=self.post_padding_input.value(),
         )
 
+    def _collect_video_speed(self) -> float:
+        return normalize_video_speed(self.video_speed_input.value())
+
     def _collect_validation_errors(self) -> list[str]:
         errors = self._collect_base_validation_errors()
         clip_rows = self._collect_clip_rows()
@@ -2057,6 +2080,11 @@ class MainWindow(QMainWindow):
             validate_required_text(self.project_name_input.text(), "Project name")
         except ValueError:
             errors.append("أدخل اسم المشروع.")
+
+        try:
+            self._collect_video_speed()
+        except VideoSpeedError:
+            errors.append(AR_INVALID_VIDEO_SPEED)
 
         try:
             if self.youtube_radio.isChecked():
@@ -2415,6 +2443,7 @@ class MainWindow(QMainWindow):
         clip_rows: list[ClipRowInput],
         classification_rules: list[ClassificationRule],
         clip_padding: ClipPadding,
+        video_speed: float = DEFAULT_VIDEO_SPEED,
     ) -> None:
         thread = QThread(self)
         worker = ProcessingWorker(
@@ -2424,6 +2453,7 @@ class MainWindow(QMainWindow):
             clip_rows=clip_rows,
             classification_rules=classification_rules,
             clip_padding=clip_padding,
+            video_speed=video_speed,
         )
         worker.moveToThread(thread)
 
@@ -2510,6 +2540,7 @@ class MainWindow(QMainWindow):
             self.reset_classification_button,
             self.pre_padding_input,
             self.post_padding_input,
+            self.video_speed_input,
             self.readiness_button,
             self.smart_validation_button,
             self.validate_button,

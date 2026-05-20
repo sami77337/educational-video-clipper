@@ -102,6 +102,15 @@ def test_local_cut_no_padding_no_exclusions_creates_output(sample_video: Path, t
     _assert_media_output(output_path, min_duration=2.0, max_duration=5.5)
 
 
+def test_local_cut_video_speed_creates_shorter_synced_output(sample_video: Path, tmp_path: Path) -> None:
+    output_path = tmp_path / "speed.mp4"
+
+    result = cut_clip(sample_video, output_path, 0, 4, video_speed=2.0)
+
+    assert result == output_path
+    _assert_media_output(output_path, min_duration=1.0, max_duration=3.2)
+
+
 def test_local_cut_pre_post_padding_clamps_start_and_extends_end(sample_video: Path) -> None:
     clip = ClipDefinition(number=1, title="padding", start_seconds=1, end_seconds=3)
 

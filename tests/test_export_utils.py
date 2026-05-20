@@ -162,6 +162,39 @@ def test_build_processing_report_includes_pre_and_post_padding_values() -> None:
     assert "وقت بعد نهاية المقطع: 2 ثانية" in report
 
 
+def test_build_processing_report_includes_video_speed_only_when_changed() -> None:
+    timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
+    default_data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+        video_speed=1.0,
+    )
+    changed_data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+        video_speed=1.1,
+    )
+
+    assert "سرعة الفيديو" not in build_processing_report(default_data)
+    assert "سرعة الفيديو: 1.1" in build_processing_report(changed_data)
+
+
 def test_build_processing_report_includes_dynamic_rules_and_counts(tmp_path) -> None:
     started_at = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
     ended_at = datetime(2026, 5, 13, 10, 3, tzinfo=timezone.utc)
