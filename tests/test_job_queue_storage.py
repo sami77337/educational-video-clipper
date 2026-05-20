@@ -132,6 +132,23 @@ def test_volume_is_preserved_independently_per_queue_job() -> None:
     assert loaded[1].settings.volume_percent == 200
 
 
+def test_browser_login_settings_are_preserved_without_cookie_data() -> None:
+    job = VideoJob(
+        source_type=VideoSourceType.YOUTUBE,
+        source="https://youtu.be/lesson",
+        title="درس",
+        settings=JobSettings(use_browser_login=True, browser_name="firefox"),
+    )
+
+    raw_json = queue_jobs_to_json([job])
+    loaded = queue_jobs_from_data(json.loads(raw_json))
+
+    assert loaded[0].settings.use_browser_login is True
+    assert loaded[0].settings.browser_name == "firefox"
+    assert "firefox" in raw_json
+    assert "cookie" not in raw_json.lower()
+
+
 def test_invalid_saved_volume_defaults_safely() -> None:
     loaded = queue_jobs_from_data(
         {

@@ -46,6 +46,8 @@ class JobSettings:
     quality_preset: str = "default"
     speed: float = 1.0
     volume_percent: int = 100
+    use_browser_login: bool = False
+    browser_name: str = "chrome"
     watermark_enabled: bool = False
     silence_reduction_enabled: bool = False
     high_priority: bool = False

@@ -103,7 +103,8 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.validate_button.text() == "فحص الجدول قبل القص"
     assert window.readiness_button.text() == "فحص جاهزية البرنامج"
     assert window.smart_validation_button.text() == "فحص الجدول قبل القص"
-    assert window.start_button.text() == "بدء القص المباشر"
+    assert window.start_button.text() == "بدء القص"
+    assert window.direct_cut_button.text() == "بدء القص المباشر - وضع قديم"
     assert window.open_output_button.text() == "فتح مجلد النتائج"
     assert window.pre_padding_input.value() == 0
     assert window.post_padding_input.value() == 0
@@ -155,6 +156,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     for button in (
         window.add_and_run_queue_job_button,
         window.start_button,
+        window.direct_cut_button,
         window.validate_button,
         window.open_output_button,
     ):
@@ -303,7 +305,7 @@ def test_queue_add_current_work_and_start_snapshots_job_without_direct_processin
     window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00")
     monkeypatch.setattr(window, "start_queue_processing", lambda: started.append(True))
 
-    window.add_current_work_and_start_queue()
+    window.start_button.click()
 
     assert started == [True]
     assert len(window.job_queue) == 1
@@ -334,7 +336,7 @@ def test_main_queue_cut_button_click_creates_job_and_starts_idle_queue(tmp_path,
     window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00", "00:01:20-00:01:30")
     monkeypatch.setattr(window, "_start_queue_processing_worker", lambda rules: started.append(len(rules)))
 
-    window.add_and_run_queue_job_button.click()
+    window.start_button.click()
     app.processEvents()
 
     assert started == [2]
@@ -357,7 +359,7 @@ def test_main_queue_cut_button_click_creates_job_and_starts_idle_queue(tmp_path,
     assert "تم إضافة المهمة إلى قائمة الانتظار" in window.log_area.toPlainText()
     assert "جاري معالجة المهمة في الخلفية" in window.log_area.toPlainText()
     assert "يمكنك تجهيز مهمة أخرى أثناء المعالجة" in window.log_area.toPlainText()
-    assert window.start_button.text() == "بدء القص المباشر"
+    assert window.start_button.text() == "بدء القص"
     assert window._processing_thread is None
     assert window._processing_worker is None
 
@@ -382,11 +384,12 @@ def test_direct_cut_fallback_button_still_uses_direct_processing_path(tmp_path, 
         captured.update(kwargs)
 
     monkeypatch.setattr(window, "_start_processing_worker", fake_start_processing_worker)
+    monkeypatch.setattr(window, "_ask_direct_cut_fallback_confirmation", lambda: True)
 
-    window.start_button.click()
+    window.direct_cut_button.click()
     app.processEvents()
 
-    assert window.start_button.text() == "جاري المعالجة..."
+    assert window.direct_cut_button.text() == "جاري المعالجة..."
     assert captured["project_name"] == "قص مباشر"
     assert captured["source_request"].value == str(video_path)
     assert captured["video_speed"] == 1.25
@@ -400,12 +403,32 @@ def test_direct_cut_fallback_button_still_uses_direct_processing_path(tmp_path, 
     app.processEvents()
 
 
+def test_direct_cut_fallback_cancel_does_not_process(monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    direct_calls: list[bool] = []
+    monkeypatch.setattr(window, "_ask_direct_cut_fallback_confirmation", lambda: False)
+    monkeypatch.setattr(window, "start_processing", lambda: direct_calls.append(True))
+
+    window.direct_cut_button.click()
+    app.processEvents()
+
+    assert direct_calls == []
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
 def test_queue_add_current_url_work_with_clip_rows() -> None:
     app = _app()
     window = MainWindow()
     window.project_name_input.setText("درس رابط")
     window.youtube_radio.setChecked(True)
     window.youtube_input.setText("https://youtu.be/abc123")
+    window.use_browser_cookies_checkbox.setChecked(True)
+    window.browser_combo.setCurrentText("Edge")
     window._insert_clip_row(1, "المقطع", "00:01:00", "00:02:00")
 
     window.add_current_work_to_queue()
@@ -415,6 +438,8 @@ def test_queue_add_current_url_work_with_clip_rows() -> None:
     assert job.source_type == QueueVideoSourceType.YOUTUBE
     assert job.source == "https://youtu.be/abc123"
     assert job.title == "درس رابط"
+    assert job.settings.use_browser_login is True
+    assert job.settings.browser_name == "edge"
     assert len(job.clips) == 1
     assert window.queue_table.item(0, QUEUE_SOURCE_COLUMN).text() == "رابط يوتيوب"
     assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "1"
@@ -439,6 +464,42 @@ def test_queue_add_current_facebook_url_work() -> None:
     assert window.queue_table.item(0, QUEUE_SOURCE_COLUMN).text() == "رابط Facebook"
     assert window._processing_thread is None
     assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_start_cut_youtube_enqueues_without_old_direct_download_path(monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    direct_calls: list[bool] = []
+    queue_worker_calls: list[bool] = []
+    window.project_name_input.setText("درس يوتيوب")
+    window.youtube_radio.setChecked(True)
+    window.youtube_input.setText("https://youtu.be/abc123")
+    window.use_browser_cookies_checkbox.setChecked(True)
+    window.browser_combo.setCurrentText("Firefox")
+    window._insert_clip_row(1, "المقطع", "00:01:00", "00:02:00")
+    monkeypatch.setattr(window, "_start_processing_worker", lambda **_kwargs: direct_calls.append(True))
+    monkeypatch.setattr(window, "_start_queue_processing_worker", lambda _rules: queue_worker_calls.append(True))
+
+    window.start_button.click()
+    app.processEvents()
+
+    assert direct_calls == []
+    assert queue_worker_calls == []
+    assert len(window.job_queue) == 1
+    job = window.job_queue[0]
+    assert job.source_type == QueueVideoSourceType.YOUTUBE
+    assert job.status == JobStatus.QUEUED
+    assert job.settings.use_browser_login is True
+    assert job.settings.browser_name == "firefox"
+    assert AR_URL_QUEUE_PROCESSING_LATER in job.warnings
+    assert AR_URL_QUEUE_PROCESSING_LATER in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+    assert window._queue_processing_thread is None
+    assert window._queue_processing_worker is None
 
     window.close()
     app.processEvents()
@@ -1449,9 +1510,10 @@ def test_queue_processing_keeps_preparation_ui_available_while_running() -> None
     assert window.add_queue_local_video_button.isEnabled()
     assert window.add_queue_url_button.isEnabled()
     assert window.add_and_run_queue_job_button.isEnabled()
+    assert window.start_button.isEnabled()
     assert window.queue_table.isEnabled()
     assert window.log_area.isEnabled()
-    assert not window.start_button.isEnabled()
+    assert not window.direct_cut_button.isEnabled()
     assert not window.start_queue_processing_button.isEnabled()
     assert not window.run_selected_queue_job_button.isEnabled()
     assert window.validate_queue_job_button.isEnabled()
@@ -1483,6 +1545,7 @@ def test_queue_processing_keeps_preparation_ui_available_while_running() -> None
 
     window._set_queue_processing_controls_running(False)
     assert window.start_button.isEnabled()
+    assert window.direct_cut_button.isEnabled()
     assert window.start_queue_processing_button.isEnabled()
     assert not window.stop_queue_after_current_button.isEnabled()
 
@@ -1586,20 +1649,23 @@ def test_queue_processing_worker_processes_multiple_local_jobs_in_order() -> Non
     assert [first.status, second.status] == [JobStatus.DONE, JobStatus.DONE]
 
 
-def test_queue_add_and_run_while_running_keeps_new_job_queued() -> None:
+def test_start_cut_while_running_keeps_new_job_queued(monkeypatch) -> None:
     app = _app()
     window = MainWindow()
+    start_calls: list[bool] = []
     window._queue_processing_thread = object()
+    monkeypatch.setattr(window, "_start_queue_processing_worker", lambda _rules: start_calls.append(True))
     window.project_name_input.setText("مشروع جديد")
     window.local_file_radio.setChecked(True)
     window.local_file_input.setText("C:/videos/next.mp4")
     window._insert_clip_row(1, "مقطع جديد", "00:01:00", "00:02:00")
 
-    window.add_current_work_and_start_queue()
+    window.start_button.click()
 
     assert len(window.job_queue) == 1
     assert window.job_queue[0].status == JobStatus.QUEUED
     assert window.job_queue[0].clips[0].title == "مقطع جديد"
+    assert start_calls == []
     assert "تم إضافة المهمة إلى قائمة الانتظار" in window.log_area.toPlainText()
     assert "المهمة في الانتظار" in window.log_area.toPlainText()
     assert window._processing_thread is None
