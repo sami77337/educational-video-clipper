@@ -7,7 +7,7 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt, QThread
-from PySide6.QtWidgets import QApplication, QDialog, QScrollArea
+from PySide6.QtWidgets import QApplication, QDialog, QGroupBox, QScrollArea
 
 from src.main_window import (
     END_COLUMN,
@@ -32,7 +32,7 @@ from src.main_window import (
     SmartPasteImportDialog,
 )
 from src.job_queue import ClipJob, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
-from src.job_queue_processor import AR_URL_QUEUE_PROCESSING_LATER
+from src.job_queue_processor import AR_QUEUE_NEXT_JOB_STARTED, AR_URL_QUEUE_PROCESSING_LATER
 from src.readiness import STATUS_READY, ReadinessCheckItem, ReadinessReport
 from src.smart_paste_parser import (
     SmartPasteClip,
@@ -46,6 +46,16 @@ from src.smart_validation import SmartValidationReport
 
 def _app() -> QApplication:
     return QApplication.instance() or QApplication([])
+
+
+def _ancestor_group_titles(widget) -> list[str]:
+    titles: list[str] = []
+    parent = widget.parent()
+    while parent is not None:
+        if isinstance(parent, QGroupBox):
+            titles.append(parent.title())
+        parent = parent.parent()
+    return titles
 
 
 def _process_events_until(app: QApplication, condition, timeout_ms: int = 2000) -> bool:
@@ -140,6 +150,22 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.validate_all_queue_jobs_button.text() == "فحص كل قائمة الانتظار"
     assert window.delete_queue_job_button.text() == "إزالة المهمة المحددة"
     assert window.clear_queue_button.text() == "مسح القائمة"
+    for button in (
+        window.add_and_run_queue_job_button,
+        window.start_button,
+        window.validate_button,
+        window.open_output_button,
+    ):
+        assert "أزرار التشغيل" in _ancestor_group_titles(button)
+    for button in (
+        window.validate_all_queue_jobs_button,
+        window.run_all_queue_simulation_button,
+        window.save_queue_state_button,
+        window.load_queue_state_button,
+        window.delete_queue_job_button,
+        window.clear_queue_button,
+    ):
+        assert "قائمة الانتظار" in _ancestor_group_titles(button)
 
     window.close()
     app.processEvents()
@@ -1482,6 +1508,35 @@ def test_queue_processing_invokes_video_processor_off_ui_thread(tmp_path) -> Non
     app.processEvents()
 
 
+def test_queue_processing_worker_processes_multiple_local_jobs_in_order() -> None:
+    calls: list[str] = []
+    first = VideoJob(
+        source_type=QueueVideoSourceType.LOCAL,
+        source="C:/videos/first.mp4",
+        title="الأول",
+        clips=[ClipJob(title="مقطع", start="00:01:00", end="00:02:00")],
+        status=JobStatus.QUEUED,
+    )
+    second = VideoJob(
+        source_type=QueueVideoSourceType.LOCAL,
+        source="C:/videos/second.mp4",
+        title="الثاني",
+        clips=[ClipJob(title="مقطع", start="00:03:00", end="00:04:00")],
+        status=JobStatus.QUEUED,
+    )
+
+    class FakeVideoProcessor:
+        def process_project(self, _source_request, project_name, _clip_rows, **_kwargs):
+            calls.append(project_name)
+            return SimpleNamespace(project_output_folder=Path(f"C:/output/{project_name}"))
+
+    worker = QueueProcessingWorker([first, second], FakeVideoProcessor(), [])
+    worker.run()
+
+    assert calls == ["الأول", "الثاني"]
+    assert [first.status, second.status] == [JobStatus.DONE, JobStatus.DONE]
+
+
 def test_queue_add_and_run_while_running_keeps_new_job_queued() -> None:
     app = _app()
     window = MainWindow()
@@ -1502,6 +1557,43 @@ def test_queue_add_and_run_while_running_keeps_new_job_queued() -> None:
     assert window._processing_worker is None
 
     window._queue_processing_thread = None
+    window.close()
+    app.processEvents()
+
+
+def test_queue_auto_continues_with_job_added_while_worker_was_running(tmp_path, monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    video_path = tmp_path / "next.mp4"
+    video_path.write_bytes(b"ok")
+    started: list[int] = []
+    monkeypatch.setattr(window, "_start_queue_processing_worker", lambda rules: started.append(len(rules)))
+
+    window._queue_processing_thread = object()
+    window.project_name_input.setText("مشروع جديد")
+    window.local_file_radio.setChecked(True)
+    window.local_file_input.setText(str(video_path))
+    window._insert_clip_row(1, "مقطع جديد", "00:01:00", "00:02:00")
+
+    window.add_current_work_and_start_queue()
+
+    assert started == []
+    assert len(window.job_queue) == 1
+    assert window.job_queue[0].status == JobStatus.QUEUED
+    assert "المهمة في الانتظار" in window.log_area.toPlainText()
+
+    window._queue_processing_thread = None
+    window._queue_auto_continue_after_worker = True
+    window._continue_queue_processing_if_needed()
+
+    assert started == [2]
+    assert window.job_queue[0].status == JobStatus.QUEUED
+    assert AR_QUEUE_NEXT_JOB_STARTED in window.log_area.toPlainText()
+    assert "جاري معالجة المهمة في الخلفية" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window._set_queue_processing_controls_running(False)
     window.close()
     app.processEvents()
 

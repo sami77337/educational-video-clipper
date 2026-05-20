@@ -60,9 +60,12 @@ from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.job_queue import ClipJob, JobSettings, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
 from src.job_queue_processor import (
     AR_QUEUE_CAN_PREPARE_NEXT,
+    AR_QUEUE_FINISHED,
     AR_QUEUE_JOB_ADDED,
+    AR_QUEUE_NEXT_JOB_STARTED,
     AR_QUEUE_JOB_WAITING,
     AR_URL_QUEUE_PROCESSING_LATER,
+    QueueProcessorState,
     SequentialQueueProcessor,
 )
 from src.job_queue_runner import format_queue_run_summary_ar, run_dry_queue
@@ -396,6 +399,7 @@ class MainWindow(QMainWindow):
         self._processing_worker: ProcessingWorker | None = None
         self._queue_processing_thread: QThread | None = None
         self._queue_processing_worker: QueueProcessingWorker | None = None
+        self._queue_auto_continue_after_worker = False
         self._last_output_folder: Path | None = None
 
         self.setWindowTitle(APP_NAME)
@@ -489,8 +493,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_clips_section(), stretch=1)
         layout.addWidget(self._build_classification_section())
         layout.addWidget(self._build_padding_section())
-        layout.addWidget(self._build_action_section())
         layout.addWidget(self._build_queue_section())
+        layout.addWidget(self._build_action_section())
         layout.addWidget(self._build_log_section(), stretch=1)
 
         return central
@@ -1490,6 +1494,7 @@ class MainWindow(QMainWindow):
             return
 
         self._append_log(f"جاري معالجة المهمة في الخلفية\n{AR_QUEUE_CAN_PREPARE_NEXT}")
+        self._queue_auto_continue_after_worker = True
         self._set_queue_processing_controls_running(True)
         self._start_queue_processing_worker(self._collect_classification_rules())
 
@@ -1499,6 +1504,7 @@ class MainWindow(QMainWindow):
             return
 
         self._queue_processing_worker.request_stop()
+        self._queue_auto_continue_after_worker = False
         self._append_log("سيتم الإيقاف بعد المهمة الحالية")
 
     def _prepare_queue_jobs_for_processing(self) -> None:
@@ -1564,15 +1570,36 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def _finish_queue_processing(self) -> None:
+        self._queue_auto_continue_after_worker = self._should_auto_continue_after_worker()
         for row in range(len(self.job_queue)):
             self._refresh_queue_job_row(row)
-        self._append_log("انتهت معالجة قائمة الانتظار")
+        self._append_log(AR_QUEUE_FINISHED)
         self._set_queue_processing_controls_running(False)
 
     @Slot()
     def _clear_queue_processing_worker(self) -> None:
         self._queue_processing_thread = None
         self._queue_processing_worker = None
+        self._continue_queue_processing_if_needed()
+
+    def _should_auto_continue_after_worker(self) -> bool:
+        worker = self._queue_processing_worker
+        processor = worker.processor if worker is not None else None
+        if processor is None:
+            return False
+        return not processor.stop_requested and processor.state != QueueProcessorState.FAILED
+
+    def _continue_queue_processing_if_needed(self) -> None:
+        if not self._queue_auto_continue_after_worker or self._queue_processing_thread is not None:
+            return
+
+        self._prepare_queue_jobs_for_processing()
+        if not self._has_runnable_local_queue_job():
+            self._queue_auto_continue_after_worker = False
+            return
+
+        self._append_log(AR_QUEUE_NEXT_JOB_STARTED)
+        self.start_queue_processing()
 
     def _set_queue_processing_controls_running(self, running: bool) -> None:
         snapshot_sensitive_widgets = [

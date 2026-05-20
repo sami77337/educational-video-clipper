@@ -20,8 +20,9 @@ AR_QUEUE_JOB_DONE = "اكتملت المهمة"
 AR_QUEUE_JOB_FAILED = "فشلت المهمة"
 AR_QUEUE_JOB_ADDED = "تم إضافة المهمة إلى قائمة الانتظار"
 AR_QUEUE_CAN_PREPARE_NEXT = "يمكنك تجهيز مهمة أخرى أثناء المعالجة"
+AR_QUEUE_NEXT_JOB_STARTED = "بدأت المهمة التالية"
 AR_QUEUE_STOP_AFTER_CURRENT = "سيتم الإيقاف بعد المهمة الحالية"
-AR_QUEUE_FINISHED = "انتهت معالجة قائمة الانتظار"
+AR_QUEUE_FINISHED = "انتهت قائمة الانتظار"
 AR_URL_QUEUE_PROCESSING_LATER = "تشغيل روابط الإنترنت من قائمة الانتظار سيتم دعمه لاحقًا"
 AR_QUEUE_JOB_SKIPPED_ERRORS = "تم تخطي المهمة بسبب أخطاء"
 
@@ -69,6 +70,7 @@ class SequentialQueueProcessor:
         self.current_job: VideoJob | None = None
         self.stop_requested = False
         self.summary = QueueProcessingSummary(total_jobs=len(self.jobs))
+        self._started_job_count = 0
 
     @property
     def is_running(self) -> bool:
@@ -103,6 +105,9 @@ class SequentialQueueProcessor:
         job.mark_status(JobStatus.CUTTING)
         self.current_job = job
         self.state = QueueProcessorState.RUNNING
+        if self._started_job_count > 0:
+            self._emit(AR_QUEUE_NEXT_JOB_STARTED)
+        self._started_job_count += 1
         self._emit(f"{AR_QUEUE_JOB_PROCESSING}: {job.title}")
         return job
 
