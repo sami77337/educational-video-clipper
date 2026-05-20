@@ -28,6 +28,7 @@ from src.main_window import (
     SmartPasteImportDialog,
 )
 from src.job_queue import ClipJob, JobStatus, VideoSourceType as QueueVideoSourceType
+from src.job_queue_processor import AR_URL_QUEUE_PROCESSING_LATER
 from src.readiness import STATUS_READY, ReadinessCheckItem, ReadinessReport
 from src.smart_paste_parser import (
     SmartPasteClip,
@@ -108,6 +109,10 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.load_queue_job_workspace_button.text() == "تحميل المهمة المحددة للتحرير"
     assert window.save_queue_state_button.text() == "حفظ قائمة الانتظار"
     assert window.load_queue_state_button.text() == "تحميل قائمة انتظار"
+    assert window.add_and_run_queue_job_button.text() == "إضافة وتشغيل في قائمة الانتظار"
+    assert window.start_queue_processing_button.text() == "بدء معالجة قائمة الانتظار"
+    assert window.stop_queue_after_current_button.text() == "إيقاف بعد المهمة الحالية"
+    assert not window.stop_queue_after_current_button.isEnabled()
     assert window.run_selected_queue_job_button.text() == "تشغيل المحدد فقط"
     assert window.run_all_queue_simulation_button.text() == "تشغيل كل القائمة تجريبيًا"
     assert window.validate_queue_job_button.text() == "إعادة فحص المحدد"
@@ -150,6 +155,57 @@ def test_queue_add_current_local_work_with_clip_rows() -> None:
     assert "لم يتم بدء أي قص أو تحميل" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> None:
+    app = _app()
+    window = MainWindow()
+    window.project_name_input.setText("مشروع")
+    window.local_file_radio.setChecked(True)
+    window.local_file_input.setText("C:/videos/lesson.mp4")
+    window.pre_padding_input.setValue(1.5)
+    window.post_padding_input.setValue(2.0)
+    window._insert_clip_row(1, "قديم", "00:01:00", "00:02:00", "00:01:20-00:01:30")
+
+    window.add_current_work_to_queue()
+    window.clips_table.item(0, TITLE_COLUMN).setText("معدل")
+    window.clips_table.item(0, START_COLUMN).setText("00:05:00")
+    window.pre_padding_input.setValue(0)
+    window.post_padding_input.setValue(0)
+
+    job = window.job_queue[0]
+    assert job.clips[0].title == "قديم"
+    assert job.clips[0].start == "00:01:00"
+    assert job.settings.pre_roll_seconds == 1.5
+    assert job.settings.post_roll_seconds == 2.0
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_add_current_work_and_start_snapshots_job_without_direct_processing(monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    started: list[bool] = []
+    window.project_name_input.setText("مشروع")
+    window.local_file_radio.setChecked(True)
+    window.local_file_input.setText("C:/videos/lesson.mp4")
+    window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00")
+    monkeypatch.setattr(window, "start_queue_processing", lambda: started.append(True))
+
+    window.add_current_work_and_start_queue()
+
+    assert started == [True]
+    assert len(window.job_queue) == 1
+    assert window.job_queue[0].status == JobStatus.QUEUED
+    assert "تم إضافة المهمة إلى قائمة الانتظار" in window.log_area.toPlainText()
+    assert "يمكنك تجهيز مهمة أخرى أثناء المعالجة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+    assert window._queue_processing_thread is None
 
     window.close()
     app.processEvents()
@@ -1082,6 +1138,76 @@ def test_queue_run_all_simulation_multiple_jobs_with_warning_and_error(tmp_path)
     assert "فيها تحذيرات: 1" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_start_processing_prepares_local_job_without_direct_worker(tmp_path, monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    video_path = tmp_path / "lesson.mp4"
+    video_path.write_bytes(b"ok")
+    job = window._add_queue_job(
+        QueueVideoSourceType.LOCAL,
+        str(video_path),
+        "درس محلي",
+        clips=[ClipJob(title="مقطع", start="00:00:01", end="00:00:04")],
+    )
+    started: list[int] = []
+
+    monkeypatch.setattr(window, "_start_queue_processing_worker", lambda rules: started.append(len(rules)))
+
+    window.start_queue_processing()
+
+    assert started == [2]
+    assert job.status == JobStatus.QUEUED
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "في الانتظار"
+    assert "جاري معالجة المهمة" in window.log_area.toPlainText()
+    assert "يمكنك تجهيز مهمة أخرى أثناء المعالجة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+    assert window._queue_processing_thread is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_start_processing_leaves_url_jobs_queued_without_processing() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_job(
+        QueueVideoSourceType.YOUTUBE,
+        "https://youtu.be/abc123",
+        "درس رابط",
+        clips=[ClipJob(title="مقطع", start="00:00:01", end="00:00:04")],
+    )
+
+    window.start_queue_processing()
+
+    assert job.status == JobStatus.QUEUED
+    assert AR_URL_QUEUE_PROCESSING_LATER in job.warnings
+    assert AR_URL_QUEUE_PROCESSING_LATER in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+    assert window._queue_processing_thread is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_start_processing_marks_job_without_clips_as_validation_error(tmp_path) -> None:
+    app = _app()
+    window = MainWindow()
+    video_path = tmp_path / "lesson.mp4"
+    video_path.write_bytes(b"ok")
+    job = window._add_queue_local_file_job(str(video_path))
+
+    window.start_queue_processing()
+
+    assert job.status == JobStatus.VALIDATION_ERROR
+    assert "لا توجد مقاطع محفوظة لهذه المهمة" in job.errors
+    assert window._queue_processing_thread is None
 
     window.close()
     app.processEvents()
