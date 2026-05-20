@@ -92,6 +92,26 @@ def test_high_priority_is_preserved() -> None:
     assert loaded[0].settings.high_priority is True
 
 
+def test_speed_is_preserved_independently_per_queue_job() -> None:
+    first = VideoJob(
+        source_type=VideoSourceType.LOCAL,
+        source="C:/videos/first.mp4",
+        title="الأول",
+        settings=JobSettings(speed=1.05),
+    )
+    second = VideoJob(
+        source_type=VideoSourceType.YOUTUBE,
+        source="https://youtu.be/second",
+        title="الثاني",
+        settings=JobSettings(speed=1.25),
+    )
+
+    loaded = queue_jobs_from_data(json.loads(queue_jobs_to_json([first, second])))
+
+    assert loaded[0].settings.speed == 1.05
+    assert loaded[1].settings.speed == 1.25
+
+
 def test_cookies_and_tokens_are_not_saved() -> None:
     job = VideoJob(
         source_type=VideoSourceType.YOUTUBE,

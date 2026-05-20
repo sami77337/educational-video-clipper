@@ -21,15 +21,23 @@ def test_common_video_speed_values_are_valid(value) -> None:
     assert normalize_video_speed(value) == float(value)
 
 
-@pytest.mark.parametrize("value", [0, -1, "", "abc", None])
+@pytest.mark.parametrize("value", [0, -1, 4.01, "", "abc", None, float("nan"), float("inf")])
 def test_invalid_video_speed_values_are_rejected(value) -> None:
     with pytest.raises(VideoSpeedError, match=AR_INVALID_VIDEO_SPEED):
         normalize_video_speed(value)
 
 
-def test_speed_filters_keep_video_and_audio_in_sync() -> None:
-    assert build_video_speed_filter(1.05) == "setpts=PTS/1.05"
-    assert build_audio_speed_filter(1.05) == "atempo=1.05"
+@pytest.mark.parametrize(
+    ("speed", "formatted_speed"),
+    [
+        (1.05, "1.05"),
+        (1.10, "1.1"),
+        (1.25, "1.25"),
+    ],
+)
+def test_common_speed_filters_keep_video_and_audio_in_sync(speed: float, formatted_speed: str) -> None:
+    assert build_video_speed_filter(speed) == f"setpts=PTS/{formatted_speed}"
+    assert build_audio_speed_filter(speed) == f"atempo={formatted_speed}"
 
 
 def test_audio_speed_filter_chains_large_values_safely() -> None:

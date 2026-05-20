@@ -195,6 +195,44 @@ def test_build_processing_report_includes_video_speed_only_when_changed() -> Non
     assert "سرعة الفيديو: 1.1" in build_processing_report(changed_data)
 
 
+def test_build_processing_report_preserves_speed_padding_and_exclusion_details() -> None:
+    timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
+    data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+        pre_padding_seconds=1.5,
+        post_padding_seconds=2,
+        video_speed=1.25,
+        clip_details=[
+            ProcessingReportClipData(
+                number=1,
+                title="عنوان المقطع",
+                start="00:01:00",
+                end="00:05:00",
+                exclusions="00:02:00-00:02:10, 00:03:00-00:03:15",
+                folder_name=REELS_FOLDER_NAME,
+            )
+        ],
+    )
+
+    report = build_processing_report(data)
+
+    assert "وقت قبل بداية المقطع: 1.5 ثانية" in report
+    assert "وقت بعد نهاية المقطع: 2 ثانية" in report
+    assert "سرعة الفيديو: 1.25" in report
+    assert "الاستثناءات: 00:02:00-00:02:10, 00:03:00-00:03:15" in report
+    assert "عدد الاستثناءات داخل المقطع: 2" in report
+    assert "تم تطبيق أكثر من استثناء داخل هذا المقطع" in report
+
+
 def test_build_processing_report_includes_dynamic_rules_and_counts(tmp_path) -> None:
     started_at = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
     ended_at = datetime(2026, 5, 13, 10, 3, tzinfo=timezone.utc)
