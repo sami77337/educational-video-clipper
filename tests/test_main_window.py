@@ -100,9 +100,9 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
         "Brave",
         "Firefox",
     ]
-    assert window.validate_button.text() == "فحص الجدول قبل القص"
+    assert window.validate_button.text() == "فحص ذكي قبل القص"
     assert window.readiness_button.text() == "فحص جاهزية البرنامج"
-    assert window.smart_validation_button.text() == "فحص الجدول قبل القص"
+    assert window.smart_validation_button.text() == "فحص ذكي قبل القص"
     assert window.start_button.text() == "بدء القص"
     assert window.direct_cut_button.text() == "بدء القص المباشر - وضع قديم"
     assert window.open_output_button.text() == "فتح مجلد النتائج"
@@ -134,6 +134,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.smart_paste_button.text() == "استيراد ذكي"
     assert window.parse_message_button.text() == "تحويل بسيط إلى جدول"
     assert window.parse_message_button.parent() is None
+    assert not window.parse_message_button.isVisible()
     assert window.delete_row_button.text() == "حذف المقطع المحدد"
     assert window.preview_clip_start_button.text() == "معاينة بداية المقطع"
     assert window.preview_clip_end_button.text() == "معاينة نهاية المقطع"
@@ -146,29 +147,35 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.add_current_work_to_queue_button.text() == "إضافة العمل الحالي إلى قائمة الانتظار"
     assert window.add_queue_local_video_button.text() == "إضافة فيديو محلي"
     assert window.add_queue_url_button.text() == "إضافة رابط"
-    assert window.save_queue_clips_button.text() == "حفظ المقاطع للمهمة المحددة"
+    assert window.save_queue_clips_button.text() == "حفظ مقاطع المهمة المحددة"
     assert window.load_queue_clips_button.text() == "تحميل مقاطع المهمة المحددة"
-    assert window.load_queue_job_workspace_button.text() == "تحميل المهمة المحددة للتحرير"
+    assert window.load_queue_job_workspace_button.text() == "تعديل المهمة المنتظرة"
+    assert window.save_queue_job_edits_button.text() == "حفظ التعديلات على المهمة"
+    assert window.cancel_queue_job_edit_button.text() == "إلغاء تعديل المهمة"
     assert window.save_queue_state_button.text() == "حفظ قائمة الانتظار"
     assert window.load_queue_state_button.text() == "تحميل قائمة انتظار"
     assert window.add_and_run_queue_job_button.text() == "إضافة وتشغيل في قائمة الانتظار"
     assert window.start_queue_processing_button.text() == "بدء معالجة قائمة الانتظار"
     assert window.stop_queue_after_current_button.text() == "إيقاف بعد المهمة الحالية"
     assert not window.stop_queue_after_current_button.isEnabled()
-    assert window.run_selected_queue_job_button.text() == "تشغيل المحدد فقط"
-    assert window.run_all_queue_simulation_button.text() == "تشغيل كل القائمة تجريبيًا"
+    assert window.run_selected_queue_job_button.text() == "تشغيل المهمة المحددة"
+    assert window.run_all_queue_simulation_button.text() == "فحص/محاكاة القائمة فقط"
     assert window.validate_queue_job_button.text() == "إعادة فحص المحدد"
     assert window.validate_all_queue_jobs_button.text() == "فحص كل قائمة الانتظار"
     assert window.delete_queue_job_button.text() == "إزالة المهمة المحددة"
     assert window.clear_queue_button.text() == "مسح القائمة"
     for button in (
-        window.add_and_run_queue_job_button,
         window.start_button,
-        window.direct_cut_button,
         window.validate_button,
         window.open_output_button,
     ):
         assert "أزرار التشغيل" in _ancestor_group_titles(button)
+    assert not window.add_and_run_queue_job_button.isVisible()
+    assert "إدارة قائمة الانتظار المتقدمة" in _ancestor_group_titles(window.direct_cut_button)
+    assert window.queue_advanced_group.title() == "إدارة قائمة الانتظار المتقدمة"
+    assert window.queue_advanced_toggle_button.text() == "إدارة قائمة الانتظار المتقدمة"
+    assert not window.queue_advanced_toggle_button.isChecked()
+    assert not window.queue_advanced_controls_widget.isVisible()
     for button in (
         window.validate_all_queue_jobs_button,
         window.run_all_queue_simulation_button,
@@ -178,6 +185,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
         window.clear_queue_button,
     ):
         assert "قائمة الانتظار" in _ancestor_group_titles(button)
+        assert "إدارة قائمة الانتظار المتقدمة" in _ancestor_group_titles(button)
 
     window.close()
     app.processEvents()
@@ -806,7 +814,7 @@ def test_queue_load_selected_job_to_workspace_source_and_clips() -> None:
     assert window.clips_table.item(0, START_COLUMN).text() == "00:01:00"
     assert window.clips_table.item(0, END_COLUMN).text() == "00:02:00"
     assert window.clips_table.item(0, EXCLUSIONS_COLUMN).text() == "00:01:20-00:01:30"
-    assert "تم تحميل المهمة المحددة للتحرير" in window.log_area.toPlainText()
+    assert "أنت تعدل مهمة منتظرة من قائمة الانتظار" in window.log_area.toPlainText()
     assert "لم يتم بدء أي قص أو تحميل" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
@@ -823,6 +831,10 @@ def test_queue_load_selected_job_restores_speed_and_volume_intent() -> None:
     job.settings.speed = 1.10
     job.settings.volume_adjustment_enabled = True
     job.settings.volume_percent = 150
+    job.settings.pre_roll_seconds = 1.5
+    job.settings.post_roll_seconds = 2.0
+    job.settings.use_browser_login = True
+    job.settings.browser_name = "firefox"
     window._refresh_queue_job_row(0)
 
     window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
@@ -834,6 +846,245 @@ def test_queue_load_selected_job_restores_speed_and_volume_intent() -> None:
     assert window.volume_enabled_checkbox.isChecked()
     assert window.volume_input.isEnabled()
     assert window.volume_input.value() == 150
+    assert window.pre_padding_input.value() == 1.5
+    assert window.post_padding_input.value() == 2.0
+    assert window.use_browser_cookies_checkbox.isChecked()
+    assert window.browser_combo.currentText() == "Firefox"
+
+    window.close()
+    app.processEvents()
+
+
+def test_waiting_queue_job_can_be_loaded_edited_and_saved_in_place() -> None:
+    app = _app()
+    window = MainWindow()
+    first = window._add_queue_url_job("https://youtu.be/first", title="الأول")
+    second = window._add_queue_url_job("https://youtu.be/second", title="الثاني")
+    second.status = JobStatus.QUEUED
+    second.settings.high_priority = True
+    second.settings.pre_roll_seconds = 0.5
+    second.settings.post_roll_seconds = 1.0
+    second.settings.speed_adjustment_enabled = True
+    second.settings.speed = 1.10
+    second.settings.volume_adjustment_enabled = True
+    second.settings.volume_percent = 150
+    second.settings.use_browser_login = True
+    second.settings.browser_name = "edge"
+    second.clips = [
+        ClipJob(title="قديم", start="00:01:00", end="00:02:00", exclusions="00:01:20-00:01:30")
+    ]
+    window._refresh_queue_job_row(1)
+
+    window.queue_table.setCurrentCell(1, QUEUE_SOURCE_COLUMN)
+    window.edit_waiting_queue_job()
+
+    assert window._editing_queue_job is second
+    assert window.youtube_input.text() == "https://youtu.be/second"
+    assert window.project_name_input.text() == "الثاني"
+    assert window.clips_table.item(0, TITLE_COLUMN).text() == "قديم"
+    assert window.clips_table.item(0, EXCLUSIONS_COLUMN).text() == "00:01:20-00:01:30"
+    assert window.pre_padding_input.value() == 0.5
+    assert window.post_padding_input.value() == 1.0
+    assert window.video_speed_enabled_checkbox.isChecked()
+    assert window.video_speed_input.value() == 1.10
+    assert window.volume_enabled_checkbox.isChecked()
+    assert window.volume_input.value() == 150
+    assert window.use_browser_cookies_checkbox.isChecked()
+    assert window.browser_combo.currentText() == "Edge"
+
+    window.youtube_input.setText("https://youtu.be/edited")
+    window.project_name_input.setText("الثاني المعدل")
+    window.clips_table.item(0, TITLE_COLUMN).setText("جديد")
+    window.clips_table.item(0, START_COLUMN).setText("00:03:00")
+    window.clips_table.item(0, END_COLUMN).setText("00:04:00")
+    window.clips_table.item(0, EXCLUSIONS_COLUMN).setText("00:03:20-00:03:30")
+    window.pre_padding_input.setValue(2.0)
+    window.post_padding_input.setValue(3.0)
+    window.video_speed_input.setValue(1.25)
+    window.volume_input.setValue(200)
+    window.browser_combo.setCurrentText("Brave")
+
+    assert window.save_waiting_queue_job_edits() is True
+
+    assert window.job_queue == [first, second]
+    assert window.job_queue[1] is second
+    assert second.source == "https://youtu.be/edited"
+    assert second.title == "الثاني المعدل"
+    assert second.clips[0].title == "جديد"
+    assert second.clips[0].start == "00:03:00"
+    assert second.clips[0].exclusions == "00:03:20-00:03:30"
+    assert second.settings.high_priority is True
+    assert second.settings.pre_roll_seconds == 2.0
+    assert second.settings.post_roll_seconds == 3.0
+    assert second.settings.speed_adjustment_enabled is True
+    assert second.settings.speed == 1.25
+    assert second.settings.volume_adjustment_enabled is True
+    assert second.settings.volume_percent == 200
+    assert second.settings.use_browser_login is True
+    assert second.settings.browser_name == "brave"
+    assert window.queue_table.item(1, QUEUE_TITLE_COLUMN).text() == "الثاني المعدل"
+    assert window.queue_table.item(1, QUEUE_CLIP_COUNT_COLUMN).text() == "1"
+    assert window._editing_queue_job is None
+    assert "تم حفظ التعديلات على المهمة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_waiting_queue_job_edit_preserves_protected_speed_volume_defaults() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://youtu.be/defaults", title="افتراضي")
+    job.clips = [ClipJob(title="مقطع", start="00:01:00", end="00:02:00")]
+    job.settings.speed_adjustment_enabled = False
+    job.settings.speed = 1.50
+    job.settings.volume_adjustment_enabled = False
+    job.settings.volume_percent = 200
+    window._refresh_queue_job_row(0)
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.edit_waiting_queue_job()
+
+    assert not window.video_speed_enabled_checkbox.isChecked()
+    assert not window.video_speed_input.isEnabled()
+    assert window.video_speed_input.value() == 1.0
+    assert not window.volume_enabled_checkbox.isChecked()
+    assert not window.volume_input.isEnabled()
+    assert window.volume_input.value() == 100
+
+    assert window.save_waiting_queue_job_edits() is True
+
+    assert job.settings.speed_adjustment_enabled is False
+    assert job.settings.speed == 1.0
+    assert job.settings.volume_adjustment_enabled is False
+    assert job.settings.volume_percent == 100
+
+    window.close()
+    app.processEvents()
+
+
+def test_waiting_queue_job_later_workspace_edits_do_not_mutate_without_saving() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://youtu.be/original", title="أصلي")
+    job.clips = [ClipJob(title="قديم", start="00:01:00", end="00:02:00")]
+    window._refresh_queue_job_row(0)
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.edit_waiting_queue_job()
+    window.clips_table.item(0, TITLE_COLUMN).setText("مؤقت")
+    window.cancel_waiting_queue_job_edit()
+    window.clips_table.item(0, TITLE_COLUMN).setText("تعديل بعد الإلغاء")
+
+    assert job.clips[0].title == "قديم"
+    assert job.source == "https://youtu.be/original"
+    assert job.title == "أصلي"
+    assert window._editing_queue_job is None
+    assert "تم إلغاء تعديل المهمة" in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
+def test_running_and_completed_queue_jobs_cannot_be_edited() -> None:
+    app = _app()
+    window = MainWindow()
+    running = window._add_queue_url_job("https://youtu.be/running", title="جارية")
+    running.status = JobStatus.CUTTING
+    done = window._add_queue_url_job("https://youtu.be/done", title="مكتملة")
+    done.status = JobStatus.DONE
+    window._refresh_queue_job_row(0)
+    window._refresh_queue_job_row(1)
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.edit_waiting_queue_job()
+    assert "لا يمكن تعديل المهمة الجارية" in window.log_area.toPlainText()
+    assert window._editing_queue_job is None
+
+    window.queue_table.setCurrentCell(1, QUEUE_SOURCE_COLUMN)
+    window.edit_waiting_queue_job()
+    assert "لا يمكن تعديل مهمة مكتملة. أعد إضافتها كمهمة جديدة." in window.log_area.toPlainText()
+    assert window._editing_queue_job is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_saving_waiting_job_is_blocked_if_it_starts_running_during_edit() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://youtu.be/job", title="مهمة")
+    job.clips = [ClipJob(title="قديم", start="00:01:00", end="00:02:00")]
+    window._refresh_queue_job_row(0)
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.edit_waiting_queue_job()
+    window.clips_table.item(0, TITLE_COLUMN).setText("جديد")
+    job.status = JobStatus.DOWNLOADING
+    window._refresh_queue_job_row(0)
+
+    assert not window.save_queue_job_edits_button.isEnabled()
+    assert window.save_waiting_queue_job_edits() is False
+    assert job.clips[0].title == "قديم"
+    assert "لا يمكن تعديل المهمة بعد بدء معالجتها" in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
+def test_start_cut_during_waiting_job_edit_saves_instead_of_duplicate(monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    started: list[bool] = []
+    job = window._add_queue_url_job("https://youtu.be/original", title="أصلي")
+    job.clips = [ClipJob(title="قديم", start="00:01:00", end="00:02:00")]
+    window._refresh_queue_job_row(0)
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.edit_waiting_queue_job()
+    window.youtube_input.setText("https://youtu.be/edited")
+    window.project_name_input.setText("معدل")
+    window.clips_table.item(0, TITLE_COLUMN).setText("جديد")
+    monkeypatch.setattr(window, "_ask_save_waiting_job_edit_instead_confirmation", lambda: True)
+    monkeypatch.setattr(window, "start_queue_processing", lambda: started.append(True))
+
+    window.start_button.click()
+
+    assert len(window.job_queue) == 1
+    assert window.job_queue[0] is job
+    assert job.source == "https://youtu.be/edited"
+    assert job.title == "معدل"
+    assert job.clips[0].title == "جديد"
+    assert started == [True]
+    assert window._editing_queue_job is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_start_cut_during_waiting_job_edit_can_cancel_without_duplicate(monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    started: list[bool] = []
+    job = window._add_queue_url_job("https://youtu.be/original", title="أصلي")
+    job.clips = [ClipJob(title="قديم", start="00:01:00", end="00:02:00")]
+    window._refresh_queue_job_row(0)
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.edit_waiting_queue_job()
+    window.youtube_input.setText("https://youtu.be/edited")
+    window.clips_table.item(0, TITLE_COLUMN).setText("جديد")
+    monkeypatch.setattr(window, "_ask_save_waiting_job_edit_instead_confirmation", lambda: False)
+    monkeypatch.setattr(window, "start_queue_processing", lambda: started.append(True))
+
+    window.start_button.click()
+
+    assert len(window.job_queue) == 1
+    assert job.source == "https://youtu.be/original"
+    assert job.clips[0].title == "قديم"
+    assert started == []
+    assert window._editing_queue_job is job
+    assert "لم يتم إنشاء مهمة جديدة" in window.log_area.toPlainText()
 
     window.close()
     app.processEvents()
@@ -920,7 +1171,7 @@ def test_queue_load_selected_job_without_saved_clips_loads_source_only() -> None
     assert window.project_name_input.text() == "درس بلا مقاطع"
     assert window.clips_table.rowCount() == 0
     assert "لا توجد مقاطع محفوظة لهذه المهمة" in window.log_area.toPlainText()
-    assert "تم تحميل المهمة المحددة للتحرير" in window.log_area.toPlainText()
+    assert "أنت تعدل مهمة منتظرة من قائمة الانتظار" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
 
@@ -973,7 +1224,7 @@ def test_queue_load_selected_job_clip_table_replacement_requires_confirmation() 
     assert window.clips_table.rowCount() == 1
     assert window.clips_table.item(0, TITLE_COLUMN).text() == "محفوظ"
     assert "تم استبدال مقاطع الجدول" in window.log_area.toPlainText()
-    assert "تم تحميل المهمة المحددة للتحرير" in window.log_area.toPlainText()
+    assert "أنت تعدل مهمة منتظرة من قائمة الانتظار" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
 
@@ -1611,7 +1862,9 @@ def test_queue_processing_keeps_preparation_ui_available_while_running() -> None
     assert window.validate_all_queue_jobs_button.isEnabled()
     assert window.save_queue_clips_button.isEnabled()
     assert window.load_queue_clips_button.isEnabled()
-    assert window.load_queue_job_workspace_button.isEnabled()
+    assert not window.load_queue_job_workspace_button.isEnabled()
+    assert not window.save_queue_job_edits_button.isEnabled()
+    assert not window.cancel_queue_job_edit_button.isEnabled()
     assert window.save_queue_state_button.isEnabled()
     assert window.load_queue_state_button.isEnabled()
     assert window.delete_queue_job_button.isEnabled()

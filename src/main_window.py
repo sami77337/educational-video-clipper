@@ -120,6 +120,19 @@ QUEUE_CLIP_COUNT_COLUMN = 2
 QUEUE_STATUS_COLUMN = 3
 QUEUE_HIGH_PRIORITY_COLUMN = 4
 QUEUE_ACTION_COLUMN = 5
+QUEUE_EDITABLE_STATUSES = {
+    JobStatus.DRAFT,
+    JobStatus.READY,
+    JobStatus.VALIDATION_ERROR,
+    JobStatus.WARNING,
+    JobStatus.QUEUED,
+}
+QUEUE_TERMINAL_STATUSES = {
+    JobStatus.DONE,
+    JobStatus.FAILED,
+    JobStatus.SKIPPED,
+    JobStatus.CANCELLED,
+}
 AR_OPEN_MINUTES = "مفتوح"
 SMART_PASTE_REPLACE_LABEL = "استبدال البيانات الحالية"
 SMART_PASTE_APPEND_LABEL = "إضافة كمقاطع جديدة"
@@ -467,6 +480,7 @@ class MainWindow(QMainWindow):
         self._queue_processing_thread: QThread | None = None
         self._queue_processing_worker: QueueProcessingWorker | None = None
         self._queue_auto_continue_after_worker = False
+        self._editing_queue_job: VideoJob | None = None
         self._last_output_folder: Path | None = None
 
         self.setWindowTitle(APP_NAME)
@@ -490,20 +504,27 @@ class MainWindow(QMainWindow):
         self.add_current_work_to_queue_button = QPushButton("إضافة العمل الحالي إلى قائمة الانتظار")
         self.add_queue_local_video_button = QPushButton("إضافة فيديو محلي")
         self.add_queue_url_button = QPushButton("إضافة رابط")
-        self.save_queue_clips_button = QPushButton("حفظ المقاطع للمهمة المحددة")
+        self.save_queue_clips_button = QPushButton("حفظ مقاطع المهمة المحددة")
         self.load_queue_clips_button = QPushButton("تحميل مقاطع المهمة المحددة")
-        self.load_queue_job_workspace_button = QPushButton("تحميل المهمة المحددة للتحرير")
+        self.load_queue_job_workspace_button = QPushButton("تعديل المهمة المنتظرة")
+        self.save_queue_job_edits_button = QPushButton("حفظ التعديلات على المهمة")
+        self.cancel_queue_job_edit_button = QPushButton("إلغاء تعديل المهمة")
         self.save_queue_state_button = QPushButton("حفظ قائمة الانتظار")
         self.load_queue_state_button = QPushButton("تحميل قائمة انتظار")
         self.add_and_run_queue_job_button = QPushButton("إضافة وتشغيل في قائمة الانتظار")
         self.start_queue_processing_button = QPushButton("بدء معالجة قائمة الانتظار")
         self.stop_queue_after_current_button = QPushButton("إيقاف بعد المهمة الحالية")
-        self.run_selected_queue_job_button = QPushButton("تشغيل المحدد فقط")
-        self.run_all_queue_simulation_button = QPushButton("تشغيل كل القائمة تجريبيًا")
+        self.run_selected_queue_job_button = QPushButton("تشغيل المهمة المحددة")
+        self.run_all_queue_simulation_button = QPushButton("فحص/محاكاة القائمة فقط")
         self.validate_queue_job_button = QPushButton("إعادة فحص المحدد")
         self.validate_all_queue_jobs_button = QPushButton("فحص كل قائمة الانتظار")
         self.delete_queue_job_button = QPushButton("إزالة المهمة المحددة")
         self.clear_queue_button = QPushButton("مسح القائمة")
+        self.queue_selected_job_details_label = QLabel("اختر مهمة من قائمة الانتظار لعرض تفاصيلها.")
+        self.queue_edit_status_label = QLabel("")
+        self.queue_advanced_toggle_button = QPushButton("إدارة قائمة الانتظار المتقدمة")
+        self.queue_advanced_group = QGroupBox("إدارة قائمة الانتظار المتقدمة")
+        self.queue_advanced_controls_widget = QWidget()
         self.clips_table = QTableWidget(0, 5)
         self.classification_rules_table = QTableWidget(0, 4)
         self.add_row_button = QPushButton("إضافة مقطع")
@@ -527,8 +548,8 @@ class MainWindow(QMainWindow):
         self.reset_volume_button = QPushButton("إعادة الصوت إلى 100%")
         self.volume_status_label = QLabel("الإعدادات الافتراضية آمنة")
         self.readiness_button = QPushButton("فحص جاهزية البرنامج")
-        self.smart_validation_button = QPushButton("فحص الجدول قبل القص")
-        self.validate_button = QPushButton("فحص الجدول قبل القص")
+        self.smart_validation_button = QPushButton("فحص ذكي قبل القص")
+        self.validate_button = QPushButton("فحص ذكي قبل القص")
         self.start_button = QPushButton("بدء القص")
         self.direct_cut_button = QPushButton("بدء القص المباشر - وضع قديم")
         self.open_output_button = QPushButton("فتح مجلد النتائج")
@@ -542,6 +563,7 @@ class MainWindow(QMainWindow):
         self._reset_classification_rules(log=False)
         self._update_source_inputs()
         self._update_speed_volume_controls()
+        self._update_queue_edit_controls()
         self.open_output_button.setEnabled(False)
         self.stop_queue_after_current_button.setEnabled(False)
 
@@ -689,8 +711,20 @@ class MainWindow(QMainWindow):
         self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_HIGH_PRIORITY_COLUMN, QHeaderView.ResizeToContents)
         self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_ACTION_COLUMN, QHeaderView.Stretch)
 
-        button_grid = QGridLayout()
-        queue_buttons = [
+        self.queue_selected_job_details_label.setWordWrap(True)
+        self.queue_edit_status_label.setWordWrap(True)
+
+        edit_buttons = QHBoxLayout()
+        edit_buttons.addWidget(self.load_queue_job_workspace_button)
+        edit_buttons.addWidget(self.save_queue_job_edits_button)
+        edit_buttons.addWidget(self.cancel_queue_job_edit_button)
+        edit_buttons.addStretch(1)
+
+        self.queue_advanced_toggle_button.setCheckable(True)
+        self.queue_advanced_toggle_button.setChecked(False)
+        advanced_group_layout = QVBoxLayout(self.queue_advanced_group)
+        advanced_controls_layout = QGridLayout(self.queue_advanced_controls_widget)
+        advanced_buttons = [
             self.add_current_work_to_queue_button,
             self.add_queue_local_video_button,
             self.add_queue_url_button,
@@ -700,20 +734,28 @@ class MainWindow(QMainWindow):
             self.run_all_queue_simulation_button,
             self.save_queue_clips_button,
             self.load_queue_clips_button,
-            self.load_queue_job_workspace_button,
             self.save_queue_state_button,
             self.load_queue_state_button,
             self.start_queue_processing_button,
             self.stop_queue_after_current_button,
             self.delete_queue_job_button,
             self.clear_queue_button,
+            self.readiness_button,
+            self.direct_cut_button,
         ]
-        for index, button in enumerate(queue_buttons):
-            button_grid.addWidget(button, index // 4, index % 4)
-        button_grid.setColumnStretch(4, 1)
+        for index, button in enumerate(advanced_buttons):
+            advanced_controls_layout.addWidget(button, index // 4, index % 4)
+        advanced_controls_layout.setColumnStretch(4, 1)
+        advanced_group_layout.addWidget(self.queue_advanced_controls_widget)
+        self.queue_advanced_controls_widget.setVisible(False)
+        self.queue_advanced_toggle_button.toggled.connect(self.queue_advanced_controls_widget.setVisible)
 
         layout.addWidget(self.queue_table)
-        layout.addLayout(button_grid)
+        layout.addWidget(self.queue_selected_job_details_label)
+        layout.addWidget(self.queue_edit_status_label)
+        layout.addLayout(edit_buttons)
+        layout.addWidget(self.queue_advanced_toggle_button)
+        layout.addWidget(self.queue_advanced_group)
 
         return group
 
@@ -724,7 +766,7 @@ class MainWindow(QMainWindow):
         help_text = QLabel(
             "اختر مصدر الفيديو، ثم أدخل اسم المشروع.\n"
             "أضف المقاطع يدويًا، أو استورد Excel، أو الصق رسالة.\n"
-            "اضغط إضافة وتشغيل في قائمة الانتظار عند جاهزية الجدول.\n"
+            "اضغط بدء القص عند جاهزية الجدول لإضافة المهمة إلى قائمة الانتظار.\n"
             "يمكن إنشاء أكثر من مجلد حسب مدة المقطع.\n"
             "مثال: من 0 إلى 3 دقائق = ريلز.\n"
             "مثال: من 3 إلى مفتوح = فوائد.\n"
@@ -904,14 +946,12 @@ class MainWindow(QMainWindow):
         group = QGroupBox("أزرار التشغيل")
         layout = QHBoxLayout(group)
 
-        layout.addWidget(self.readiness_button)
-        layout.addWidget(self.validate_button)
         layout.addWidget(self.start_button)
+        layout.addWidget(self.validate_button)
         layout.addWidget(self.open_output_button)
-        layout.addWidget(self.add_and_run_queue_job_button)
         layout.addStretch(1)
-        layout.addWidget(self.direct_cut_button)
         layout.addWidget(self.processing_status_label)
+        self.add_and_run_queue_job_button.setVisible(False)
 
         return group
 
@@ -951,7 +991,9 @@ class MainWindow(QMainWindow):
         self.add_queue_url_button.clicked.connect(self.add_url_to_queue)
         self.save_queue_clips_button.clicked.connect(self.save_clips_to_selected_queue_job)
         self.load_queue_clips_button.clicked.connect(self.load_clips_from_selected_queue_job)
-        self.load_queue_job_workspace_button.clicked.connect(self.load_selected_queue_job_to_workspace)
+        self.load_queue_job_workspace_button.clicked.connect(self.edit_waiting_queue_job)
+        self.save_queue_job_edits_button.clicked.connect(self.save_waiting_queue_job_edits)
+        self.cancel_queue_job_edit_button.clicked.connect(self.cancel_waiting_queue_job_edit)
         self.save_queue_state_button.clicked.connect(self.save_queue_state)
         self.load_queue_state_button.clicked.connect(self.load_queue_state)
         self.add_and_run_queue_job_button.clicked.connect(self.add_current_work_and_start_queue)
@@ -964,6 +1006,8 @@ class MainWindow(QMainWindow):
         self.delete_queue_job_button.clicked.connect(self.delete_selected_queue_job)
         self.clear_queue_button.clicked.connect(self.clear_queue)
         self.queue_table.itemChanged.connect(self._sync_queue_high_priority)
+        self.queue_table.itemSelectionChanged.connect(self._update_queue_edit_controls)
+        self.queue_table.currentCellChanged.connect(self._update_queue_edit_controls)
         self.smart_paste_button.clicked.connect(self.import_smart_paste_message)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
         self.readiness_button.clicked.connect(self.check_readiness)
@@ -1091,6 +1135,14 @@ class MainWindow(QMainWindow):
         )
 
     def add_current_work_and_start_queue(self) -> None:
+        if self._editing_queue_job is not None:
+            if self._ask_save_waiting_job_edit_instead_confirmation():
+                if self.save_waiting_queue_job_edits():
+                    self.start_queue_processing()
+            else:
+                self._write_log("لم يتم إنشاء مهمة جديدة")
+            return
+
         source_snapshot = self._current_work_queue_source()
         if source_snapshot is None:
             return
@@ -1119,6 +1171,16 @@ class MainWindow(QMainWindow):
             f"{AR_QUEUE_CAN_PREPARE_NEXT}"
         )
         self.start_queue_processing()
+
+    def _ask_save_waiting_job_edit_instead_confirmation(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("حفظ التعديلات على المهمة")
+        dialog.setText("أنت تعدل مهمة منتظرة. هل تريد حفظ التعديلات على المهمة بدل إضافة مهمة جديدة؟")
+        save_button = dialog.addButton("حفظ التعديلات", QMessageBox.AcceptRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(save_button)
+        dialog.exec()
+        return dialog.clickedButton() == save_button
 
     def _current_work_queue_source(self) -> tuple[QueueVideoSourceType, str, str] | None:
         project_title = self.project_name_input.text().strip()
@@ -1205,9 +1267,10 @@ class MainWindow(QMainWindow):
             priority_item.setTextAlignment(Qt.AlignCenter)
             self.queue_table.setItem(row, QUEUE_HIGH_PRIORITY_COLUMN, priority_item)
 
-            self.queue_table.setItem(row, QUEUE_ACTION_COLUMN, self._readonly_table_item("معد للتطوير اللاحق"))
+            self.queue_table.setItem(row, QUEUE_ACTION_COLUMN, self._readonly_table_item(self._queue_settings_summary(job)))
         finally:
             self.queue_table.blockSignals(False)
+        self._update_queue_edit_controls()
 
     def _readonly_table_item(self, text: str) -> QTableWidgetItem:
         item = QTableWidgetItem(text)
@@ -1245,6 +1308,66 @@ class MainWindow(QMainWindow):
         }
         return labels[status]
 
+    def _queue_settings_summary(self, job: VideoJob) -> str:
+        speed_state = "مفعّلة" if job.settings.speed_adjustment_enabled else "غير مفعّلة"
+        speed_value = job.settings.speed if job.settings.speed_adjustment_enabled else DEFAULT_VIDEO_SPEED
+        volume_state = "مفعّل" if job.settings.volume_adjustment_enabled else "غير مفعّل"
+        volume_value = job.settings.volume_percent if job.settings.volume_adjustment_enabled else DEFAULT_VOLUME_PERCENT
+        return (
+            f"السرعة: {speed_state} ({speed_value:.2f}x) | "
+            f"الصوت: {volume_state} ({volume_value}%)"
+        )
+
+    def _queue_job_can_be_edited(self, job: VideoJob) -> bool:
+        return job.status in QUEUE_EDITABLE_STATUSES and not self._queue_job_is_running(job)
+
+    def _queue_job_edit_block_reason(self, job: VideoJob) -> str | None:
+        if self._queue_job_is_running(job):
+            return "لا يمكن تعديل المهمة الجارية"
+        if job.status in QUEUE_TERMINAL_STATUSES:
+            return "لا يمكن تعديل مهمة مكتملة. أعد إضافتها كمهمة جديدة."
+        if job.status not in QUEUE_EDITABLE_STATUSES:
+            return "لا يمكن تعديل مهمة مكتملة. أعد إضافتها كمهمة جديدة."
+        return None
+
+    def _update_queue_edit_controls(self, *_args) -> None:
+        row = self._selected_queue_row()
+        selected_job = self.job_queue[row] if row is not None and 0 <= row < len(self.job_queue) else None
+        editing_active = self._editing_queue_job is not None
+        editing_job_in_queue = any(job is self._editing_queue_job for job in self.job_queue)
+        editing_job_can_be_saved = (
+            self._editing_queue_job is not None
+            and editing_job_in_queue
+            and self._queue_job_can_be_edited(self._editing_queue_job)
+        )
+
+        self.load_queue_job_workspace_button.setEnabled(
+            selected_job is not None and self._queue_job_can_be_edited(selected_job)
+        )
+        self.save_queue_job_edits_button.setEnabled(editing_job_can_be_saved)
+        self.cancel_queue_job_edit_button.setEnabled(editing_active)
+
+        if selected_job is None:
+            self.queue_selected_job_details_label.setText("اختر مهمة من قائمة الانتظار لعرض تفاصيلها.")
+        else:
+            self.queue_selected_job_details_label.setText(
+                "\n".join(
+                    [
+                        f"المهمة المحددة: {selected_job.title}",
+                        self._queue_settings_summary(selected_job),
+                        f"الحالة: {self._queue_status_label(selected_job.status)}",
+                    ]
+                )
+            )
+
+        if editing_active:
+            if editing_job_can_be_saved:
+                self.queue_edit_status_label.setText("أنت تعدل مهمة منتظرة من قائمة الانتظار")
+            else:
+                self.queue_edit_status_label.setText("لا يمكن تعديل المهمة بعد بدء معالجتها")
+        else:
+            self.queue_edit_status_label.setText("")
+
     def _sync_queue_high_priority(self, item: QTableWidgetItem) -> None:
         if item.column() != QUEUE_HIGH_PRIORITY_COLUMN:
             return
@@ -1260,6 +1383,7 @@ class MainWindow(QMainWindow):
                 self._append_log("لا يمكن تعديل المهمة الجارية")
                 return
             job.settings.high_priority = item.checkState() == Qt.Checked
+            self._update_queue_edit_controls()
 
     def validate_selected_queue_job(self) -> None:
         row = self._selected_queue_row()
@@ -1440,12 +1564,21 @@ class MainWindow(QMainWindow):
         return dialog.clickedButton() == replace_button
 
     def load_selected_queue_job_to_workspace(self) -> None:
+        self.edit_waiting_queue_job()
+
+    def edit_waiting_queue_job(self) -> None:
         row = self._selected_queue_row()
         if row is None:
             self._write_log("لا توجد مهمة محددة")
             return
 
         job = self.job_queue[row]
+        block_reason = self._queue_job_edit_block_reason(job)
+        if block_reason:
+            self._write_log(block_reason)
+            self._update_queue_edit_controls()
+            return
+
         if not job.source.strip():
             self._write_log("لا يوجد مصدر محفوظ لهذه المهمة")
             return
@@ -1471,6 +1604,7 @@ class MainWindow(QMainWindow):
         if job.title.strip():
             self.project_name_input.setText(job.title.strip())
         self._apply_queue_job_settings_to_workspace(job.settings)
+        self._editing_queue_job = job
 
         messages = []
         if replaced_source:
@@ -1479,8 +1613,67 @@ class MainWindow(QMainWindow):
             messages.append("تم استبدال مقاطع الجدول")
         if missing_clips:
             messages.append("لا توجد مقاطع محفوظة لهذه المهمة")
-        messages.extend(["تم تحميل المهمة المحددة للتحرير", "لم يتم بدء أي قص أو تحميل"])
+        messages.extend(["أنت تعدل مهمة منتظرة من قائمة الانتظار", "لم يتم بدء أي قص أو تحميل"])
         self._write_log("\n".join(messages))
+        self._update_queue_edit_controls()
+
+    def save_waiting_queue_job_edits(self) -> bool:
+        job = self._editing_queue_job
+        if job is None:
+            self._write_log("لا توجد مهمة محددة")
+            return False
+
+        row = next((index for index, queued_job in enumerate(self.job_queue) if queued_job is job), None)
+        if row is None:
+            self._editing_queue_job = None
+            self._write_log("لا توجد مهمة محددة")
+            self._update_queue_edit_controls()
+            return False
+
+        if self._queue_job_is_running(job):
+            self._editing_queue_job = None
+            self._write_log("لا يمكن تعديل المهمة بعد بدء معالجتها")
+            self._update_queue_edit_controls()
+            return False
+
+        block_reason = self._queue_job_edit_block_reason(job)
+        if block_reason:
+            self._editing_queue_job = None
+            self._write_log(block_reason)
+            self._update_queue_edit_controls()
+            return False
+
+        high_priority = job.settings.high_priority
+        if not self._replace_queue_job_snapshot_from_workspace(job):
+            return False
+        job.settings.high_priority = high_priority
+        self._refresh_queue_job_row(row)
+        self._editing_queue_job = None
+        self._write_log("تم حفظ التعديلات على المهمة\nلم يتم بدء أي قص أو تحميل")
+        self._update_queue_edit_controls()
+        return True
+
+    def cancel_waiting_queue_job_edit(self) -> None:
+        if self._editing_queue_job is None:
+            self._write_log("لا توجد مهمة محددة")
+            return
+
+        self._editing_queue_job = None
+        self._write_log("تم إلغاء تعديل المهمة")
+        self._update_queue_edit_controls()
+
+    def _replace_queue_job_snapshot_from_workspace(self, job: VideoJob) -> bool:
+        source_snapshot = self._current_work_queue_source()
+        if source_snapshot is None:
+            return False
+
+        source_type, source, title = source_snapshot
+        job.source_type = source_type
+        job.source = source
+        job.title = title
+        job.clips = self._clip_jobs_from_current_table()
+        job.settings = self._current_job_settings_snapshot()
+        return True
 
     def _load_clip_jobs_to_table(self, clips: list[ClipJob]) -> None:
         self.clips_table.setRowCount(0)
@@ -1510,6 +1703,10 @@ class MainWindow(QMainWindow):
         self._update_source_inputs()
 
     def _apply_queue_job_settings_to_workspace(self, settings: JobSettings) -> None:
+        self.pre_padding_input.setValue(max(0.0, settings.pre_roll_seconds))
+        self.post_padding_input.setValue(max(0.0, settings.post_roll_seconds))
+        self.use_browser_cookies_checkbox.setChecked(settings.use_browser_login)
+        self._set_browser_combo_from_identifier(settings.browser_name)
         self.video_speed_enabled_checkbox.setChecked(settings.speed_adjustment_enabled)
         self.video_speed_input.setValue(settings.speed if settings.speed_adjustment_enabled else DEFAULT_VIDEO_SPEED)
         self.volume_enabled_checkbox.setChecked(settings.volume_adjustment_enabled)
@@ -1517,10 +1714,20 @@ class MainWindow(QMainWindow):
             settings.volume_percent if settings.volume_adjustment_enabled else DEFAULT_VOLUME_PERCENT
         )
         self._update_speed_volume_controls()
+        self._update_source_inputs()
+
+    def _set_browser_combo_from_identifier(self, browser_name: str) -> None:
+        labels = {
+            "chrome": "Chrome",
+            "edge": "Edge",
+            "brave": "Brave",
+            "firefox": "Firefox",
+        }
+        self.browser_combo.setCurrentText(labels.get(browser_name.lower(), "Chrome"))
 
     def _ask_replace_workspace_source_confirmation(self) -> bool:
         dialog = QMessageBox(self)
-        dialog.setWindowTitle("تحميل المهمة المحددة للتحرير")
+        dialog.setWindowTitle("تعديل المهمة المنتظرة")
         dialog.setText("يوجد مصدر فيديو حالي. هل تريد استبداله؟")
         replace_button = dialog.addButton("استبدال", QMessageBox.AcceptRole)
         dialog.addButton("إلغاء", QMessageBox.RejectRole)
@@ -1577,10 +1784,12 @@ class MainWindow(QMainWindow):
         self._write_log("تم تحميل قائمة الانتظار\nلم يتم بدء أي قص أو تحميل")
 
     def _replace_queue_jobs(self, jobs: list[VideoJob]) -> None:
+        self._editing_queue_job = None
         self.job_queue = jobs
         self.queue_table.setRowCount(0)
         for job in self.job_queue:
             self._insert_queue_job_row(job)
+        self._update_queue_edit_controls()
 
     def _json_file_path(self, file_path: str) -> Path:
         path = Path(file_path)
@@ -1797,6 +2006,7 @@ class MainWindow(QMainWindow):
             "الحالة: جاري معالجة قائمة الانتظار..." if running else "الحالة: جاهز"
         )
         self.processing_status_label.repaint()
+        self._update_queue_edit_controls()
 
     def delete_selected_queue_job(self) -> None:
         row_numbers = self._selected_queue_rows()
@@ -1811,6 +2021,9 @@ class MainWindow(QMainWindow):
             if self._queue_job_is_running(self.job_queue[row_index]):
                 self._append_log("لا يمكن تعديل المهمة الجارية")
                 continue
+            removed_job = self.job_queue[row_index]
+            if removed_job is self._editing_queue_job:
+                self._editing_queue_job = None
             del self.job_queue[row_index]
             self.queue_table.removeRow(row_index)
             removed_count += 1
@@ -1819,6 +2032,7 @@ class MainWindow(QMainWindow):
             self._write_log("تم حذف المهمة المحددة")
         else:
             self._write_log("لا توجد مهمة محددة")
+        self._update_queue_edit_controls()
 
     def clear_queue(self) -> None:
         if not self.job_queue:
@@ -1834,8 +2048,10 @@ class MainWindow(QMainWindow):
             return
 
         self.job_queue.clear()
+        self._editing_queue_job = None
         self.queue_table.setRowCount(0)
         self._write_log("تم مسح قائمة الانتظار")
+        self._update_queue_edit_controls()
 
     def _ask_clear_queue_confirmation(self) -> bool:
         dialog = QMessageBox(self)
@@ -1876,8 +2092,10 @@ class MainWindow(QMainWindow):
             self.queue_table.item(row, QUEUE_HIGH_PRIORITY_COLUMN).setCheckState(
                 Qt.Checked if job.settings.high_priority else Qt.Unchecked
             )
+            self.queue_table.item(row, QUEUE_ACTION_COLUMN).setText(self._queue_settings_summary(job))
         finally:
             self.queue_table.blockSignals(False)
+        self._update_queue_edit_controls()
 
     def add_classification_rule(self) -> None:
         self._insert_classification_rule(
@@ -2794,6 +3012,8 @@ class MainWindow(QMainWindow):
             self.save_queue_clips_button,
             self.load_queue_clips_button,
             self.load_queue_job_workspace_button,
+            self.save_queue_job_edits_button,
+            self.cancel_queue_job_edit_button,
             self.save_queue_state_button,
             self.load_queue_state_button,
             self.add_and_run_queue_job_button,
@@ -2805,6 +3025,11 @@ class MainWindow(QMainWindow):
             self.validate_all_queue_jobs_button,
             self.delete_queue_job_button,
             self.clear_queue_button,
+            self.queue_advanced_toggle_button,
+            self.queue_selected_job_details_label,
+            self.queue_edit_status_label,
+            self.queue_advanced_group,
+            self.queue_advanced_controls_widget,
             self.clips_table,
             self.classification_rules_table,
             self.add_row_button,
