@@ -88,6 +88,42 @@ def test_queue_processor_invokes_local_processing_hook_safely() -> None:
     assert summary.completed_jobs == 2
 
 
+def test_queue_processor_does_not_allow_parallel_start_inside_processing_hook() -> None:
+    first = _local_job("الأول")
+    second = _local_job("الثاني")
+    attempted_parallel_starts: list[VideoJob | None] = []
+
+    def process_current(_job: VideoJob) -> None:
+        attempted_parallel_starts.append(processor.start_next_job())
+
+    processor = SequentialQueueProcessor([first, second], process_job=process_current)
+    summary = processor.run_until_idle()
+
+    assert attempted_parallel_starts == [None, None]
+    assert [first.status, second.status] == [JobStatus.DONE, JobStatus.DONE]
+    assert summary.completed_jobs == 2
+
+
+def test_stop_after_current_prevents_next_job_and_finishes_cleanly() -> None:
+    first = _local_job("الأول")
+    second = _local_job("الثاني")
+    processed: list[str] = []
+
+    def process_current(job: VideoJob) -> None:
+        processed.append(job.title)
+        processor.request_stop()
+
+    processor = SequentialQueueProcessor([first, second], process_job=process_current)
+    summary = processor.run_until_idle()
+
+    assert processed == ["الأول"]
+    assert first.status == JobStatus.DONE
+    assert second.status == JobStatus.READY
+    assert processor.state == QueueProcessorState.FINISHED
+    assert processor.stop_requested is True
+    assert summary.completed_jobs == 1
+
+
 def test_url_jobs_are_left_queued_for_later_without_processing() -> None:
     job = _url_job()
     processed: list[str] = []

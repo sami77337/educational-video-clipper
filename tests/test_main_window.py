@@ -1,5 +1,7 @@
 import os
 import re
+from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -25,9 +27,10 @@ from src.main_window import (
     START_COLUMN,
     TITLE_COLUMN,
     MainWindow,
+    QueueProcessingWorker,
     SmartPasteImportDialog,
 )
-from src.job_queue import ClipJob, JobStatus, VideoSourceType as QueueVideoSourceType
+from src.job_queue import ClipJob, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
 from src.job_queue_processor import AR_URL_QUEUE_PROCESSING_LATER
 from src.readiness import STATUS_READY, ReadinessCheckItem, ReadinessReport
 from src.smart_paste_parser import (
@@ -1211,6 +1214,116 @@ def test_queue_start_processing_marks_job_without_clips_as_validation_error(tmp_
 
     window.close()
     app.processEvents()
+
+
+def test_queue_start_processing_while_running_does_not_start_second_worker(monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    start_calls: list[bool] = []
+    window._queue_processing_thread = object()
+    monkeypatch.setattr(window, "_start_queue_processing_worker", lambda rules: start_calls.append(True))
+
+    window.start_queue_processing()
+
+    assert start_calls == []
+    assert "المهمة في الانتظار" in window.log_area.toPlainText()
+    assert "يمكنك تجهيز مهمة أخرى أثناء المعالجة" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window._queue_processing_thread = None
+    window.close()
+    app.processEvents()
+
+
+def test_queue_add_and_run_while_running_keeps_new_job_queued() -> None:
+    app = _app()
+    window = MainWindow()
+    window._queue_processing_thread = object()
+    window.project_name_input.setText("مشروع جديد")
+    window.local_file_radio.setChecked(True)
+    window.local_file_input.setText("C:/videos/next.mp4")
+    window._insert_clip_row(1, "مقطع جديد", "00:01:00", "00:02:00")
+
+    window.add_current_work_and_start_queue()
+
+    assert len(window.job_queue) == 1
+    assert window.job_queue[0].status == JobStatus.QUEUED
+    assert window.job_queue[0].clips[0].title == "مقطع جديد"
+    assert "تم إضافة المهمة إلى قائمة الانتظار" in window.log_area.toPlainText()
+    assert "المهمة في الانتظار" in window.log_area.toPlainText()
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window._queue_processing_thread = None
+    window.close()
+    app.processEvents()
+
+
+def test_queue_processing_worker_processes_one_local_job_with_snapshot() -> None:
+    app = _app()
+    calls: list[dict] = []
+    job = VideoJob(
+        source_type=QueueVideoSourceType.LOCAL,
+        source="C:/videos/lesson.mp4",
+        title="درس",
+        clips=[ClipJob(title="مقطع", start="00:01:00", end="00:02:00", exclusions="00:01:20-00:01:30")],
+        status=JobStatus.QUEUED,
+    )
+    job.settings.pre_roll_seconds = 1.0
+    job.settings.post_roll_seconds = 2.0
+
+    class FakeVideoProcessor:
+        def process_project(self, source_request, project_name, clip_rows, **kwargs):
+            calls.append(
+                {
+                    "source_request": source_request,
+                    "project_name": project_name,
+                    "clip_rows": clip_rows,
+                    "clip_padding": kwargs["clip_padding"],
+                }
+            )
+            return SimpleNamespace(project_output_folder=Path("C:/output/lesson"))
+
+    worker = QueueProcessingWorker([job], FakeVideoProcessor(), [])
+    worker.run()
+
+    assert job.status == JobStatus.DONE
+    assert len(calls) == 1
+    assert calls[0]["project_name"] == "درس"
+    assert calls[0]["clip_rows"][0].title == "مقطع"
+    assert calls[0]["clip_rows"][0].exclusions == "00:01:20-00:01:30"
+    assert calls[0]["clip_padding"].pre_seconds == 1.0
+    assert calls[0]["clip_padding"].post_seconds == 2.0
+    assert app is not None
+
+
+def test_queue_processing_worker_marks_failed_job_without_running_next() -> None:
+    first = VideoJob(
+        source_type=QueueVideoSourceType.LOCAL,
+        source="C:/videos/lesson.mp4",
+        title="يفشل",
+        clips=[ClipJob(title="مقطع", start="00:01:00", end="00:02:00")],
+        status=JobStatus.QUEUED,
+    )
+    second = VideoJob(
+        source_type=QueueVideoSourceType.LOCAL,
+        source="C:/videos/second.mp4",
+        title="يبقى في الانتظار",
+        clips=[ClipJob(title="مقطع", start="00:03:00", end="00:04:00")],
+        status=JobStatus.QUEUED,
+    )
+
+    class FailingVideoProcessor:
+        def process_project(self, *args, **kwargs):
+            raise RuntimeError("failed cut")
+
+    worker = QueueProcessingWorker([first, second], FailingVideoProcessor(), [])
+    worker.run()
+
+    assert first.status == JobStatus.FAILED
+    assert first.errors == ["failed cut"]
+    assert second.status == JobStatus.QUEUED
 
 
 def test_queue_validate_selected_local_job_updates_status_without_processing(tmp_path) -> None:
