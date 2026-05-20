@@ -62,7 +62,9 @@ def test_default_settings_are_safe() -> None:
     assert settings.pre_roll_seconds == 0.0
     assert settings.post_roll_seconds == 0.0
     assert settings.quality_preset == "default"
+    assert settings.speed_adjustment_enabled is False
     assert settings.speed == 1.0
+    assert settings.volume_adjustment_enabled is False
     assert settings.volume_percent == 100
     assert settings.use_browser_login is False
     assert settings.browser_name == "chrome"

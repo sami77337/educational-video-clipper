@@ -73,7 +73,9 @@ def test_safe_default_settings_after_load_when_missing() -> None:
     settings = loaded[0].settings
 
     assert settings.high_priority is False
+    assert settings.speed_adjustment_enabled is False
     assert settings.speed == 1.0
+    assert settings.volume_adjustment_enabled is False
     assert settings.volume_percent == 100
     assert settings.watermark_enabled is False
     assert settings.silence_reduction_enabled is False
@@ -97,19 +99,21 @@ def test_speed_is_preserved_independently_per_queue_job() -> None:
         source_type=VideoSourceType.LOCAL,
         source="C:/videos/first.mp4",
         title="الأول",
-        settings=JobSettings(speed=1.05),
+        settings=JobSettings(speed_adjustment_enabled=True, speed=1.05),
     )
     second = VideoJob(
         source_type=VideoSourceType.YOUTUBE,
         source="https://youtu.be/second",
         title="الثاني",
-        settings=JobSettings(speed=1.25),
+        settings=JobSettings(speed_adjustment_enabled=True, speed=1.25),
     )
 
     loaded = queue_jobs_from_data(json.loads(queue_jobs_to_json([first, second])))
 
     assert loaded[0].settings.speed == 1.05
     assert loaded[1].settings.speed == 1.25
+    assert loaded[0].settings.speed_adjustment_enabled is True
+    assert loaded[1].settings.speed_adjustment_enabled is True
 
 
 def test_volume_is_preserved_independently_per_queue_job() -> None:
@@ -117,19 +121,44 @@ def test_volume_is_preserved_independently_per_queue_job() -> None:
         source_type=VideoSourceType.LOCAL,
         source="C:/videos/first.mp4",
         title="الأول",
-        settings=JobSettings(volume_percent=75),
+        settings=JobSettings(volume_adjustment_enabled=True, volume_percent=75),
     )
     second = VideoJob(
         source_type=VideoSourceType.YOUTUBE,
         source="https://youtu.be/second",
         title="الثاني",
-        settings=JobSettings(volume_percent=200),
+        settings=JobSettings(volume_adjustment_enabled=True, volume_percent=200),
     )
 
     loaded = queue_jobs_from_data(json.loads(queue_jobs_to_json([first, second])))
 
     assert loaded[0].settings.volume_percent == 75
     assert loaded[1].settings.volume_percent == 200
+    assert loaded[0].settings.volume_adjustment_enabled is True
+    assert loaded[1].settings.volume_adjustment_enabled is True
+
+
+def test_missing_speed_and_volume_enabled_flags_default_to_safe_values() -> None:
+    loaded = queue_jobs_from_data(
+        {
+            "schema_version": 1,
+            "jobs": [
+                {
+                    "source_type": "local",
+                    "source": "C:/videos/lesson.mp4",
+                    "title": "درس",
+                    "settings": {"speed": 1.25, "volume_percent": 150},
+                }
+            ],
+        }
+    )
+
+    settings = loaded[0].settings
+
+    assert settings.speed_adjustment_enabled is False
+    assert settings.speed == 1.0
+    assert settings.volume_adjustment_enabled is False
+    assert settings.volume_percent == 100
 
 
 def test_browser_login_settings_are_preserved_without_cookie_data() -> None:
@@ -164,6 +193,32 @@ def test_invalid_saved_volume_defaults_safely() -> None:
         }
     )
 
+    assert loaded[0].settings.volume_percent == 100
+
+
+def test_invalid_saved_enabled_speed_and_volume_default_safely() -> None:
+    loaded = queue_jobs_from_data(
+        {
+            "schema_version": 1,
+            "jobs": [
+                {
+                    "source_type": "local",
+                    "source": "C:/videos/lesson.mp4",
+                    "title": "درس",
+                    "settings": {
+                        "speed_adjustment_enabled": True,
+                        "speed": 0,
+                        "volume_adjustment_enabled": True,
+                        "volume_percent": 0,
+                    },
+                }
+            ],
+        }
+    )
+
+    assert loaded[0].settings.speed_adjustment_enabled is True
+    assert loaded[0].settings.speed == 1.0
+    assert loaded[0].settings.volume_adjustment_enabled is True
     assert loaded[0].settings.volume_percent == 100
 
 

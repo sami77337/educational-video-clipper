@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from src.job_queue import ClipJob, JobSettings, JobStatus, VideoJob, VideoSourceType
+from src.video_speed import DEFAULT_VIDEO_SPEED, VideoSpeedError, normalize_video_speed
 from src.video_volume import DEFAULT_VOLUME_PERCENT, VideoVolumeError, normalize_volume_percent
 
 
@@ -157,7 +158,9 @@ def _settings_to_data(settings: JobSettings) -> dict[str, Any]:
         "pre_roll_seconds": settings.pre_roll_seconds,
         "post_roll_seconds": settings.post_roll_seconds,
         "quality_preset": settings.quality_preset,
+        "speed_adjustment_enabled": settings.speed_adjustment_enabled,
         "speed": settings.speed,
+        "volume_adjustment_enabled": settings.volume_adjustment_enabled,
         "volume_percent": settings.volume_percent,
         "use_browser_login": settings.use_browser_login,
         "browser_name": settings.browser_name,
@@ -172,12 +175,22 @@ def _settings_from_data(data: Any, *, high_priority: Any = None) -> JobSettings:
         data = {}
 
     high_priority_value = data.get("high_priority", high_priority)
+    speed_enabled = bool(data.get("speed_adjustment_enabled", False))
+    volume_enabled = bool(data.get("volume_adjustment_enabled", False))
+    speed_value = _speed_or_default(data.get("speed"), DEFAULT_VIDEO_SPEED) if speed_enabled else DEFAULT_VIDEO_SPEED
+    volume_value = (
+        _volume_or_default(data.get("volume_percent"), DEFAULT_VOLUME_PERCENT)
+        if volume_enabled
+        else DEFAULT_VOLUME_PERCENT
+    )
     return JobSettings(
         pre_roll_seconds=_float_or_default(data.get("pre_roll_seconds"), 0.0),
         post_roll_seconds=_float_or_default(data.get("post_roll_seconds"), 0.0),
         quality_preset=str(data.get("quality_preset") or "default"),
-        speed=_float_or_default(data.get("speed"), 1.0),
-        volume_percent=_volume_or_default(data.get("volume_percent"), DEFAULT_VOLUME_PERCENT),
+        speed_adjustment_enabled=speed_enabled,
+        speed=speed_value,
+        volume_adjustment_enabled=volume_enabled,
+        volume_percent=volume_value,
         use_browser_login=bool(data.get("use_browser_login", False)),
         browser_name=str(data.get("browser_name") or "chrome"),
         watermark_enabled=bool(data.get("watermark_enabled", False)),
@@ -246,4 +259,11 @@ def _volume_or_default(value: Any, default: int) -> int:
     try:
         return normalize_volume_percent(value)
     except VideoVolumeError:
+        return default
+
+
+def _speed_or_default(value: Any, default: float) -> float:
+    try:
+        return normalize_video_speed(value)
+    except VideoSpeedError:
         return default

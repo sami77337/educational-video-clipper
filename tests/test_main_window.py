@@ -108,12 +108,20 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.open_output_button.text() == "فتح مجلد النتائج"
     assert window.pre_padding_input.value() == 0
     assert window.post_padding_input.value() == 0
+    assert window.video_speed_enabled_checkbox.text() == "تعديل سرعة الفيديو"
+    assert window.volume_enabled_checkbox.text() == "تعديل مستوى الصوت"
+    assert not window.video_speed_enabled_checkbox.isChecked()
+    assert not window.volume_enabled_checkbox.isChecked()
     assert window.video_speed_input.value() == 1.0
     assert window.volume_input.value() == 100
+    assert not window.video_speed_input.isEnabled()
+    assert not window.volume_input.isEnabled()
+    assert window.reset_video_speed_button.text() == "إعادة السرعة إلى 1.00x"
+    assert window.reset_volume_button.text() == "إعادة الصوت إلى 100%"
     assert window.pre_padding_input.minimum() == 0
     assert window.post_padding_input.minimum() == 0
-    assert window.video_speed_input.minimum() > 0
-    assert window.volume_input.minimum() > 0
+    assert window.video_speed_input.minimum() == 0.75
+    assert window.volume_input.minimum() == 75
     window.pre_padding_input.setValue(-1)
     window.post_padding_input.setValue(-1)
     window.video_speed_input.setValue(0)
@@ -211,6 +219,45 @@ def test_queue_add_current_local_work_with_clip_rows() -> None:
     app.processEvents()
 
 
+def test_speed_and_volume_controls_require_explicit_enable() -> None:
+    app = _app()
+    window = MainWindow()
+
+    window.video_speed_input.setValue(1.10)
+    window.volume_input.setValue(150)
+
+    assert window._collect_video_speed() == 1.0
+    assert window._collect_volume_percent() == 100
+    settings = window._current_job_settings_snapshot()
+    assert settings.speed_adjustment_enabled is False
+    assert settings.speed == 1.0
+    assert settings.volume_adjustment_enabled is False
+    assert settings.volume_percent == 100
+
+    window.video_speed_enabled_checkbox.setChecked(True)
+    window.volume_enabled_checkbox.setChecked(True)
+
+    assert window.video_speed_input.isEnabled()
+    assert window.volume_input.isEnabled()
+    assert window._collect_video_speed() == 1.1
+    assert window._collect_volume_percent() == 150
+    assert "تسريع الفيديو" in window.video_speed_status_label.text()
+    assert "رفع الصوت" in window.volume_status_label.text()
+
+    window.video_speed_input.setValue(0.75)
+    window.volume_input.setValue(75)
+    assert "تبطيء الفيديو" in window.video_speed_status_label.text()
+    assert "أقل من الطبيعي" in window.volume_status_label.text()
+
+    window.reset_video_speed()
+    window.reset_volume()
+    assert window.video_speed_input.value() == 1.0
+    assert window.volume_input.value() == 100
+
+    window.close()
+    app.processEvents()
+
+
 def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> None:
     app = _app()
     window = MainWindow()
@@ -219,6 +266,8 @@ def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> 
     window.local_file_input.setText("C:/videos/lesson.mp4")
     window.pre_padding_input.setValue(1.5)
     window.post_padding_input.setValue(2.0)
+    window.video_speed_enabled_checkbox.setChecked(True)
+    window.volume_enabled_checkbox.setChecked(True)
     window.video_speed_input.setValue(1.10)
     window.volume_input.setValue(150)
     window._insert_clip_row(1, "قديم", "00:01:00", "00:02:00", "00:01:20-00:01:30")
@@ -236,7 +285,9 @@ def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> 
     assert job.clips[0].start == "00:01:00"
     assert job.settings.pre_roll_seconds == 1.5
     assert job.settings.post_roll_seconds == 2.0
+    assert job.settings.speed_adjustment_enabled is True
     assert job.settings.speed == 1.1
+    assert job.settings.volume_adjustment_enabled is True
     assert job.settings.volume_percent == 150
 
     window.close()
@@ -249,6 +300,7 @@ def test_queue_jobs_snapshot_speed_independently_from_later_ui_edits() -> None:
     window.project_name_input.setText("مشروع")
     window.local_file_radio.setChecked(True)
     window.local_file_input.setText("C:/videos/lesson.mp4")
+    window.video_speed_enabled_checkbox.setChecked(True)
     window.video_speed_input.setValue(1.05)
     window._insert_clip_row(1, "الأول", "00:01:00", "00:02:00")
 
@@ -260,6 +312,8 @@ def test_queue_jobs_snapshot_speed_independently_from_later_ui_edits() -> None:
     window.clips_table.item(0, TITLE_COLUMN).setText("تعديل لاحق")
 
     assert len(window.job_queue) == 2
+    assert window.job_queue[0].settings.speed_adjustment_enabled is True
+    assert window.job_queue[1].settings.speed_adjustment_enabled is True
     assert window.job_queue[0].settings.speed == 1.05
     assert window.job_queue[1].settings.speed == 1.25
     assert window.job_queue[0].clips[0].title == "الأول"
@@ -275,6 +329,7 @@ def test_queue_jobs_snapshot_volume_independently_from_later_ui_edits() -> None:
     window.project_name_input.setText("مشروع")
     window.local_file_radio.setChecked(True)
     window.local_file_input.setText("C:/videos/lesson.mp4")
+    window.volume_enabled_checkbox.setChecked(True)
     window.volume_input.setValue(75)
     window._insert_clip_row(1, "الأول", "00:01:00", "00:02:00")
 
@@ -286,6 +341,8 @@ def test_queue_jobs_snapshot_volume_independently_from_later_ui_edits() -> None:
     window.clips_table.item(0, TITLE_COLUMN).setText("تعديل لاحق")
 
     assert len(window.job_queue) == 2
+    assert window.job_queue[0].settings.volume_adjustment_enabled is True
+    assert window.job_queue[1].settings.volume_adjustment_enabled is True
     assert window.job_queue[0].settings.volume_percent == 75
     assert window.job_queue[1].settings.volume_percent == 200
     assert window.job_queue[0].clips[0].title == "الأول"
@@ -331,6 +388,8 @@ def test_main_queue_cut_button_click_creates_job_and_starts_idle_queue(tmp_path,
     window.local_file_input.setText(str(video_path))
     window.pre_padding_input.setValue(0.5)
     window.post_padding_input.setValue(1.0)
+    window.video_speed_enabled_checkbox.setChecked(True)
+    window.volume_enabled_checkbox.setChecked(True)
     window.video_speed_input.setValue(1.05)
     window.volume_input.setValue(150)
     window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00", "00:01:20-00:01:30")
@@ -348,7 +407,9 @@ def test_main_queue_cut_button_click_creates_job_and_starts_idle_queue(tmp_path,
     assert job.status == JobStatus.QUEUED
     assert job.settings.pre_roll_seconds == 0.5
     assert job.settings.post_roll_seconds == 1.0
+    assert job.settings.speed_adjustment_enabled is True
     assert job.settings.speed == 1.05
+    assert job.settings.volume_adjustment_enabled is True
     assert job.settings.volume_percent == 150
     assert job.clips[0].title == "مقطع"
     assert job.clips[0].exclusions == "00:01:20-00:01:30"
@@ -373,6 +434,8 @@ def test_direct_cut_fallback_button_still_uses_direct_processing_path(tmp_path, 
     video_path = tmp_path / "lesson.mp4"
     video_path.write_bytes(b"video")
     captured = {}
+    window.video_speed_enabled_checkbox.setChecked(True)
+    window.volume_enabled_checkbox.setChecked(True)
     window.video_speed_input.setValue(1.25)
     window.volume_input.setValue(200)
     window.project_name_input.setText("قص مباشر")
@@ -747,6 +810,30 @@ def test_queue_load_selected_job_to_workspace_source_and_clips() -> None:
     assert "لم يتم بدء أي قص أو تحميل" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_load_selected_job_restores_speed_and_volume_intent() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://youtu.be/abc123", title="درس محفوظ")
+    job.settings.speed_adjustment_enabled = True
+    job.settings.speed = 1.10
+    job.settings.volume_adjustment_enabled = True
+    job.settings.volume_percent = 150
+    window._refresh_queue_job_row(0)
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window.load_selected_queue_job_to_workspace()
+
+    assert window.video_speed_enabled_checkbox.isChecked()
+    assert window.video_speed_input.isEnabled()
+    assert window.video_speed_input.value() == 1.10
+    assert window.volume_enabled_checkbox.isChecked()
+    assert window.volume_input.isEnabled()
+    assert window.volume_input.value() == 150
 
     window.close()
     app.processEvents()
@@ -1504,8 +1591,12 @@ def test_queue_processing_keeps_preparation_ui_available_while_running() -> None
     assert window.classification_rules_table.isEnabled()
     assert window.pre_padding_input.isEnabled()
     assert window.post_padding_input.isEnabled()
-    assert window.video_speed_input.isEnabled()
-    assert window.volume_input.isEnabled()
+    assert window.video_speed_enabled_checkbox.isEnabled()
+    assert not window.video_speed_input.isEnabled()
+    assert window.reset_video_speed_button.isEnabled()
+    assert window.volume_enabled_checkbox.isEnabled()
+    assert not window.volume_input.isEnabled()
+    assert window.reset_volume_button.isEnabled()
     assert window.add_current_work_to_queue_button.isEnabled()
     assert window.add_queue_local_video_button.isEnabled()
     assert window.add_queue_url_button.isEnabled()
@@ -1725,7 +1816,9 @@ def test_queue_processing_worker_processes_one_local_job_with_snapshot() -> None
     )
     job.settings.pre_roll_seconds = 1.0
     job.settings.post_roll_seconds = 2.0
+    job.settings.speed_adjustment_enabled = True
     job.settings.speed = 1.10
+    job.settings.volume_adjustment_enabled = True
     job.settings.volume_percent = 150
 
     class FakeVideoProcessor:
@@ -1757,6 +1850,34 @@ def test_queue_processing_worker_processes_one_local_job_with_snapshot() -> None
     assert app is not None
 
 
+def test_queue_processing_worker_uses_default_speed_and_volume_when_adjustments_disabled() -> None:
+    calls: list[dict] = []
+    job = VideoJob(
+        source_type=QueueVideoSourceType.LOCAL,
+        source="C:/videos/lesson.mp4",
+        title="درس",
+        clips=[ClipJob(title="مقطع", start="00:01:00", end="00:02:00")],
+        status=JobStatus.QUEUED,
+    )
+    job.settings.speed = 1.25
+    job.settings.volume_percent = 150
+
+    class FakeVideoProcessor:
+        def process_project(self, _source_request, _project_name, _clip_rows, **kwargs):
+            calls.append(
+                {
+                    "video_speed": kwargs["video_speed"],
+                    "volume_percent": kwargs["volume_percent"],
+                }
+            )
+            return SimpleNamespace(project_output_folder=Path("C:/output/lesson"))
+
+    worker = QueueProcessingWorker([job], FakeVideoProcessor(), [])
+    worker.run()
+
+    assert calls == [{"video_speed": 1.0, "volume_percent": 100}]
+
+
 def test_queue_processing_worker_processes_youtube_job_with_cookie_snapshot() -> None:
     calls: list[dict] = []
     progress_messages: list[str] = []
@@ -1769,7 +1890,9 @@ def test_queue_processing_worker_processes_youtube_job_with_cookie_snapshot() ->
     )
     job.settings.pre_roll_seconds = 0.5
     job.settings.post_roll_seconds = 1.0
+    job.settings.speed_adjustment_enabled = True
     job.settings.speed = 1.05
+    job.settings.volume_adjustment_enabled = True
     job.settings.volume_percent = 125
     job.settings.use_browser_login = True
     job.settings.browser_name = "brave"

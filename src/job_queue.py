@@ -44,7 +44,9 @@ class JobSettings:
     pre_roll_seconds: float = 0.0
     post_roll_seconds: float = 0.0
     quality_preset: str = "default"
+    speed_adjustment_enabled: bool = False
     speed: float = 1.0
+    volume_adjustment_enabled: bool = False
     volume_percent: int = 100
     use_browser_login: bool = False
     browser_name: str = "chrome"
