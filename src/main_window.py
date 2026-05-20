@@ -1575,6 +1575,21 @@ class MainWindow(QMainWindow):
         self._queue_processing_worker = None
 
     def _set_queue_processing_controls_running(self, running: bool) -> None:
+        snapshot_sensitive_widgets = [
+            self.run_selected_queue_job_button,
+            self.run_all_queue_simulation_button,
+            self.validate_queue_job_button,
+            self.validate_all_queue_jobs_button,
+            self.save_queue_clips_button,
+            self.save_queue_state_button,
+            self.load_queue_state_button,
+            self.delete_queue_job_button,
+            self.clear_queue_button,
+            self.start_button,
+        ]
+        for widget in snapshot_sensitive_widgets:
+            widget.setEnabled(not running)
+
         self.start_queue_processing_button.setEnabled(not running)
         self.stop_queue_after_current_button.setEnabled(running)
         self.processing_status_label.setText(
@@ -1873,6 +1888,10 @@ class MainWindow(QMainWindow):
     def start_processing(self) -> None:
         if self._processing_thread is not None:
             self._append_log("المعالجة قيد التشغيل بالفعل.")
+            return
+
+        if self._queue_processing_thread is not None:
+            self._append_log(f"جاري معالجة المهمة في الخلفية\n{AR_QUEUE_CAN_PREPARE_NEXT}")
             return
 
         errors = self._collect_base_validation_errors()
