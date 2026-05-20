@@ -1,11 +1,12 @@
 import os
 import re
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import QApplication, QDialog, QScrollArea
 
 from src.main_window import (
@@ -45,6 +46,15 @@ from src.smart_validation import SmartValidationReport
 
 def _app() -> QApplication:
     return QApplication.instance() or QApplication([])
+
+
+def _process_events_until(app: QApplication, condition, timeout_ms: int = 2000) -> bool:
+    deadline = time.monotonic() + timeout_ms / 1000
+    while not condition() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.001)
+    app.processEvents()
+    return condition()
 
 
 
@@ -1380,6 +1390,94 @@ def test_queue_start_processing_while_running_does_not_start_second_worker(monke
     assert window._processing_worker is None
 
     window._queue_processing_thread = None
+    window.close()
+    app.processEvents()
+
+
+def test_queue_processing_keeps_preparation_ui_available_while_running() -> None:
+    app = _app()
+    window = MainWindow()
+    window.local_file_radio.setChecked(True)
+    window._update_source_inputs()
+
+    window._set_queue_processing_controls_running(True)
+
+    assert window.local_file_input.isEnabled()
+    assert window.browse_button.isEnabled()
+    assert window.paste_message_input.isEnabled()
+    assert window.smart_paste_button.isEnabled()
+    assert window.clips_table.isEnabled()
+    assert window.add_row_button.isEnabled()
+    assert window.add_current_work_to_queue_button.isEnabled()
+    assert window.add_queue_local_video_button.isEnabled()
+    assert window.add_queue_url_button.isEnabled()
+    assert window.add_and_run_queue_job_button.isEnabled()
+    assert window.queue_table.isEnabled()
+    assert not window.start_button.isEnabled()
+    assert not window.start_queue_processing_button.isEnabled()
+    assert not window.run_selected_queue_job_button.isEnabled()
+    assert not window.validate_all_queue_jobs_button.isEnabled()
+    assert not window.delete_queue_job_button.isEnabled()
+    assert not window.clear_queue_button.isEnabled()
+    assert window.stop_queue_after_current_button.isEnabled()
+
+    window._set_queue_processing_controls_running(False)
+    assert window.start_button.isEnabled()
+    assert window.start_queue_processing_button.isEnabled()
+    assert not window.stop_queue_after_current_button.isEnabled()
+
+    window.close()
+    app.processEvents()
+
+
+def test_direct_processing_is_blocked_while_queue_worker_active(monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    start_calls: list[bool] = []
+    window._queue_processing_thread = object()
+    monkeypatch.setattr(window, "_start_processing_worker", lambda **kwargs: start_calls.append(True))
+
+    window.start_processing()
+
+    assert start_calls == []
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+    assert "جاري معالجة المهمة في الخلفية" in window.log_area.toPlainText()
+    assert "يمكنك تجهيز مهمة أخرى أثناء المعالجة" in window.log_area.toPlainText()
+
+    window._queue_processing_thread = None
+    window.close()
+    app.processEvents()
+
+
+def test_queue_processing_invokes_video_processor_off_ui_thread(tmp_path) -> None:
+    app = _app()
+    window = MainWindow()
+    video_path = tmp_path / "lesson.mp4"
+    video_path.write_bytes(b"ok")
+    worker_thread_is_ui: list[bool] = []
+    job = window._add_queue_job(
+        QueueVideoSourceType.LOCAL,
+        str(video_path),
+        "درس محلي",
+        clips=[ClipJob(title="مقطع", start="00:00:01", end="00:00:04")],
+        status=JobStatus.QUEUED,
+    )
+
+    class FakeVideoProcessor:
+        def process_project(self, *args, **kwargs):
+            worker_thread_is_ui.append(QThread.currentThread() == app.thread())
+            return SimpleNamespace(project_output_folder=tmp_path / "output")
+
+    window.video_processor = FakeVideoProcessor()
+
+    window.start_queue_processing()
+
+    assert _process_events_until(app, lambda: window._queue_processing_thread is None)
+    assert worker_thread_is_ui == [False]
+    assert job.status == JobStatus.DONE
+    assert not window.stop_queue_after_current_button.isEnabled()
+
     window.close()
     app.processEvents()
 
