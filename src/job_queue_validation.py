@@ -11,7 +11,12 @@ from src.readiness import WINDOWS_LONG_PATH_WARNING_LENGTH
 
 
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
-YOUTUBE_URL_PATTERN = re.compile(r"^(?:https?://)?(?:www\.|m\.)?(?:youtube\.com|youtu\.be)/", re.IGNORECASE)
+YOUTUBE_URL_PATTERN = re.compile(
+    r"^(?:https?://)?(?:www\.|m\.)?"
+    r"(?:(?:youtube\.com/(?:watch\?[^ \t\r\n]*v=|live/[^ \t\r\n/?#]+|shorts/[^ \t\r\n/?#]+))|"
+    r"(?:youtu\.be/[^ \t\r\n/?#]+))",
+    re.IGNORECASE,
+)
 FACEBOOK_URL_PATTERN = re.compile(r"^(?:https?://)?(?:www\.|m\.)?(?:facebook\.com|fb\.watch)/", re.IGNORECASE)
 
 
@@ -98,6 +103,9 @@ def _validate_url_job(job: VideoJob) -> JobQueueValidationResult:
         messages.append("الرابط صالح مبدئيًا")
     elif job.source_type == VideoSourceType.FACEBOOK and _looks_like_facebook_url(url):
         messages.append("الرابط صالح مبدئيًا")
+    elif job.source_type == VideoSourceType.YOUTUBE:
+        errors.append("رابط يوتيوب غير صالح")
+        messages.append("رابط يوتيوب غير صالح")
     else:
         errors.append("الرابط غير مدعوم حاليًا")
         messages.append("الرابط غير مدعوم حاليًا")

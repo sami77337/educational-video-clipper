@@ -469,7 +469,7 @@ def test_queue_add_current_facebook_url_work() -> None:
     app.processEvents()
 
 
-def test_start_cut_youtube_enqueues_without_old_direct_download_path(monkeypatch) -> None:
+def test_start_cut_youtube_enqueues_and_starts_background_queue(monkeypatch) -> None:
     app = _app()
     window = MainWindow()
     direct_calls: list[bool] = []
@@ -481,21 +481,21 @@ def test_start_cut_youtube_enqueues_without_old_direct_download_path(monkeypatch
     window.browser_combo.setCurrentText("Firefox")
     window._insert_clip_row(1, "المقطع", "00:01:00", "00:02:00")
     monkeypatch.setattr(window, "_start_processing_worker", lambda **_kwargs: direct_calls.append(True))
-    monkeypatch.setattr(window, "_start_queue_processing_worker", lambda _rules: queue_worker_calls.append(True))
+    monkeypatch.setattr(window, "_start_queue_processing_worker", lambda rules: queue_worker_calls.append(len(rules)))
 
     window.start_button.click()
     app.processEvents()
 
     assert direct_calls == []
-    assert queue_worker_calls == []
+    assert queue_worker_calls == [2]
     assert len(window.job_queue) == 1
     job = window.job_queue[0]
     assert job.source_type == QueueVideoSourceType.YOUTUBE
     assert job.status == JobStatus.QUEUED
     assert job.settings.use_browser_login is True
     assert job.settings.browser_name == "firefox"
-    assert AR_URL_QUEUE_PROCESSING_LATER in job.warnings
-    assert AR_URL_QUEUE_PROCESSING_LATER in window.log_area.toPlainText()
+    assert AR_URL_QUEUE_PROCESSING_LATER not in job.warnings
+    assert "جاري معالجة المهمة في الخلفية" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
     assert window._queue_processing_thread is None
@@ -1184,7 +1184,7 @@ def test_queue_validate_all_one_unsupported_url_job() -> None:
     window.validate_all_queue_jobs()
 
     assert job.status == JobStatus.VALIDATION_ERROR
-    assert "الرابط غير مدعوم حاليًا" in job.errors
+    assert "رابط يوتيوب غير صالح" in job.errors
     assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "خطأ في الفحص"
     assert "المهام التي فيها أخطاء: 1" in window.log_area.toPlainText()
     assert "1 - غير مدعوم: لا يمكن بدء المهمة قبل إصلاح الأخطاء" in window.log_area.toPlainText()
@@ -1423,12 +1423,12 @@ def test_queue_start_processing_prepares_local_job_without_direct_worker(tmp_pat
     app.processEvents()
 
 
-def test_queue_start_processing_leaves_url_jobs_queued_without_processing() -> None:
+def test_queue_start_processing_leaves_facebook_jobs_queued_without_processing() -> None:
     app = _app()
     window = MainWindow()
     job = window._add_queue_job(
-        QueueVideoSourceType.YOUTUBE,
-        "https://youtu.be/abc123",
+        QueueVideoSourceType.FACEBOOK,
+        "https://facebook.com/watch/example",
         "درس رابط",
         clips=[ClipJob(title="مقطع", start="00:00:01", end="00:00:04")],
     )
@@ -1757,6 +1757,109 @@ def test_queue_processing_worker_processes_one_local_job_with_snapshot() -> None
     assert app is not None
 
 
+def test_queue_processing_worker_processes_youtube_job_with_cookie_snapshot() -> None:
+    calls: list[dict] = []
+    progress_messages: list[str] = []
+    job = VideoJob(
+        source_type=QueueVideoSourceType.YOUTUBE,
+        source="https://youtu.be/abc123",
+        title="درس يوتيوب",
+        clips=[ClipJob(title="مقطع", start="00:01:00", end="00:02:00", exclusions="00:01:20-00:01:30")],
+        status=JobStatus.QUEUED,
+    )
+    job.settings.pre_roll_seconds = 0.5
+    job.settings.post_roll_seconds = 1.0
+    job.settings.speed = 1.05
+    job.settings.volume_percent = 125
+    job.settings.use_browser_login = True
+    job.settings.browser_name = "brave"
+
+    class FakeVideoProcessor:
+        def process_project(self, source_request, project_name, clip_rows, **kwargs):
+            calls.append(
+                {
+                    "source_request": source_request,
+                    "project_name": project_name,
+                    "clip_rows": clip_rows,
+                    "clip_padding": kwargs["clip_padding"],
+                    "video_speed": kwargs["video_speed"],
+                    "volume_percent": kwargs["volume_percent"],
+                }
+            )
+            kwargs["progress_callback"]("تم تنزيل الفيديو")
+            return SimpleNamespace(project_output_folder=Path("C:/output/youtube"))
+
+    worker = QueueProcessingWorker([job], FakeVideoProcessor(), [])
+    worker.progress.connect(progress_messages.append)
+    worker.run()
+
+    assert job.status == JobStatus.DONE
+    assert len(calls) == 1
+    assert calls[0]["source_request"].source_type.value == "youtube"
+    assert calls[0]["source_request"].value == "https://youtu.be/abc123"
+    assert calls[0]["source_request"].use_browser_cookies is True
+    assert calls[0]["source_request"].browser == "brave"
+    assert calls[0]["project_name"] == "درس يوتيوب"
+    assert calls[0]["clip_rows"][0].exclusions == "00:01:20-00:01:30"
+    assert calls[0]["clip_padding"].pre_seconds == 0.5
+    assert calls[0]["clip_padding"].post_seconds == 1.0
+    assert calls[0]["video_speed"] == 1.05
+    assert calls[0]["volume_percent"] == 125
+    assert "جاري تحميل الفيديو في الخلفية" in progress_messages
+    assert "جاري قص المقاطع في الخلفية" in progress_messages
+    assert not any("cookie" in message.lower() for message in progress_messages)
+
+
+def test_queue_processing_worker_auto_runs_local_job_after_youtube_job() -> None:
+    calls: list[str] = []
+    youtube_job = VideoJob(
+        source_type=QueueVideoSourceType.YOUTUBE,
+        source="https://youtu.be/abc123",
+        title="يوتيوب",
+        clips=[ClipJob(title="مقطع", start="00:01:00", end="00:02:00")],
+        status=JobStatus.QUEUED,
+    )
+    local_job = VideoJob(
+        source_type=QueueVideoSourceType.LOCAL,
+        source="C:/videos/lesson.mp4",
+        title="محلي",
+        clips=[ClipJob(title="مقطع", start="00:03:00", end="00:04:00")],
+        status=JobStatus.QUEUED,
+    )
+
+    class FakeVideoProcessor:
+        def process_project(self, source_request, project_name, _clip_rows, **_kwargs):
+            calls.append(f"{source_request.source_type.value}:{project_name}")
+            return SimpleNamespace(project_output_folder=Path(f"C:/output/{project_name}"))
+
+    worker = QueueProcessingWorker([youtube_job, local_job], FakeVideoProcessor(), [])
+    worker.run()
+
+    assert calls == ["youtube:يوتيوب", "local_file:محلي"]
+    assert [youtube_job.status, local_job.status] == [JobStatus.DONE, JobStatus.DONE]
+
+
+def test_queue_processing_worker_marks_youtube_failure_clearly() -> None:
+    job = VideoJob(
+        source_type=QueueVideoSourceType.YOUTUBE,
+        source="https://youtu.be/abc123",
+        title="يفشل",
+        clips=[ClipJob(title="مقطع", start="00:01:00", end="00:02:00")],
+        status=JobStatus.QUEUED,
+    )
+
+    class FailingVideoProcessor:
+        def process_project(self, *args, **kwargs):
+            raise RuntimeError("sign in required")
+
+    worker = QueueProcessingWorker([job], FailingVideoProcessor(), [])
+    worker.run()
+
+    assert job.status == JobStatus.FAILED
+    assert len(job.errors) == 1
+    assert "فشل تحميل أو معالجة رابط يوتيوب" in job.errors[0]
+
+
 def test_queue_processing_worker_marks_failed_job_without_running_next() -> None:
     first = VideoJob(
         source_type=QueueVideoSourceType.LOCAL,
@@ -1816,7 +1919,7 @@ def test_queue_validate_selected_unsupported_url_sets_error_without_processing()
 
     assert job.status == JobStatus.VALIDATION_ERROR
     assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "خطأ في الفحص"
-    assert "الرابط غير مدعوم حاليًا" in window.log_area.toPlainText()
+    assert "رابط يوتيوب غير صالح" in window.log_area.toPlainText()
     assert "لا يمكن بدء المهمة قبل إصلاح الأخطاء" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None

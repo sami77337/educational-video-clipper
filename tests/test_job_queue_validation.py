@@ -74,7 +74,16 @@ def test_unsupported_url_handling() -> None:
     result = validate_queue_job(job)
 
     assert result.status == JobStatus.VALIDATION_ERROR
-    assert "الرابط غير مدعوم حاليًا" in result.errors
+    assert "رابط يوتيوب غير صالح" in result.errors
+
+
+def test_invalid_youtube_url_handling() -> None:
+    job = VideoJob(source_type="youtube", source="https://youtube.com/watch", title="درس")
+
+    result = validate_queue_job(job)
+
+    assert result.status == JobStatus.VALIDATION_ERROR
+    assert "رابط يوتيوب غير صالح" in result.errors
 
 
 def test_apply_queue_validation_result_updates_job_status_and_messages(tmp_path) -> None:

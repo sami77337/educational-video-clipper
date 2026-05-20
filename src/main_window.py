@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 import sys
+from urllib.parse import parse_qs, urlsplit
 
 from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
@@ -309,7 +310,7 @@ class ProcessingWorker(QObject):
 
 
 class QueueProcessingWorker(QObject):
-    """Runs queued local jobs sequentially without blocking the main window."""
+    """Runs queued local/YouTube jobs sequentially without blocking the main window."""
 
     progress = Signal(str)
     job_updated = Signal(int)
@@ -331,7 +332,7 @@ class QueueProcessingWorker(QObject):
     def run(self) -> None:
         self.processor = SequentialQueueProcessor(
             self.jobs,
-            process_job=self._process_local_job,
+            process_job=self._process_queue_job,
             progress_callback=self.progress.emit,
         )
         try:
@@ -346,29 +347,64 @@ class QueueProcessingWorker(QObject):
         if self.processor is not None:
             self.processor.request_stop()
 
-    def _process_local_job(self, job: VideoJob) -> None:
+    def _process_queue_job(self, job: VideoJob) -> None:
         row = self._job_row(job)
         if row is not None:
             self.job_updated.emit(row)
 
-        result = self.video_processor.process_project(
-            VideoSourceRequest(VideoSourceType.LOCAL_FILE, job.source),
-            job.title,
-            self._clip_rows_from_job(job),
-            progress_callback=self.progress.emit,
-            classification_rules=self.classification_rules,
-            clip_padding=ClipPadding(
-                pre_seconds=job.settings.pre_roll_seconds,
-                post_seconds=job.settings.post_roll_seconds,
-            ),
-            video_speed=job.settings.speed,
-            volume_percent=job.settings.volume_percent,
-        )
+        source_request = self._source_request_from_job(job)
+        progress_callback = self._progress_callback_for_job(job)
+        try:
+            result = self.video_processor.process_project(
+                source_request,
+                job.title,
+                self._clip_rows_from_job(job),
+                progress_callback=progress_callback,
+                classification_rules=self.classification_rules,
+                clip_padding=ClipPadding(
+                    pre_seconds=job.settings.pre_roll_seconds,
+                    post_seconds=job.settings.post_roll_seconds,
+                ),
+                video_speed=job.settings.speed,
+                volume_percent=job.settings.volume_percent,
+            )
+        except Exception as error:
+            if job.source_type == QueueVideoSourceType.YOUTUBE:
+                raise VideoProcessingError(f"فشل تحميل أو معالجة رابط يوتيوب: {error}") from error
+            raise
         self.progress.emit(f"تم حفظ النتائج داخل: {result.project_output_folder}")
 
         row = self._job_row(job)
         if row is not None:
             self.job_updated.emit(row)
+
+    def _source_request_from_job(self, job: VideoJob) -> VideoSourceRequest:
+        if job.source_type == QueueVideoSourceType.LOCAL:
+            return VideoSourceRequest(VideoSourceType.LOCAL_FILE, job.source)
+        if job.source_type == QueueVideoSourceType.YOUTUBE:
+            return VideoSourceRequest(
+                VideoSourceType.YOUTUBE,
+                job.source,
+                use_browser_cookies=job.settings.use_browser_login,
+                browser=job.settings.browser_name,
+            )
+        raise VideoProcessingError(AR_URL_QUEUE_PROCESSING_LATER)
+
+    def _progress_callback_for_job(self, job: VideoJob):
+        if job.source_type != QueueVideoSourceType.YOUTUBE:
+            return self.progress.emit
+
+        self.progress.emit("جاري تحميل الفيديو في الخلفية")
+        cutting_message_sent = False
+
+        def emit_progress(message: str) -> None:
+            nonlocal cutting_message_sent
+            self.progress.emit(message)
+            if not cutting_message_sent and "تم تنزيل الفيديو" in message:
+                cutting_message_sent = True
+                self.progress.emit("جاري قص المقاطع في الخلفية")
+
+        return emit_progress
 
     def _clip_rows_from_job(self, job: VideoJob) -> list[ClipRowInput]:
         return [
@@ -1019,18 +1055,46 @@ class MainWindow(QMainWindow):
 
         source_type = self._supported_queue_url_source_type(source)
         if source_type is None:
-            self._write_log("الرابط غير مدعوم حاليًا")
+            if self._has_youtube_host(source):
+                self._write_log("رابط يوتيوب غير صالح")
+            else:
+                self._write_log("الرابط غير مدعوم حاليًا")
             return None
 
         return source_type, source, project_title or source
 
     def _supported_queue_url_source_type(self, url: str) -> QueueVideoSourceType | None:
-        lowered_url = url.lower()
-        if "youtube.com" in lowered_url or "youtu.be" in lowered_url:
+        if self._is_supported_youtube_video_url(url):
             return QueueVideoSourceType.YOUTUBE
+        lowered_url = url.lower()
         if "facebook.com" in lowered_url or "fb.watch" in lowered_url:
             return QueueVideoSourceType.FACEBOOK
         return None
+
+    def _is_supported_youtube_video_url(self, url: str) -> bool:
+        normalized_url = url.strip()
+        if "://" not in normalized_url:
+            normalized_url = f"https://{normalized_url}"
+
+        parts = urlsplit(normalized_url)
+        host = parts.netloc.lower()
+        path = parts.path.strip("/")
+        if host.startswith("www."):
+            host = host[4:]
+        if host.startswith("m."):
+            host = host[2:]
+
+        if host == "youtu.be":
+            return bool(path)
+        if host != "youtube.com":
+            return False
+        if path == "watch":
+            return bool(parse_qs(parts.query).get("v", [""])[0].strip())
+        return path.startswith("live/") or path.startswith("shorts/")
+
+    def _has_youtube_host(self, url: str) -> bool:
+        lowered_url = url.lower()
+        return "youtube.com" in lowered_url or "youtu.be" in lowered_url
 
     def _ask_add_current_work_without_clips_confirmation(self) -> bool:
         dialog = QMessageBox(self)
@@ -1505,10 +1569,10 @@ class MainWindow(QMainWindow):
             return
 
         self._prepare_queue_jobs_for_processing()
-        if not self._has_runnable_local_queue_job():
+        if not self._has_runnable_queue_job():
             self._write_log(
-                "لا توجد مهمة محلية جاهزة للمعالجة الآن\n"
-                f"{AR_URL_QUEUE_PROCESSING_LATER if self._has_waiting_url_queue_job() else 'راجع أخطاء قائمة الانتظار أولًا'}"
+                "لا توجد مهمة جاهزة للمعالجة الآن\n"
+                f"{AR_URL_QUEUE_PROCESSING_LATER if self._has_waiting_unsupported_url_queue_job() else 'راجع أخطاء قائمة الانتظار أولًا'}"
             )
             return
 
@@ -1540,9 +1604,9 @@ class MainWindow(QMainWindow):
                 if "لا توجد مقاطع محفوظة لهذه المهمة" not in job.errors:
                     job.errors.append("لا توجد مقاطع محفوظة لهذه المهمة")
 
-            if job.source_type == QueueVideoSourceType.LOCAL and job.can_start:
+            if self._queue_source_can_process_in_background(job) and job.can_start:
                 job.mark_status(JobStatus.QUEUED)
-            elif job.source_type != QueueVideoSourceType.LOCAL and job.status in {
+            elif not self._queue_source_can_process_in_background(job) and job.status in {
                 JobStatus.READY,
                 JobStatus.WARNING,
                 JobStatus.QUEUED,
@@ -1553,17 +1617,20 @@ class MainWindow(QMainWindow):
 
             self._refresh_queue_job_row(row)
 
-    def _has_runnable_local_queue_job(self) -> bool:
+    def _has_runnable_queue_job(self) -> bool:
         return any(
-            job.source_type == QueueVideoSourceType.LOCAL and job.can_start
+            self._queue_source_can_process_in_background(job) and job.can_start
             for job in self.job_queue
         )
 
-    def _has_waiting_url_queue_job(self) -> bool:
+    def _has_waiting_unsupported_url_queue_job(self) -> bool:
         return any(
-            job.source_type != QueueVideoSourceType.LOCAL and job.status == JobStatus.QUEUED
+            not self._queue_source_can_process_in_background(job) and job.status == JobStatus.QUEUED
             for job in self.job_queue
         )
+
+    def _queue_source_can_process_in_background(self, job: VideoJob) -> bool:
+        return job.source_type in {QueueVideoSourceType.LOCAL, QueueVideoSourceType.YOUTUBE}
 
     def _start_queue_processing_worker(self, classification_rules: list[ClassificationRule]) -> None:
         thread = QThread(self)
@@ -1613,7 +1680,7 @@ class MainWindow(QMainWindow):
             return
 
         self._prepare_queue_jobs_for_processing()
-        if not self._has_runnable_local_queue_job():
+        if not self._has_runnable_queue_job():
             self._queue_auto_continue_after_worker = False
             return
 

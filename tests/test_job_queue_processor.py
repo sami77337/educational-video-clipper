@@ -29,6 +29,16 @@ def _url_job(title: str = "رابط") -> VideoJob:
     )
 
 
+def _facebook_job(title: str = "رابط") -> VideoJob:
+    return VideoJob(
+        source_type="facebook",
+        source="https://facebook.com/watch/example",
+        title=title,
+        clips=[ClipJob(title="مقطع", start="00:00:01", end="00:00:05")],
+        status=JobStatus.READY,
+    )
+
+
 def test_queue_processor_state_transitions_for_one_local_job() -> None:
     job = _local_job()
     processed: list[str] = []
@@ -129,8 +139,23 @@ def test_stop_after_current_prevents_next_job_and_finishes_cleanly() -> None:
     assert summary.completed_jobs == 1
 
 
-def test_url_jobs_are_left_queued_for_later_without_processing() -> None:
+def test_youtube_jobs_are_processed_by_queue() -> None:
     job = _url_job()
+    processed: list[str] = []
+
+    summary = SequentialQueueProcessor(
+        [job],
+        process_job=lambda current: processed.append(current.title),
+    ).run_until_idle()
+
+    assert processed == ["رابط"]
+    assert job.status == JobStatus.DONE
+    assert summary.waiting_jobs == 0
+    assert summary.completed_jobs == 1
+
+
+def test_facebook_jobs_are_left_queued_for_later_without_processing() -> None:
+    job = _facebook_job()
     processed: list[str] = []
 
     summary = SequentialQueueProcessor(
