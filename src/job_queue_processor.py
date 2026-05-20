@@ -145,7 +145,7 @@ class SequentialQueueProcessor:
             else:
                 self.complete_current_job(success=True)
 
-        if self.state not in {QueueProcessorState.FAILED, QueueProcessorState.STOPPING}:
+        if self.state != QueueProcessorState.FAILED:
             self.state = QueueProcessorState.FINISHED
         self._emit(AR_QUEUE_FINISHED)
         return self.summary
