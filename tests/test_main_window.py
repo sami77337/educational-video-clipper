@@ -257,6 +257,37 @@ def test_main_queue_cut_button_click_creates_job_and_starts_idle_queue(tmp_path,
     app.processEvents()
 
 
+def test_direct_cut_fallback_button_still_uses_direct_processing_path(tmp_path, monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    video_path = tmp_path / "lesson.mp4"
+    video_path.write_bytes(b"video")
+    captured = {}
+    window.project_name_input.setText("قص مباشر")
+    window.local_file_radio.setChecked(True)
+    window.local_file_input.setText(str(video_path))
+    window._insert_clip_row(1, "مقطع مباشر", "00:01:00", "00:02:00")
+
+    def fake_start_processing_worker(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(window, "_start_processing_worker", fake_start_processing_worker)
+
+    window.start_button.click()
+    app.processEvents()
+
+    assert window.start_button.text() == "جاري المعالجة..."
+    assert captured["project_name"] == "قص مباشر"
+    assert captured["source_request"].value == str(video_path)
+    assert captured["clip_rows"][0].title == "مقطع مباشر"
+    assert len(window.job_queue) == 0
+    assert window._queue_processing_thread is None
+    assert window._queue_processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
 def test_queue_add_current_url_work_with_clip_rows() -> None:
     app = _app()
     window = MainWindow()
