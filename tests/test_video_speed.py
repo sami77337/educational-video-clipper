@@ -16,7 +16,7 @@ def test_default_video_speed_is_one() -> None:
     assert normalize_video_speed(1.0) == 1.0
 
 
-@pytest.mark.parametrize("value", [1.05, "1.10", 1.25, 1.5, 2.0])
+@pytest.mark.parametrize("value", [0.75, 0.90, 1.05, "1.10", 1.25, 1.5, 2.0])
 def test_common_video_speed_values_are_valid(value) -> None:
     assert normalize_video_speed(value) == float(value)
 
@@ -33,6 +33,7 @@ def test_invalid_video_speed_values_are_rejected(value) -> None:
         (1.05, "1.05"),
         (1.10, "1.1"),
         (1.25, "1.25"),
+        (0.75, "0.75"),
     ],
 )
 def test_common_speed_filters_keep_video_and_audio_in_sync(speed: float, formatted_speed: str) -> None:

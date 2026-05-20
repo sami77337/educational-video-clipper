@@ -127,6 +127,26 @@ SMART_PASTE_QUEUE_LABEL = "إضافة كمهمة جديدة في قائمة ال
 SMART_PASTE_CANCEL_LABEL = "إلغاء"
 
 
+class IntentionalDoubleSpinBox(QDoubleSpinBox):
+    """Spin box that ignores accidental wheel edits unless it has keyboard focus."""
+
+    def wheelEvent(self, event) -> None:  # type: ignore[override]
+        if not self.hasFocus():
+            event.ignore()
+            return
+        super().wheelEvent(event)
+
+
+class IntentionalSpinBox(QSpinBox):
+    """Spin box that ignores accidental wheel edits unless it has keyboard focus."""
+
+    def wheelEvent(self, event) -> None:  # type: ignore[override]
+        if not self.hasFocus():
+            event.ignore()
+            return
+        super().wheelEvent(event)
+
+
 class SmartPasteImportDialog(QDialog):
     """Preview-only dialog for smart paste imports."""
 
@@ -368,8 +388,8 @@ class QueueProcessingWorker(QObject):
                     pre_seconds=job.settings.pre_roll_seconds,
                     post_seconds=job.settings.post_roll_seconds,
                 ),
-                video_speed=job.settings.speed,
-                volume_percent=job.settings.volume_percent,
+                video_speed=self._effective_job_video_speed(job),
+                volume_percent=self._effective_job_volume_percent(job),
             )
         except Exception as error:
             if job.source_type == QueueVideoSourceType.YOUTUBE:
@@ -380,6 +400,12 @@ class QueueProcessingWorker(QObject):
         row = self._job_row(job)
         if row is not None:
             self.job_updated.emit(row)
+
+    def _effective_job_video_speed(self, job: VideoJob) -> float:
+        return job.settings.speed if job.settings.speed_adjustment_enabled else DEFAULT_VIDEO_SPEED
+
+    def _effective_job_volume_percent(self, job: VideoJob) -> int:
+        return job.settings.volume_percent if job.settings.volume_adjustment_enabled else DEFAULT_VOLUME_PERCENT
 
     def _source_request_from_job(self, job: VideoJob) -> VideoSourceRequest:
         if job.source_type == QueueVideoSourceType.LOCAL:
@@ -492,8 +518,14 @@ class MainWindow(QMainWindow):
         self.reset_classification_button = QPushButton("استعادة الافتراضي")
         self.pre_padding_input = QDoubleSpinBox()
         self.post_padding_input = QDoubleSpinBox()
-        self.video_speed_input = QDoubleSpinBox()
-        self.volume_input = QSpinBox()
+        self.video_speed_enabled_checkbox = QCheckBox("تعديل سرعة الفيديو")
+        self.video_speed_input = IntentionalDoubleSpinBox()
+        self.reset_video_speed_button = QPushButton("إعادة السرعة إلى 1.00x")
+        self.video_speed_status_label = QLabel("الإعدادات الافتراضية آمنة")
+        self.volume_enabled_checkbox = QCheckBox("تعديل مستوى الصوت")
+        self.volume_input = IntentionalSpinBox()
+        self.reset_volume_button = QPushButton("إعادة الصوت إلى 100%")
+        self.volume_status_label = QLabel("الإعدادات الافتراضية آمنة")
         self.readiness_button = QPushButton("فحص جاهزية البرنامج")
         self.smart_validation_button = QPushButton("فحص الجدول قبل القص")
         self.validate_button = QPushButton("فحص الجدول قبل القص")
@@ -509,6 +541,7 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self._reset_classification_rules(log=False)
         self._update_source_inputs()
+        self._update_speed_volume_controls()
         self.open_output_button.setEnabled(False)
         self.stop_queue_after_current_button.setEnabled(False)
 
@@ -760,11 +793,19 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.pre_padding_input, 0, 1)
         layout.addWidget(QLabel("وقت بعد نهاية المقطع"), 0, 2)
         layout.addWidget(self.post_padding_input, 0, 3)
-        layout.addWidget(QLabel("سرعة الفيديو"), 1, 0)
-        layout.addWidget(self.video_speed_input, 1, 1)
-        layout.addWidget(QLabel("مستوى الصوت"), 1, 2)
-        layout.addWidget(self.volume_input, 1, 3)
+        layout.addWidget(self.video_speed_enabled_checkbox, 1, 0)
+        layout.addWidget(QLabel("سرعة الفيديو"), 1, 1)
+        layout.addWidget(self.video_speed_input, 1, 2)
+        layout.addWidget(self.reset_video_speed_button, 1, 3)
+        layout.addWidget(self.video_speed_status_label, 1, 4)
+        layout.addWidget(self.volume_enabled_checkbox, 2, 0)
+        layout.addWidget(QLabel("مستوى الصوت"), 2, 1)
+        layout.addWidget(self.volume_input, 2, 2)
+        layout.addWidget(self.reset_volume_button, 2, 3)
+        layout.addWidget(self.volume_status_label, 2, 4)
         layout.setColumnStretch(4, 1)
+        self.video_speed_status_label.setWordWrap(True)
+        self.volume_status_label.setWordWrap(True)
 
         return group
 
@@ -777,19 +818,52 @@ class MainWindow(QMainWindow):
         widget.setToolTip("الافتراضي: 0 ثانية")
 
     def _configure_video_speed_input(self, widget: QDoubleSpinBox) -> None:
-        widget.setRange(0.01, 4.0)
+        widget.setRange(0.75, 2.0)
         widget.setDecimals(2)
         widget.setSingleStep(0.05)
         widget.setValue(DEFAULT_VIDEO_SPEED)
         widget.setSuffix("x")
-        widget.setToolTip("السرعة الافتراضية: 1.0")
+        widget.setToolTip("السرعة الافتراضية: 1.00x")
+        widget.setFocusPolicy(Qt.StrongFocus)
 
     def _configure_volume_input(self, widget: QSpinBox) -> None:
-        widget.setRange(1, 400)
-        widget.setSingleStep(5)
+        widget.setRange(75, 200)
+        widget.setSingleStep(25)
         widget.setValue(DEFAULT_VOLUME_PERCENT)
         widget.setSuffix("%")
         widget.setToolTip("الصوت الافتراضي: 100%")
+        widget.setFocusPolicy(Qt.StrongFocus)
+
+    def reset_video_speed(self) -> None:
+        self.video_speed_input.setValue(DEFAULT_VIDEO_SPEED)
+        self._update_speed_volume_controls()
+
+    def reset_volume(self) -> None:
+        self.volume_input.setValue(DEFAULT_VOLUME_PERCENT)
+        self._update_speed_volume_controls()
+
+    def _update_speed_volume_controls(self, *_args) -> None:
+        speed_enabled = self.video_speed_enabled_checkbox.isChecked()
+        self.video_speed_input.setEnabled(speed_enabled)
+        if not speed_enabled:
+            self.video_speed_status_label.setText("الإعدادات الافتراضية آمنة")
+        elif self.video_speed_input.value() < DEFAULT_VIDEO_SPEED:
+            self.video_speed_status_label.setText("تبطيء الفيديو سيجعل مدة المقطع أطول")
+        elif self.video_speed_input.value() > DEFAULT_VIDEO_SPEED:
+            self.video_speed_status_label.setText("تسريع الفيديو قد يؤثر على وضوح الكلام إذا كانت القيمة عالية")
+        else:
+            self.video_speed_status_label.setText("السرعة الافتراضية")
+
+        volume_enabled = self.volume_enabled_checkbox.isChecked()
+        self.volume_input.setEnabled(volume_enabled)
+        if not volume_enabled:
+            self.volume_status_label.setText("الإعدادات الافتراضية آمنة")
+        elif self.volume_input.value() < DEFAULT_VOLUME_PERCENT:
+            self.volume_status_label.setText("مستوى الصوت أقل من الطبيعي وقد يجعل المقطع منخفض الصوت")
+        elif self.volume_input.value() > DEFAULT_VOLUME_PERCENT:
+            self.volume_status_label.setText("رفع الصوت قد يسبب تشويشًا إذا كان الصوت الأصلي عاليًا")
+        else:
+            self.volume_status_label.setText("الصوت الافتراضي")
 
     def _build_clips_section(self) -> QGroupBox:
         group = QGroupBox("جدول المقاطع")
@@ -866,6 +940,12 @@ class MainWindow(QMainWindow):
         self.add_classification_button.clicked.connect(self.add_classification_rule)
         self.delete_classification_button.clicked.connect(self.delete_selected_classification_rule)
         self.reset_classification_button.clicked.connect(self.reset_classification_rules)
+        self.video_speed_enabled_checkbox.toggled.connect(self._update_speed_volume_controls)
+        self.video_speed_input.valueChanged.connect(self._update_speed_volume_controls)
+        self.reset_video_speed_button.clicked.connect(self.reset_video_speed)
+        self.volume_enabled_checkbox.toggled.connect(self._update_speed_volume_controls)
+        self.volume_input.valueChanged.connect(self._update_speed_volume_controls)
+        self.reset_volume_button.clicked.connect(self.reset_volume)
         self.add_current_work_to_queue_button.clicked.connect(self.add_current_work_to_queue)
         self.add_queue_local_video_button.clicked.connect(self.add_local_video_to_queue)
         self.add_queue_url_button.clicked.connect(self.add_url_to_queue)
@@ -1298,7 +1378,9 @@ class MainWindow(QMainWindow):
         return JobSettings(
             pre_roll_seconds=self.pre_padding_input.value(),
             post_roll_seconds=self.post_padding_input.value(),
+            speed_adjustment_enabled=self.video_speed_enabled_checkbox.isChecked(),
             speed=self._collect_video_speed(),
+            volume_adjustment_enabled=self.volume_enabled_checkbox.isChecked(),
             volume_percent=self._collect_volume_percent(),
             use_browser_login=self.use_browser_cookies_checkbox.isChecked(),
             browser_name=self._selected_browser_identifier(),
@@ -1388,6 +1470,7 @@ class MainWindow(QMainWindow):
 
         if job.title.strip():
             self.project_name_input.setText(job.title.strip())
+        self._apply_queue_job_settings_to_workspace(job.settings)
 
         messages = []
         if replaced_source:
@@ -1425,6 +1508,15 @@ class MainWindow(QMainWindow):
             self.youtube_radio.setChecked(True)
             self.youtube_input.setText(job.source)
         self._update_source_inputs()
+
+    def _apply_queue_job_settings_to_workspace(self, settings: JobSettings) -> None:
+        self.video_speed_enabled_checkbox.setChecked(settings.speed_adjustment_enabled)
+        self.video_speed_input.setValue(settings.speed if settings.speed_adjustment_enabled else DEFAULT_VIDEO_SPEED)
+        self.volume_enabled_checkbox.setChecked(settings.volume_adjustment_enabled)
+        self.volume_input.setValue(
+            settings.volume_percent if settings.volume_adjustment_enabled else DEFAULT_VOLUME_PERCENT
+        )
+        self._update_speed_volume_controls()
 
     def _ask_replace_workspace_source_confirmation(self) -> bool:
         dialog = QMessageBox(self)
@@ -2231,9 +2323,13 @@ class MainWindow(QMainWindow):
         )
 
     def _collect_video_speed(self) -> float:
+        if not self.video_speed_enabled_checkbox.isChecked():
+            return DEFAULT_VIDEO_SPEED
         return normalize_video_speed(self.video_speed_input.value())
 
     def _collect_volume_percent(self) -> int:
+        if not self.volume_enabled_checkbox.isChecked():
+            return DEFAULT_VOLUME_PERCENT
         return normalize_volume_percent(self.volume_input.value())
 
     def _collect_validation_errors(self) -> list[str]:
@@ -2723,8 +2819,14 @@ class MainWindow(QMainWindow):
             self.reset_classification_button,
             self.pre_padding_input,
             self.post_padding_input,
+            self.video_speed_enabled_checkbox,
             self.video_speed_input,
+            self.reset_video_speed_button,
+            self.video_speed_status_label,
+            self.volume_enabled_checkbox,
             self.volume_input,
+            self.reset_volume_button,
+            self.volume_status_label,
             self.readiness_button,
             self.smart_validation_button,
             self.validate_button,
@@ -2737,6 +2839,7 @@ class MainWindow(QMainWindow):
 
         if enabled:
             self._update_source_inputs()
+            self._update_speed_volume_controls()
             self.start_button.setText("بدء القص")
             self.direct_cut_button.setText("بدء القص المباشر - وضع قديم")
         else:
