@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from src.job_queue import ClipJob, JobSettings, JobStatus, VideoJob, VideoSourceType
+from src.video_volume import DEFAULT_VOLUME_PERCENT, VideoVolumeError, normalize_volume_percent
 
 
 QUEUE_STATE_VERSION = 1
@@ -174,7 +175,7 @@ def _settings_from_data(data: Any, *, high_priority: Any = None) -> JobSettings:
         post_roll_seconds=_float_or_default(data.get("post_roll_seconds"), 0.0),
         quality_preset=str(data.get("quality_preset") or "default"),
         speed=_float_or_default(data.get("speed"), 1.0),
-        volume_percent=_int_or_default(data.get("volume_percent"), 100),
+        volume_percent=_volume_or_default(data.get("volume_percent"), DEFAULT_VOLUME_PERCENT),
         watermark_enabled=bool(data.get("watermark_enabled", False)),
         silence_reduction_enabled=bool(data.get("silence_reduction_enabled", False)),
         high_priority=bool(high_priority_value) if high_priority_value is not None else False,
@@ -237,8 +238,8 @@ def _float_or_default(value: Any, default: float) -> float:
         return default
 
 
-def _int_or_default(value: Any, default: int) -> int:
+def _volume_or_default(value: Any, default: int) -> int:
     try:
-        return int(value)
-    except (TypeError, ValueError):
+        return normalize_volume_percent(value)
+    except VideoVolumeError:
         return default

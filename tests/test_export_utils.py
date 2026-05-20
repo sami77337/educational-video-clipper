@@ -195,6 +195,39 @@ def test_build_processing_report_includes_video_speed_only_when_changed() -> Non
     assert "سرعة الفيديو: 1.1" in build_processing_report(changed_data)
 
 
+def test_build_processing_report_includes_volume_only_when_changed() -> None:
+    timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
+    default_data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+        volume_percent=100,
+    )
+    changed_data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+        volume_percent=150,
+    )
+
+    assert "مستوى الصوت" not in build_processing_report(default_data)
+    assert "مستوى الصوت: 150%" in build_processing_report(changed_data)
+
+
 def test_build_processing_report_preserves_speed_padding_and_exclusion_details() -> None:
     timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
     data = ProcessingReportData(
@@ -211,6 +244,7 @@ def test_build_processing_report_preserves_speed_padding_and_exclusion_details()
         pre_padding_seconds=1.5,
         post_padding_seconds=2,
         video_speed=1.25,
+        volume_percent=150,
         clip_details=[
             ProcessingReportClipData(
                 number=1,
@@ -228,6 +262,7 @@ def test_build_processing_report_preserves_speed_padding_and_exclusion_details()
     assert "وقت قبل بداية المقطع: 1.5 ثانية" in report
     assert "وقت بعد نهاية المقطع: 2 ثانية" in report
     assert "سرعة الفيديو: 1.25" in report
+    assert "مستوى الصوت: 150%" in report
     assert "الاستثناءات: 00:02:00-00:02:10, 00:03:00-00:03:15" in report
     assert "عدد الاستثناءات داخل المقطع: 2" in report
     assert "تم تطبيق أكثر من استثناء داخل هذا المقطع" in report

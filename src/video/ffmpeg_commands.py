@@ -10,6 +10,11 @@ from src.video_speed import (
     build_video_speed_filter,
     normalize_video_speed,
 )
+from src.video_volume import (
+    DEFAULT_VOLUME_PERCENT,
+    build_audio_volume_filter,
+    normalize_volume_percent,
+)
 
 
 def build_ffmpeg_command(
@@ -18,10 +23,12 @@ def build_ffmpeg_command(
     start_seconds: int | float,
     duration_seconds: int | float,
     video_speed: int | float = DEFAULT_VIDEO_SPEED,
+    volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
 ) -> list[str]:
     """Build the ffmpeg command used to cut a clip."""
 
     normalized_speed = normalize_video_speed(video_speed)
+    normalized_volume = normalize_volume_percent(volume_percent)
     command = [
         "ffmpeg",
         "-y",
@@ -38,10 +45,12 @@ def build_ffmpeg_command(
             [
                 "-filter:v",
                 build_video_speed_filter(normalized_speed),
-                "-filter:a",
-                build_audio_speed_filter(normalized_speed),
             ]
         )
+
+    audio_filters = _build_audio_filters(normalized_speed, normalized_volume)
+    if audio_filters:
+        command.extend(["-filter:a", audio_filters])
 
     command.extend(
         [
@@ -59,6 +68,15 @@ def build_ffmpeg_command(
         ]
     )
     return command
+
+
+def _build_audio_filters(video_speed: float, volume_percent: int) -> str:
+    filters: list[str] = []
+    if video_speed != DEFAULT_VIDEO_SPEED:
+        filters.append(build_audio_speed_filter(video_speed))
+    if volume_percent != DEFAULT_VOLUME_PERCENT:
+        filters.append(build_audio_volume_filter(volume_percent))
+    return ",".join(filters)
 
 
 def build_ffmpeg_concat_command(
