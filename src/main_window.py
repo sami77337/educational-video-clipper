@@ -434,7 +434,7 @@ class MainWindow(QMainWindow):
         self.readiness_button = QPushButton("فحص جاهزية البرنامج")
         self.smart_validation_button = QPushButton("فحص الجدول قبل القص")
         self.validate_button = QPushButton("فحص الجدول قبل القص")
-        self.start_button = QPushButton("بدء القص")
+        self.start_button = QPushButton("بدء القص المباشر")
         self.open_output_button = QPushButton("فتح مجلد النتائج")
         self.processing_status_label = QLabel("الحالة: جاهز")
         self.log_area = QTextEdit()
@@ -606,7 +606,6 @@ class MainWindow(QMainWindow):
             self.load_queue_job_workspace_button,
             self.save_queue_state_button,
             self.load_queue_state_button,
-            self.add_and_run_queue_job_button,
             self.start_queue_processing_button,
             self.stop_queue_after_current_button,
             self.delete_queue_job_button,
@@ -628,7 +627,7 @@ class MainWindow(QMainWindow):
         help_text = QLabel(
             "اختر مصدر الفيديو، ثم أدخل اسم المشروع.\n"
             "أضف المقاطع يدويًا، أو استورد Excel، أو الصق رسالة.\n"
-            "اضغط بدء القص عند جاهزية الجدول.\n"
+            "اضغط إضافة وتشغيل في قائمة الانتظار عند جاهزية الجدول.\n"
             "يمكن إنشاء أكثر من مجلد حسب مدة المقطع.\n"
             "مثال: من 0 إلى 3 دقائق = ريلز.\n"
             "مثال: من 3 إلى مفتوح = فوائد.\n"
@@ -749,6 +748,7 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.readiness_button)
         layout.addWidget(self.validate_button)
+        layout.addWidget(self.add_and_run_queue_job_button)
         layout.addWidget(self.start_button)
         layout.addWidget(self.open_output_button)
         layout.addStretch(1)
@@ -1448,7 +1448,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        self._append_log(f"جاري معالجة المهمة\n{AR_QUEUE_CAN_PREPARE_NEXT}")
+        self._append_log(f"جاري معالجة المهمة في الخلفية\n{AR_QUEUE_CAN_PREPARE_NEXT}")
         self._set_queue_processing_controls_running(True)
         self._start_queue_processing_worker(self._collect_classification_rules())
 
@@ -2521,7 +2521,7 @@ class MainWindow(QMainWindow):
 
         if enabled:
             self._update_source_inputs()
-            self.start_button.setText("بدء القص")
+            self.start_button.setText("بدء القص المباشر")
         else:
             self.processing_status_label.setText("الحالة: جاري المعالجة...")
             self.start_button.setText("جاري المعالجة...")

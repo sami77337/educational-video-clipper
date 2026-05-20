@@ -82,7 +82,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.validate_button.text() == "فحص الجدول قبل القص"
     assert window.readiness_button.text() == "فحص جاهزية البرنامج"
     assert window.smart_validation_button.text() == "فحص الجدول قبل القص"
-    assert window.start_button.text() == "بدء القص"
+    assert window.start_button.text() == "بدء القص المباشر"
     assert window.open_output_button.text() == "فتح مجلد النتائج"
     assert window.pre_padding_input.value() == 0
     assert window.post_padding_input.value() == 0
@@ -209,6 +209,49 @@ def test_queue_add_current_work_and_start_snapshots_job_without_direct_processin
     assert window._processing_thread is None
     assert window._processing_worker is None
     assert window._queue_processing_thread is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_main_queue_cut_button_click_creates_job_and_starts_idle_queue(tmp_path, monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    video_path = tmp_path / "lesson.mp4"
+    video_path.write_bytes(b"video")
+    started: list[int] = []
+    window.project_name_input.setText("مشروع قص")
+    window.local_file_radio.setChecked(True)
+    window.local_file_input.setText(str(video_path))
+    window.pre_padding_input.setValue(0.5)
+    window.post_padding_input.setValue(1.0)
+    window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00", "00:01:20-00:01:30")
+    monkeypatch.setattr(window, "_start_queue_processing_worker", lambda rules: started.append(len(rules)))
+
+    window.add_and_run_queue_job_button.click()
+    app.processEvents()
+
+    assert started == [2]
+    assert len(window.job_queue) == 1
+    job = window.job_queue[0]
+    assert job.source_type == QueueVideoSourceType.LOCAL
+    assert job.source == str(video_path)
+    assert job.title == "مشروع قص"
+    assert job.status == JobStatus.QUEUED
+    assert job.settings.pre_roll_seconds == 0.5
+    assert job.settings.post_roll_seconds == 1.0
+    assert job.clips[0].title == "مقطع"
+    assert job.clips[0].exclusions == "00:01:20-00:01:30"
+    window.clips_table.item(0, TITLE_COLUMN).setText("تعديل لاحق")
+    window.clips_table.item(0, START_COLUMN).setText("00:09:00")
+    assert job.clips[0].title == "مقطع"
+    assert job.clips[0].start == "00:01:00"
+    assert "تم إضافة المهمة إلى قائمة الانتظار" in window.log_area.toPlainText()
+    assert "جاري معالجة المهمة في الخلفية" in window.log_area.toPlainText()
+    assert "يمكنك تجهيز مهمة أخرى أثناء المعالجة" in window.log_area.toPlainText()
+    assert window.start_button.text() == "بدء القص المباشر"
+    assert window._processing_thread is None
+    assert window._processing_worker is None
 
     window.close()
     app.processEvents()
@@ -1166,7 +1209,7 @@ def test_queue_start_processing_prepares_local_job_without_direct_worker(tmp_pat
     assert started == [2]
     assert job.status == JobStatus.QUEUED
     assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "في الانتظار"
-    assert "جاري معالجة المهمة" in window.log_area.toPlainText()
+    assert "جاري معالجة المهمة في الخلفية" in window.log_area.toPlainText()
     assert "يمكنك تجهيز مهمة أخرى أثناء المعالجة" in window.log_area.toPlainText()
     assert window._processing_thread is None
     assert window._processing_worker is None
