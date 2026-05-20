@@ -16,6 +16,7 @@ from src.classification import (
     sanitize_classification_folder_name,
 )
 from src.file_utils import ensure_directory
+from src.video_speed import DEFAULT_VIDEO_SPEED, format_video_speed, normalize_video_speed
 
 
 REELS_FOLDER_NAME = "ريلز"
@@ -70,6 +71,7 @@ class ProcessingReportData:
     clip_details: list["ProcessingReportClipData"] = field(default_factory=list)
     pre_padding_seconds: float = 0.0
     post_padding_seconds: float = 0.0
+    video_speed: float = DEFAULT_VIDEO_SPEED
 
 
 @dataclass(frozen=True)
@@ -166,6 +168,8 @@ def build_processing_report(data: ProcessingReportData) -> str:
                 f"وقت بعد نهاية المقطع: {_format_seconds_value(data.post_padding_seconds)} ثانية",
             ]
         )
+    if _has_video_speed(data):
+        lines.append(f"سرعة الفيديو: {format_video_speed(data.video_speed)}")
     lines.append("Classification rules:")
     lines.extend(_format_classification_rule(rule) for rule in classification_rules)
     lines.append("Clip counts by folder:")
@@ -277,6 +281,10 @@ def _format_clip_detail(clip: ProcessingReportClipData) -> list[str]:
 
 def _has_clip_padding(data: ProcessingReportData) -> bool:
     return data.pre_padding_seconds > 0 or data.post_padding_seconds > 0
+
+
+def _has_video_speed(data: ProcessingReportData) -> bool:
+    return normalize_video_speed(data.video_speed) != DEFAULT_VIDEO_SPEED
 
 
 def _format_seconds_value(value: float) -> str:

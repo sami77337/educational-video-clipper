@@ -43,6 +43,13 @@ from src.file_utils import ensure_directory, sanitize_filename
 from src.models import ClipRequest
 from src.time_utils import format_seconds, parse_timestamp
 from src.validation import ClipRowInput
+from src.video_speed import (
+    AR_VIDEO_SPEED_APPLIED,
+    DEFAULT_VIDEO_SPEED,
+    VideoSpeedError,
+    normalize_video_speed,
+    speed_adjusted_duration,
+)
 from src.video.ffmpeg_commands import build_ffmpeg_command, build_ffmpeg_concat_command
 from src.video import ffmpeg_runner as _ffmpeg_runner
 from src.video import youtube_downloader as _youtube_downloader
@@ -307,6 +314,7 @@ class VideoProcessor:
         classification_rules: Sequence[ClassificationRule] | None = None,
         clip_padding: ClipPadding | None = None,
         video_duration_seconds: float | None = None,
+        video_speed: int | float = DEFAULT_VIDEO_SPEED,
     ) -> list[CutClipResult]:
         """Cut all clips from the prepared input video and sort them automatically."""
 
@@ -319,6 +327,7 @@ class VideoProcessor:
             active_rules,
             clip_padding,
             video_duration_seconds,
+            video_speed,
         )
 
     def process_project(
@@ -330,12 +339,17 @@ class VideoProcessor:
         runner: SubprocessRunner = subprocess.run,
         classification_rules: Sequence[ClassificationRule] | None = None,
         clip_padding: ClipPadding | None = None,
+        video_speed: int | float = DEFAULT_VIDEO_SPEED,
     ) -> ProcessingResult:
         """Prepare, cut, sort, ZIP, and report one project."""
 
         started_at = datetime.now().astimezone()
         active_rules = self._active_classification_rules(classification_rules)
         active_padding = clip_padding or ClipPadding()
+        try:
+            active_speed = normalize_video_speed(video_speed)
+        except VideoSpeedError as error:
+            raise VideoProcessingError(str(error)) from error
         clips = self.build_clip_definitions(clip_rows)
         exclusion_errors = validate_exclusions_for_clips(clips, active_padding)
         if exclusion_errors:
@@ -356,6 +370,7 @@ class VideoProcessor:
             active_rules,
             active_padding,
             video_duration_seconds,
+            active_speed,
         )
         export_artifacts = self.export_results(
             project_output_folder=prepared_video.project_output_folder,
@@ -367,6 +382,7 @@ class VideoProcessor:
             progress_callback=progress_callback,
             classification_rules=active_rules,
             clip_padding=active_padding,
+            video_speed=active_speed,
         )
         _emit(progress_callback, AR_PROCESSING_SUCCESS)
 
@@ -388,12 +404,14 @@ class VideoProcessor:
         progress_callback: ProgressCallback | None = None,
         classification_rules: Sequence[ClassificationRule] | None = None,
         clip_padding: ClipPadding | None = None,
+        video_speed: int | float = DEFAULT_VIDEO_SPEED,
     ) -> ExportArtifacts:
         """Create ZIP files and a final report after successful clipping."""
 
         project_folder = Path(project_output_folder)
         active_rules = self._active_classification_rules(classification_rules)
         active_padding = clip_padding or ClipPadding()
+        active_speed = normalize_video_speed(video_speed)
         folder_names = classification_folder_names(active_rules)
         output_folders = list(ensure_result_folders(project_folder, folder_names))
         zip_result = create_result_zips(project_folder, progress_callback, folder_names)
@@ -414,6 +432,7 @@ class VideoProcessor:
             clip_details=build_report_clip_details(cut_results),
             pre_padding_seconds=active_padding.pre_seconds,
             post_padding_seconds=active_padding.post_seconds,
+            video_speed=active_speed,
         )
         report_path = write_processing_report(project_folder, report_data)
         _emit(progress_callback, AR_REPORT_CREATED)
@@ -717,6 +736,7 @@ def cut_clip(
     start_seconds: int | float,
     duration_seconds: int | float,
     runner: SubprocessRunner = subprocess.run,
+    video_speed: int | float = DEFAULT_VIDEO_SPEED,
 ) -> Path:
     """Cut one clip using ffmpeg."""
 
@@ -726,12 +746,13 @@ def cut_clip(
 
     output_path = Path(output_video_path)
     ensure_directory(output_path.parent)
-    command = build_ffmpeg_command(input_path, output_path, start_seconds, duration_seconds)
+    normalized_speed = normalize_video_speed(video_speed)
+    command = build_ffmpeg_command(input_path, output_path, start_seconds, duration_seconds, normalized_speed)
 
     try:
         _run_ffmpeg_command(command, output_path, runner)
         if _should_validate_media_duration(runner):
-            verify_output_duration(output_path, duration_seconds)
+            verify_output_duration(output_path, speed_adjusted_duration(duration_seconds, normalized_speed))
     except FileNotFoundError as error:
         raise FfmpegNotFoundError(AR_FFMPEG_NOT_FOUND) from error
 
@@ -747,11 +768,13 @@ def cut_clip_with_exclusions(
     runner: SubprocessRunner = subprocess.run,
     effective_start_seconds: int | float | None = None,
     effective_end_seconds: int | float | None = None,
+    video_speed: int | float = DEFAULT_VIDEO_SPEED,
 ) -> Path:
     """Cut kept segments for a clip with exclusions and merge them into one mp4."""
 
     temp_folder = _prepare_temp_clip_folder(temp_root, clip.number)
     output_path = Path(output_video_path)
+    normalized_speed = normalize_video_speed(video_speed)
     try:
         kept_segments = calculate_kept_segment_seconds(
             effective_start_seconds if effective_start_seconds is not None else clip.start_seconds,
@@ -768,6 +791,7 @@ def cut_clip_with_exclusions(
                     segment_start_seconds,
                     segment_end_seconds - segment_start_seconds,
                     runner,
+                    normalized_speed,
                 )
             )
 
@@ -776,7 +800,10 @@ def cut_clip_with_exclusions(
                 exclusion_start, exclusion_end = exclusion.split("-", maxsplit=1)
                 _emit(progress_callback, f"تم حذف الجزء {exclusion_start} - {exclusion_end}")
 
-        expected_duration = sum(segment_end - segment_start for segment_start, segment_end in kept_segments)
+        expected_duration = sum(
+            speed_adjusted_duration(segment_end - segment_start, normalized_speed)
+            for segment_start, segment_end in kept_segments
+        )
         file_list_path = write_concat_file_list(segment_paths, temp_folder / "segments.txt")
         try:
             concat_clip_segments(file_list_path, output_path, runner, expected_duration)
@@ -892,6 +919,7 @@ def cut_clips(
     classification_rules: Sequence[ClassificationRule] | None = None,
     clip_padding: ClipPadding | None = None,
     video_duration_seconds: float | None = None,
+    video_speed: int | float = DEFAULT_VIDEO_SPEED,
 ) -> list[CutClipResult]:
     """Cut and sort all requested clips."""
 
@@ -899,6 +927,7 @@ def cut_clips(
         raise VideoProcessingError(AR_INPUT_VIDEO_MISSING)
 
     active_padding = clip_padding or ClipPadding()
+    normalized_speed = normalize_video_speed(video_speed)
     exclusion_errors = validate_exclusions_for_clips(clips, active_padding, video_duration_seconds)
     if exclusion_errors:
         raise VideoProcessingError(f"{AR_EXCLUSIONS_INVALID}:\n" + "\n".join(exclusion_errors))
@@ -906,6 +935,8 @@ def cut_clips(
     _emit(progress_callback, AR_CHECKING_EXCLUSIONS)
     if active_padding.has_padding:
         _emit(progress_callback, AR_CLIP_PADDING_APPLIED)
+    if normalized_speed != DEFAULT_VIDEO_SPEED:
+        _emit(progress_callback, AR_VIDEO_SPEED_APPLIED)
 
     results: list[CutClipResult] = []
     for clip in clips:
@@ -944,6 +975,7 @@ def cut_clips(
                     runner,
                     effective_range.start_seconds,
                     effective_range.end_seconds,
+                    normalized_speed,
                 )
             else:
                 _emit(progress_callback, f"{AR_NO_EXCLUSIONS_FOR_CLIP} {clip.number:02d}")
@@ -953,6 +985,7 @@ def cut_clips(
                     effective_range.start_seconds,
                     effective_range.duration_seconds,
                     runner,
+                    normalized_speed,
                 )
                 _emit(progress_callback, AR_CUT_WITHOUT_EXCLUSIONS)
         except FfmpegNotFoundError:
