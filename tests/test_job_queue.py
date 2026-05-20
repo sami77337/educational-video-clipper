@@ -64,6 +64,8 @@ def test_default_settings_are_safe() -> None:
     assert settings.quality_preset == "default"
     assert settings.speed == 1.0
     assert settings.volume_percent == 100
+    assert settings.use_browser_login is False
+    assert settings.browser_name == "chrome"
     assert settings.watermark_enabled is False
     assert settings.silence_reduction_enabled is False
 

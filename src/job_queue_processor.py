@@ -23,7 +23,7 @@ AR_QUEUE_CAN_PREPARE_NEXT = "يمكنك تجهيز مهمة أخرى أثناء 
 AR_QUEUE_NEXT_JOB_STARTED = "بدأت المهمة التالية"
 AR_QUEUE_STOP_AFTER_CURRENT = "سيتم الإيقاف بعد المهمة الحالية"
 AR_QUEUE_FINISHED = "انتهت قائمة الانتظار"
-AR_URL_QUEUE_PROCESSING_LATER = "تشغيل روابط الإنترنت من قائمة الانتظار سيتم دعمه لاحقًا"
+AR_URL_QUEUE_PROCESSING_LATER = "تشغيل روابط يوتيوب من قائمة الانتظار سيتم دعمه لاحقًا"
 AR_QUEUE_JOB_SKIPPED_ERRORS = "تم تخطي المهمة بسبب أخطاء"
 
 

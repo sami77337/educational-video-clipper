@@ -458,7 +458,8 @@ class MainWindow(QMainWindow):
         self.readiness_button = QPushButton("فحص جاهزية البرنامج")
         self.smart_validation_button = QPushButton("فحص الجدول قبل القص")
         self.validate_button = QPushButton("فحص الجدول قبل القص")
-        self.start_button = QPushButton("بدء القص المباشر")
+        self.start_button = QPushButton("بدء القص")
+        self.direct_cut_button = QPushButton("بدء القص المباشر - وضع قديم")
         self.open_output_button = QPushButton("فتح مجلد النتائج")
         self.processing_status_label = QLabel("الحالة: جاهز")
         self.log_area = QTextEdit()
@@ -792,10 +793,11 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.readiness_button)
         layout.addWidget(self.validate_button)
-        layout.addWidget(self.add_and_run_queue_job_button)
         layout.addWidget(self.start_button)
         layout.addWidget(self.open_output_button)
+        layout.addWidget(self.add_and_run_queue_job_button)
         layout.addStretch(1)
+        layout.addWidget(self.direct_cut_button)
         layout.addWidget(self.processing_status_label)
 
         return group
@@ -848,7 +850,8 @@ class MainWindow(QMainWindow):
         self.readiness_button.clicked.connect(self.check_readiness)
         self.smart_validation_button.clicked.connect(self.validate_before_cutting)
         self.validate_button.clicked.connect(self.validate_before_cutting)
-        self.start_button.clicked.connect(self.start_processing)
+        self.start_button.clicked.connect(self.add_current_work_and_start_queue)
+        self.direct_cut_button.clicked.connect(self.start_direct_processing_with_confirmation)
         self.open_output_button.clicked.connect(self.open_output_folder)
 
 
@@ -1230,6 +1233,8 @@ class MainWindow(QMainWindow):
             post_roll_seconds=self.post_padding_input.value(),
             speed=self._collect_video_speed(),
             volume_percent=self._collect_volume_percent(),
+            use_browser_login=self.use_browser_cookies_checkbox.isChecked(),
+            browser_name=self._selected_browser_identifier(),
         )
 
     def _ask_replace_queue_clips_confirmation(self) -> bool:
@@ -1619,7 +1624,7 @@ class MainWindow(QMainWindow):
         guarded_runtime_widgets = [
             self.run_selected_queue_job_button,
             self.run_all_queue_simulation_button,
-            self.start_button,
+            self.direct_cut_button,
         ]
         for widget in guarded_runtime_widgets:
             widget.setEnabled(not running)
@@ -1972,6 +1977,23 @@ class MainWindow(QMainWindow):
             video_speed=video_speed,
             volume_percent=volume_percent,
         )
+
+    def start_direct_processing_with_confirmation(self) -> None:
+        if not self._ask_direct_cut_fallback_confirmation():
+            return
+        self.start_processing()
+
+    def _ask_direct_cut_fallback_confirmation(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("بدء القص المباشر - وضع قديم")
+        dialog.setText(
+            "القص المباشر وضع قديم وقد يجعل الواجهة أقل استجابة. الأفضل استخدام بدء القص العادي."
+        )
+        start_button = dialog.addButton("بدء القص المباشر - وضع قديم", QMessageBox.AcceptRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(start_button)
+        dialog.exec()
+        return dialog.clickedButton() == start_button
 
     def open_output_folder(self) -> None:
         try:
@@ -2639,6 +2661,7 @@ class MainWindow(QMainWindow):
             self.smart_validation_button,
             self.validate_button,
             self.start_button,
+            self.direct_cut_button,
             self.open_output_button,
         ]
         for widget in widgets:
@@ -2646,10 +2669,12 @@ class MainWindow(QMainWindow):
 
         if enabled:
             self._update_source_inputs()
-            self.start_button.setText("بدء القص المباشر")
+            self.start_button.setText("بدء القص")
+            self.direct_cut_button.setText("بدء القص المباشر - وضع قديم")
         else:
             self.processing_status_label.setText("الحالة: جاري المعالجة...")
             self.start_button.setText("جاري المعالجة...")
+            self.direct_cut_button.setText("جاري المعالجة...")
 
         self.processing_status_label.repaint()
         QApplication.processEvents()
