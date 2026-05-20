@@ -5,6 +5,7 @@ import pytest
 
 from src.classification import ClassificationRule
 from src.clip_padding import ClipPadding
+from src.video_speed import AR_INVALID_VIDEO_SPEED
 from src.video_processor import (
     AR_CLIP_PADDING_APPLIED,
     AR_FFMPEG_NOT_FOUND,
@@ -21,6 +22,8 @@ from src.video_processor import (
     REELS_FOLDER_NAME,
     PreparedVideoSource,
     VideoProcessor,
+    VideoProcessingError,
+    VideoSourceRequest,
     VideoSourceError,
     VideoSourceType,
     build_clip_filename,
@@ -306,7 +309,19 @@ def test_cut_clips_speed_one_preserves_existing_ffmpeg_command(tmp_path) -> None
     assert commands[0][commands[0].index("-t") + 1] == "20"
 
 
-def test_cut_clips_applies_video_speed_to_ffmpeg_command(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("speed", "formatted_speed"),
+    [
+        (1.05, "1.05"),
+        (1.10, "1.1"),
+        (1.25, "1.25"),
+    ],
+)
+def test_cut_clips_applies_synced_video_speed_to_ffmpeg_command(
+    tmp_path,
+    speed: float,
+    formatted_speed: str,
+) -> None:
     input_path = tmp_path / "project" / INPUT_VIDEO_NAME
     input_path.parent.mkdir()
     input_path.write_bytes(b"video")
@@ -322,32 +337,28 @@ def test_cut_clips_applies_video_speed_to_ffmpeg_command(tmp_path) -> None:
     def fake_runner(command, **kwargs):
         commands.append(command)
 
-    cut_clips(prepared_video, [clip], messages.append, fake_runner, video_speed=1.05)
+    cut_clips(prepared_video, [clip], messages.append, fake_runner, video_speed=speed)
 
-    assert commands[0][commands[0].index("-filter:v") + 1] == "setpts=PTS/1.05"
-    assert commands[0][commands[0].index("-filter:a") + 1] == "atempo=1.05"
+    assert commands[0][commands[0].index("-filter:v") + 1] == f"setpts=PTS/{formatted_speed}"
+    assert commands[0][commands[0].index("-filter:a") + 1] == f"atempo={formatted_speed}"
     assert AR_VIDEO_SPEED_APPLIED in messages
 
 
-def test_cut_clips_accepts_precise_video_speed(tmp_path) -> None:
-    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
-    input_path.parent.mkdir()
-    input_path.write_bytes(b"video")
-    prepared_video = PreparedVideoSource(
-        source_type=VideoSourceType.LOCAL_FILE,
-        project_output_folder=input_path.parent,
-        input_video_path=input_path,
-    )
-    clip = ClipDefinition(number=1, title="clip", start_seconds=5, end_seconds=25)
-    commands: list[list[str]] = []
+def test_process_project_rejects_invalid_video_speed_before_preparing_source(tmp_path, monkeypatch) -> None:
+    processor = VideoProcessor(output_root=tmp_path)
+    prepared: list[bool] = []
+    monkeypatch.setattr(processor, "prepare_source", lambda *args, **kwargs: prepared.append(True))
 
-    def fake_runner(command, **kwargs):
-        commands.append(command)
+    with pytest.raises(VideoProcessingError) as error:
+        processor.process_project(
+            VideoSourceRequest(VideoSourceType.LOCAL_FILE, "C:/videos/lesson.mp4"),
+            "Project",
+            [],
+            video_speed=0,
+        )
 
-    cut_clips(prepared_video, [clip], runner=fake_runner, video_speed=1.10)
-
-    assert commands[0][commands[0].index("-filter:v") + 1] == "setpts=PTS/1.1"
-    assert commands[0][commands[0].index("-filter:a") + 1] == "atempo=1.1"
+    assert str(error.value) == AR_INVALID_VIDEO_SPEED
+    assert prepared == []
 
 
 def test_cut_clips_clamps_post_padding_to_known_video_duration(tmp_path) -> None:
@@ -662,6 +673,49 @@ def test_cut_clips_applies_multiple_exclusions_with_padding(tmp_path) -> None:
     assert len(commands) == 4
     assert [command[command.index("-ss") + 1] for command in commands[:3]] == ["90", "130", "165"]
     assert [command[command.index("-t") + 1] for command in commands[:3]] == ["30", "30", "40"]
+
+
+def test_cut_clips_speed_preserves_padding_and_multiple_exclusion_commands(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(
+        number=3,
+        title="padded multi speed",
+        start_seconds=100,
+        end_seconds=200,
+        exclusions="00:02:00-00:02:10, 00:02:40-00:02:45",
+    )
+    commands: list[list[str]] = []
+    messages: list[str] = []
+
+    def fake_runner(command, **kwargs):
+        commands.append(command)
+
+    cut_clips(
+        prepared_video,
+        [clip],
+        messages.append,
+        fake_runner,
+        clip_padding=ClipPadding(pre_seconds=10, post_seconds=5),
+        video_speed=1.25,
+    )
+
+    assert len(commands) == 4
+    assert [command[command.index("-ss") + 1] for command in commands[:3]] == ["90", "130", "165"]
+    assert [command[command.index("-t") + 1] for command in commands[:3]] == ["30", "30", "40"]
+    for command in commands[:3]:
+        assert command[command.index("-filter:v") + 1] == "setpts=PTS/1.25"
+        assert command[command.index("-filter:a") + 1] == "atempo=1.25"
+    assert commands[-1][0:6] == ["ffmpeg", "-y", "-f", "concat", "-safe", "0"]
+    assert AR_CLIP_PADDING_APPLIED in messages
+    assert f"{AR_MULTIPLE_EXCLUSIONS_APPLIED} 03" in messages
+    assert AR_VIDEO_SPEED_APPLIED in messages
 
 
 def test_cut_clips_validates_exclusions_against_effective_padded_range(tmp_path) -> None:

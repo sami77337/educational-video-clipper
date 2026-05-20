@@ -196,6 +196,32 @@ def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> 
     app.processEvents()
 
 
+def test_queue_jobs_snapshot_speed_independently_from_later_ui_edits() -> None:
+    app = _app()
+    window = MainWindow()
+    window.project_name_input.setText("مشروع")
+    window.local_file_radio.setChecked(True)
+    window.local_file_input.setText("C:/videos/lesson.mp4")
+    window.video_speed_input.setValue(1.05)
+    window._insert_clip_row(1, "الأول", "00:01:00", "00:02:00")
+
+    window.add_current_work_to_queue()
+    window.video_speed_input.setValue(1.25)
+    window.clips_table.item(0, TITLE_COLUMN).setText("الثاني")
+    window.add_current_work_to_queue()
+    window.video_speed_input.setValue(1.0)
+    window.clips_table.item(0, TITLE_COLUMN).setText("تعديل لاحق")
+
+    assert len(window.job_queue) == 2
+    assert window.job_queue[0].settings.speed == 1.05
+    assert window.job_queue[1].settings.speed == 1.25
+    assert window.job_queue[0].clips[0].title == "الأول"
+    assert window.job_queue[1].clips[0].title == "الثاني"
+
+    window.close()
+    app.processEvents()
+
+
 def test_queue_add_current_work_and_start_snapshots_job_without_direct_processing(monkeypatch) -> None:
     app = _app()
     window = MainWindow()

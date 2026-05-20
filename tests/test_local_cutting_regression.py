@@ -93,6 +93,13 @@ def _assert_media_output(path: Path, *, min_duration: float | None = None, max_d
         assert duration <= max_duration
 
 
+def _probe_duration_if_available(path: Path) -> float | None:
+    try:
+        return probe_media_duration_seconds(path)
+    except (FfmpegRunnerError, FileNotFoundError):
+        return None
+
+
 def test_local_cut_no_padding_no_exclusions_creates_output(sample_video: Path, tmp_path: Path) -> None:
     output_path = tmp_path / "no_padding.mp4"
 
@@ -100,6 +107,39 @@ def test_local_cut_no_padding_no_exclusions_creates_output(sample_video: Path, t
 
     assert result == output_path
     _assert_media_output(output_path, min_duration=2.0, max_duration=5.5)
+
+
+def test_local_cut_video_speed_one_creates_nonempty_output_with_original_duration(
+    sample_video: Path,
+    tmp_path: Path,
+) -> None:
+    output_path = tmp_path / "speed_1_0.mp4"
+
+    result = cut_clip(sample_video, output_path, 0, 4, video_speed=1.0)
+
+    assert result == output_path
+    _assert_media_output(output_path, min_duration=3.0, max_duration=5.5)
+
+
+def test_local_cut_video_speed_ten_percent_shortens_duration_reasonably(
+    sample_video: Path,
+    tmp_path: Path,
+) -> None:
+    speed_one_output = tmp_path / "speed_1_0.mp4"
+    faster_output = tmp_path / "speed_1_10.mp4"
+
+    cut_clip(sample_video, speed_one_output, 0, 4, video_speed=1.0)
+    result = cut_clip(sample_video, faster_output, 0, 4, video_speed=1.10)
+
+    assert result == faster_output
+    _assert_media_output(speed_one_output)
+    _assert_media_output(faster_output)
+
+    speed_one_duration = _probe_duration_if_available(speed_one_output)
+    faster_duration = _probe_duration_if_available(faster_output)
+    if speed_one_duration is not None and faster_duration is not None:
+        assert faster_duration < speed_one_duration
+        assert faster_duration == pytest.approx(speed_one_duration / 1.10, rel=0.2, abs=0.5)
 
 
 def test_local_cut_video_speed_creates_shorter_synced_output(sample_video: Path, tmp_path: Path) -> None:
