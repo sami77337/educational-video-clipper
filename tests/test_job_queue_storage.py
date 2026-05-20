@@ -244,6 +244,27 @@ def test_cookies_and_tokens_are_not_saved() -> None:
     assert "v=abc123" in raw_json
 
 
+def test_job_logs_and_failure_diagnostics_roundtrip_safely() -> None:
+    job = VideoJob(
+        source_type=VideoSourceType.YOUTUBE,
+        source="https://youtube.com/watch?v=abc123&token=secret",
+        title="درس",
+    )
+    job.add_log("download failed https://youtube.com/watch?v=abc123&token=secret")
+    job.mark_failed("failed https://youtube.com/watch?v=abc123&session_id=secret-session", "download")
+    job.output_folder = "C:/output/درس"
+
+    raw_json = queue_jobs_to_json([job])
+    loaded = queue_jobs_from_data(json.loads(raw_json))[0]
+
+    assert "secret" not in raw_json
+    assert loaded.log_messages
+    assert "v=abc123" in loaded.log_messages[0]
+    assert loaded.failure_stage == "download"
+    assert loaded.failure_message
+    assert loaded.output_folder == "C:/output/درس"
+
+
 def test_invalid_json_load_handling(tmp_path) -> None:
     file_path = tmp_path / "queue.json"
     file_path.write_text("{not json", encoding="utf-8")

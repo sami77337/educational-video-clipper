@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -28,6 +29,7 @@ SENSITIVE_QUERY_MARKERS = (
     "credential",
     "key",
 )
+URL_IN_TEXT_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
 VOLATILE_STATUSES = {
     JobStatus.VALIDATING,
     JobStatus.DOWNLOADING,
@@ -102,8 +104,12 @@ def _video_job_to_data(job: VideoJob) -> dict[str, Any]:
         "settings": _settings_to_data(job.settings),
         "high_priority": job.settings.high_priority,
         "status": _safe_status(job.status).value,
-        "warnings": list(job.warnings),
-        "errors": list(job.errors),
+        "warnings": [_strip_sensitive_url_parts(message) for message in job.warnings],
+        "errors": [_strip_sensitive_url_parts(message) for message in job.errors],
+        "log_messages": [_strip_sensitive_url_parts(message) for message in job.log_messages],
+        "failure_message": _strip_sensitive_url_parts(job.failure_message),
+        "failure_stage": job.failure_stage,
+        "output_folder": job.output_folder,
     }
 
 
@@ -121,6 +127,10 @@ def _video_job_from_data(data: Any) -> VideoJob:
         status=_safe_status(JobStatus(data.get("status", JobStatus.DRAFT.value))),
         warnings=_list_of_strings(data.get("warnings")),
         errors=_list_of_strings(data.get("errors")),
+        log_messages=_list_of_strings(data.get("log_messages")),
+        failure_message=str(data.get("failure_message", "")),
+        failure_stage=str(data.get("failure_stage", "")),
+        output_folder=str(data.get("output_folder", "")),
     )
 
 
@@ -132,8 +142,8 @@ def _clip_job_to_data(clip: ClipJob) -> dict[str, Any]:
         "exclusions": clip.exclusions,
         "notes": list(clip.notes),
         "status": _safe_status(clip.status).value,
-        "warnings": list(clip.warnings),
-        "errors": list(clip.errors),
+        "warnings": [_strip_sensitive_url_parts(message) for message in clip.warnings],
+        "errors": [_strip_sensitive_url_parts(message) for message in clip.errors],
     }
 
 
@@ -204,6 +214,10 @@ def _safe_status(status: JobStatus) -> JobStatus:
 
 
 def _strip_sensitive_url_parts(value: str) -> str:
+    return URL_IN_TEXT_PATTERN.sub(lambda match: _strip_single_url(match.group(0)), str(value))
+
+
+def _strip_single_url(value: str) -> str:
     parts = urlsplit(value)
     if not parts.scheme or not parts.netloc:
         return value

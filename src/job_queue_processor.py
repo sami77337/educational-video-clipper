@@ -108,8 +108,11 @@ class SequentialQueueProcessor:
         self.state = QueueProcessorState.RUNNING
         if self._started_job_count > 0:
             self._emit(AR_QUEUE_NEXT_JOB_STARTED)
+            job.add_log(AR_QUEUE_NEXT_JOB_STARTED)
         self._started_job_count += 1
-        self._emit(f"{AR_QUEUE_JOB_PROCESSING}: {job.title}")
+        processing_message = f"{AR_QUEUE_JOB_PROCESSING}: {job.title}"
+        job.add_log(processing_message)
+        self._emit(processing_message)
         return job
 
     def complete_current_job(self, *, success: bool, error: str | None = None) -> None:
@@ -122,13 +125,17 @@ class SequentialQueueProcessor:
         if success:
             job.mark_status(JobStatus.DONE)
             self.summary.completed_jobs += 1
-            self._emit(f"{AR_QUEUE_JOB_DONE}: {job.title}")
+            done_message = f"{AR_QUEUE_JOB_DONE}: {job.title}"
+            job.add_log(done_message)
+            self._emit(done_message)
         else:
             job.mark_status(JobStatus.FAILED)
-            if error:
-                job.errors.append(error)
+            if error and not job.failure_message:
+                job.mark_failed(error, job.failure_stage or "unknown")
             self.summary.failed_jobs += 1
-            self._emit(f"{AR_QUEUE_JOB_FAILED}: {job.title}")
+            failed_message = f"{AR_QUEUE_JOB_FAILED}: {job.title}"
+            job.add_log(failed_message)
+            self._emit(failed_message)
 
         self.current_job = None
         self.state = QueueProcessorState.STOPPING if self.stop_requested else QueueProcessorState.IDLE
@@ -165,7 +172,9 @@ class SequentialQueueProcessor:
             if job.status == JobStatus.VALIDATION_ERROR or job.has_blocking_errors:
                 job.mark_status(JobStatus.SKIPPED)
                 self.summary.skipped_jobs += 1
-                self._emit(f"{AR_QUEUE_JOB_SKIPPED_ERRORS}: {job.title}")
+                skipped_message = f"{AR_QUEUE_JOB_SKIPPED_ERRORS}: {job.title}"
+                job.add_log(skipped_message)
+                self._emit(skipped_message)
                 continue
             if job.can_start:
                 return job
@@ -180,7 +189,9 @@ class SequentialQueueProcessor:
                 if AR_URL_QUEUE_PROCESSING_LATER not in job.warnings:
                     job.warnings.append(AR_URL_QUEUE_PROCESSING_LATER)
                 self.summary.waiting_jobs += 1
-                self._emit(f"{AR_URL_QUEUE_PROCESSING_LATER}: {job.title}")
+                waiting_message = f"{AR_URL_QUEUE_PROCESSING_LATER}: {job.title}"
+                job.add_log(waiting_message)
+                self._emit(waiting_message)
 
     def _emit(self, message: str) -> None:
         self.summary.messages.append(message)

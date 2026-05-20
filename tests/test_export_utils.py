@@ -104,6 +104,26 @@ def test_build_processing_report_includes_required_content(tmp_path) -> None:
     assert "Skipped or failed items:\n- None" in report
 
 
+def test_build_processing_report_omits_zip_section_when_no_zip_files(tmp_path) -> None:
+    timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
+    data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[tmp_path / REELS_FOLDER_NAME],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+    )
+
+    report = build_processing_report(data)
+
+    assert "ZIP files created:" not in report
+
+
 def test_build_processing_report_preserves_zero_padding_no_exclusions_behavior() -> None:
     timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
     data = ProcessingReportData(
@@ -409,12 +429,13 @@ def test_export_results_creates_full_result_folder_structure(tmp_path) -> None:
     assert project_folder.joinpath("input.mp4").is_file()
     assert project_folder.joinpath(REELS_FOLDER_NAME).is_dir()
     assert project_folder.joinpath(BENEFITS_FOLDER_NAME).is_dir()
-    assert project_folder.joinpath(ZIP_FOLDER_NAME, REELS_ZIP_NAME).is_file()
-    assert project_folder.joinpath(ZIP_FOLDER_NAME, BENEFITS_ZIP_NAME).is_file()
-    assert project_folder.joinpath(ZIP_FOLDER_NAME, COMPLETE_RESULT_ZIP_NAME).is_file()
+    assert not project_folder.joinpath(ZIP_FOLDER_NAME).exists()
+    assert artifacts.zip_files == []
     assert project_folder.joinpath(REPORT_FILE_NAME).is_file()
     assert artifacts.report_path == project_folder / REPORT_FILE_NAME
-    assert "الاستثناءات: 00:01:00-00:01:10" in artifacts.report_path.read_text(encoding="utf-8")
+    report = artifacts.report_path.read_text(encoding="utf-8")
+    assert "الاستثناءات: 00:01:00-00:01:10" in report
+    assert "ZIP files created:" not in report
 
 
 def test_validate_output_folder_path_accepts_existing_folder(tmp_path) -> None:

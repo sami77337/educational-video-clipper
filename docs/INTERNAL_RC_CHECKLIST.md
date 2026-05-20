@@ -42,7 +42,7 @@ Queue actions must remain simulation-only until a later implementation phase.
 - Process a YouTube URL using the intended browser-cookie setting.
 - Import clips from Excel and CSV files with Arabic titles.
 - Paste a real WhatsApp/Telegram clip request and review the preview before applying.
-- Confirm output folders, ZIP files, and `تقرير-القص.txt` are created as expected.
+- Confirm output folders and `تقرير-القص.txt` are created as expected; ZIP files are not created by default.
 - Confirm Arabic filenames open normally on the target Windows machine.
 - Confirm queue actions do not start real download/cutting.
 

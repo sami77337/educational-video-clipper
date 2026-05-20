@@ -29,7 +29,6 @@ from src.export_utils import (
     ProcessingReportData,
     ProcessingReportClipData,
     REELS_FOLDER_NAME,
-    create_result_zips,
     ensure_result_folders,
     write_processing_report,
 )
@@ -350,7 +349,7 @@ class VideoProcessor:
         video_speed: int | float = DEFAULT_VIDEO_SPEED,
         volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
     ) -> ProcessingResult:
-        """Prepare, cut, sort, ZIP, and report one project."""
+        """Prepare, cut, sort, and report one project."""
 
         started_at = datetime.now().astimezone()
         active_rules = self._active_classification_rules(classification_rules)
@@ -422,7 +421,7 @@ class VideoProcessor:
         video_speed: int | float = DEFAULT_VIDEO_SPEED,
         volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
     ) -> ExportArtifacts:
-        """Create ZIP files and a final report after successful clipping."""
+        """Create result folders and a final report after successful clipping."""
 
         project_folder = Path(project_output_folder)
         active_rules = self._active_classification_rules(classification_rules)
@@ -431,7 +430,7 @@ class VideoProcessor:
         active_volume = normalize_volume_percent(volume_percent)
         folder_names = classification_folder_names(active_rules)
         output_folders = list(ensure_result_folders(project_folder, folder_names))
-        zip_result = create_result_zips(project_folder, progress_callback, folder_names)
+        zip_files: list[Path] = []
         clip_counts = count_results_by_folder(cut_results, folder_names)
         report_data = ProcessingReportData(
             project_name=project_name,
@@ -440,7 +439,7 @@ class VideoProcessor:
             reels_count=clip_counts.get(REELS_FOLDER_NAME, 0),
             benefits_count=clip_counts.get(BENEFITS_FOLDER_NAME, 0),
             output_folders=output_folders,
-            zip_files=zip_result.zip_files,
+            zip_files=zip_files,
             started_at=started_at,
             ended_at=ended_at or datetime.now().astimezone(),
             skipped_or_failed_items=[],
@@ -456,8 +455,8 @@ class VideoProcessor:
         _emit(progress_callback, AR_REPORT_CREATED)
 
         return ExportArtifacts(
-            zip_folder=zip_result.zip_folder,
-            zip_files=zip_result.zip_files,
+            zip_folder=project_folder / "ZIP",
+            zip_files=zip_files,
             report_path=report_path,
         )
 
