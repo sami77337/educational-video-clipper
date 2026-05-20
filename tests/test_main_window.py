@@ -124,6 +124,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.import_excel_button.text() == "استيراد من Excel"
     assert window.smart_paste_button.text() == "استيراد ذكي"
     assert window.parse_message_button.text() == "تحويل بسيط إلى جدول"
+    assert window.parse_message_button.parent() is None
     assert window.delete_row_button.text() == "حذف المقطع المحدد"
     assert window.preview_clip_start_button.text() == "معاينة بداية المقطع"
     assert window.preview_clip_end_button.text() == "معاينة نهاية المقطع"
@@ -1433,25 +1434,72 @@ def test_queue_processing_keeps_preparation_ui_available_while_running() -> None
     assert window.browse_button.isEnabled()
     assert window.paste_message_input.isEnabled()
     assert window.smart_paste_button.isEnabled()
+    assert window.parse_message_button.parent() is None
     assert window.clips_table.isEnabled()
     assert window.add_row_button.isEnabled()
+    assert window.delete_row_button.isEnabled()
+    assert window.clear_table_button.isEnabled()
+    assert window.import_excel_button.isEnabled()
+    assert window.classification_rules_table.isEnabled()
+    assert window.pre_padding_input.isEnabled()
+    assert window.post_padding_input.isEnabled()
+    assert window.video_speed_input.isEnabled()
+    assert window.volume_input.isEnabled()
     assert window.add_current_work_to_queue_button.isEnabled()
     assert window.add_queue_local_video_button.isEnabled()
     assert window.add_queue_url_button.isEnabled()
     assert window.add_and_run_queue_job_button.isEnabled()
     assert window.queue_table.isEnabled()
+    assert window.log_area.isEnabled()
     assert not window.start_button.isEnabled()
     assert not window.start_queue_processing_button.isEnabled()
     assert not window.run_selected_queue_job_button.isEnabled()
-    assert not window.validate_all_queue_jobs_button.isEnabled()
-    assert not window.delete_queue_job_button.isEnabled()
-    assert not window.clear_queue_button.isEnabled()
+    assert window.validate_queue_job_button.isEnabled()
+    assert window.validate_all_queue_jobs_button.isEnabled()
+    assert window.save_queue_clips_button.isEnabled()
+    assert window.load_queue_clips_button.isEnabled()
+    assert window.load_queue_job_workspace_button.isEnabled()
+    assert window.save_queue_state_button.isEnabled()
+    assert window.load_queue_state_button.isEnabled()
+    assert window.delete_queue_job_button.isEnabled()
+    assert window.clear_queue_button.isEnabled()
     assert window.stop_queue_after_current_button.isEnabled()
+    enabled_sections = {
+        group.title()
+        for group in window.findChildren(QGroupBox)
+        if group.title()
+    }
+    assert {
+        "مصدر الفيديو",
+        "الصق الرسالة هنا",
+        "جدول المقاطع",
+        "إعدادات القص",
+        "قائمة الانتظار",
+        "سجل الحالة",
+    }.issubset(enabled_sections)
+    for group in window.findChildren(QGroupBox):
+        if group.title() in enabled_sections:
+            assert group.isEnabled()
 
     window._set_queue_processing_controls_running(False)
     assert window.start_button.isEnabled()
     assert window.start_queue_processing_button.isEnabled()
     assert not window.stop_queue_after_current_button.isEnabled()
+
+    window.close()
+    app.processEvents()
+
+
+def test_simple_conversion_button_is_hidden_from_main_workflow() -> None:
+    app = _app()
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    assert window.smart_paste_button.isVisible()
+    assert window.smart_paste_button.isEnabled()
+    assert not window.parse_message_button.isVisible()
+    assert window.parse_message_button.parent() is None
 
     window.close()
     app.processEvents()

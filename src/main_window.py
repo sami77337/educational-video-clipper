@@ -701,7 +701,6 @@ class MainWindow(QMainWindow):
         button_row = QHBoxLayout()
         button_row.addStretch(1)
         button_row.addWidget(self.smart_paste_button)
-        button_row.addWidget(self.parse_message_button)
 
         layout.addWidget(self.paste_message_input)
         layout.addLayout(button_row)
@@ -1108,7 +1107,7 @@ class MainWindow(QMainWindow):
                     item.setCheckState(Qt.Checked if job.settings.high_priority else Qt.Unchecked)
                 finally:
                     self.queue_table.blockSignals(False)
-                self._append_log("المهمة قيد المعالجة ولا يمكن تعديلها الآن")
+                self._append_log("لا يمكن تعديل المهمة الجارية")
                 return
             job.settings.high_priority = item.checkState() == Qt.Checked
 
@@ -1119,6 +1118,10 @@ class MainWindow(QMainWindow):
             return
 
         job = self.job_queue[row]
+        if self._queue_job_is_running(job):
+            self._write_log("لا يمكن تعديل المهمة الجارية")
+            return
+
         result = validate_queue_job(job)
         apply_queue_validation_result(job, result)
         self._refresh_queue_job_row(row)
@@ -1134,6 +1137,11 @@ class MainWindow(QMainWindow):
         error_count = 0
         error_jobs: list[str] = []
         for row, job in enumerate(self.job_queue):
+            if self._queue_job_is_running(job):
+                warning_count += 1
+                self._refresh_queue_job_row(row)
+                continue
+
             result = validate_queue_job(job)
             apply_queue_validation_result(job, result)
             self._refresh_queue_job_row(row)
@@ -1191,7 +1199,7 @@ class MainWindow(QMainWindow):
 
         job = self.job_queue[row]
         if self._queue_job_is_running(job):
-            self._write_log("المهمة قيد المعالجة ولا يمكن تعديلها الآن")
+            self._write_log("لا يمكن تعديل المهمة الجارية")
             return
 
         if job.clips and not self._ask_replace_queue_clips_confirmation():
@@ -1379,6 +1387,10 @@ class MainWindow(QMainWindow):
         self._write_log("تم حفظ قائمة الانتظار\nلم يتم بدء أي قص أو تحميل")
 
     def load_queue_state(self) -> None:
+        if any(self._queue_job_is_running(job) for job in self.job_queue):
+            self._write_log("لا يمكن تعديل المهمة الجارية")
+            return
+
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "تحميل قائمة انتظار",
@@ -1604,19 +1616,12 @@ class MainWindow(QMainWindow):
         self.start_queue_processing()
 
     def _set_queue_processing_controls_running(self, running: bool) -> None:
-        snapshot_sensitive_widgets = [
+        guarded_runtime_widgets = [
             self.run_selected_queue_job_button,
             self.run_all_queue_simulation_button,
-            self.validate_queue_job_button,
-            self.validate_all_queue_jobs_button,
-            self.save_queue_clips_button,
-            self.save_queue_state_button,
-            self.load_queue_state_button,
-            self.delete_queue_job_button,
-            self.clear_queue_button,
             self.start_button,
         ]
-        for widget in snapshot_sensitive_widgets:
+        for widget in guarded_runtime_widgets:
             widget.setEnabled(not running)
 
         self.start_queue_processing_button.setEnabled(not running)
@@ -1637,6 +1642,7 @@ class MainWindow(QMainWindow):
             if not 0 <= row_index < len(self.job_queue):
                 continue
             if self._queue_job_is_running(self.job_queue[row_index]):
+                self._append_log("لا يمكن تعديل المهمة الجارية")
                 continue
             del self.job_queue[row_index]
             self.queue_table.removeRow(row_index)
@@ -1653,7 +1659,7 @@ class MainWindow(QMainWindow):
             return
 
         if any(self._queue_job_is_running(job) for job in self.job_queue):
-            self._write_log("لا يمكن مسح قائمة الانتظار أثناء معالجة مهمة")
+            self._write_log("لا يمكن تعديل المهمة الجارية")
             return
 
         if not self._ask_clear_queue_confirmation():
