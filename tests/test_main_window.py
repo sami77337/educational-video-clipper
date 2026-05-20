@@ -7,11 +7,12 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt, QThread
-from PySide6.QtWidgets import QApplication, QDialog, QGroupBox, QScrollArea
+from PySide6.QtWidgets import QApplication, QDialog, QGroupBox, QPushButton, QScrollArea
 
 from src.main_window import (
     END_COLUMN,
     EXCLUSIONS_COLUMN,
+    QUEUE_ACTION_COLUMN,
     QUEUE_CLIP_COUNT_COLUMN,
     QUEUE_HIGH_PRIORITY_COLUMN,
     QUEUE_SOURCE_COLUMN,
@@ -104,6 +105,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.readiness_button.text() == "فحص جاهزية البرنامج"
     assert window.smart_validation_button.text() == "فحص ذكي قبل القص"
     assert window.start_button.text() == "بدء القص"
+    assert window.new_work_button.text() == "عمل جديد"
     assert window.direct_cut_button.text() == "بدء القص المباشر - وضع قديم"
     assert window.open_output_button.text() == "فتح مجلد النتائج"
     assert window.pre_padding_input.value() == 0
@@ -135,6 +137,12 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.parse_message_button.text() == "تحويل بسيط إلى جدول"
     assert window.parse_message_button.parent() is None
     assert not window.parse_message_button.isVisible()
+    visible_button_texts = [
+        button.text()
+        for button in window.findChildren(QPushButton)
+        if button.isVisible()
+    ]
+    assert not any("ZIP" in text or "ضغط" in text for text in visible_button_texts)
     assert window.delete_row_button.text() == "حذف المقطع المحدد"
     assert window.preview_clip_start_button.text() == "معاينة بداية المقطع"
     assert window.preview_clip_end_button.text() == "معاينة نهاية المقطع"
@@ -144,6 +152,10 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
         for column in range(window.queue_table.columnCount())
     ] == ["المصدر", "العنوان", "عدد المقاطع", "الحالة", "أولوية عالية", "الإجراء"]
     assert window.queue_table.rowCount() == 0
+    assert window.queue_job_details_label.text() == "لم يتم تحديد مهمة"
+    assert window.copy_queue_job_details_button.text() == "نسخ تفاصيل المهمة"
+    assert window.show_global_log_button.text() == "عرض السجل العام"
+    assert window.log_header_label.text() == "سجل عام"
     assert window.add_current_work_to_queue_button.text() == "إضافة العمل الحالي إلى قائمة الانتظار"
     assert window.add_queue_local_video_button.text() == "إضافة فيديو محلي"
     assert window.add_queue_url_button.text() == "إضافة رابط"
@@ -166,6 +178,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.clear_queue_button.text() == "مسح القائمة"
     for button in (
         window.start_button,
+        window.new_work_button,
         window.validate_button,
         window.open_output_button,
     ):
@@ -223,6 +236,111 @@ def test_queue_add_current_local_work_with_clip_rows() -> None:
     assert window._processing_thread is None
     assert window._processing_worker is None
 
+    window.close()
+    app.processEvents()
+
+
+def test_selecting_queue_job_shows_job_log_and_details_without_loading_editor() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_job(
+        QueueVideoSourceType.YOUTUBE,
+        "https://youtube.com/watch?v=abc123&token=secret",
+        "درس",
+        clips=[ClipJob(title="مقطع", start="00:01:00", end="00:02:00", exclusions="00:01:20-00:01:30")],
+        status=JobStatus.QUEUED,
+    )
+    job.settings.pre_roll_seconds = 1.0
+    job.settings.post_roll_seconds = 2.0
+    job.settings.speed_adjustment_enabled = True
+    job.settings.speed = 1.10
+    job.settings.volume_adjustment_enabled = True
+    job.settings.volume_percent = 150
+    job.settings.use_browser_login = True
+    job.settings.browser_name = "firefox"
+    job.add_log("رسالة خاصة بالمهمة")
+    window.project_name_input.setText("المحرر الحالي")
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    app.processEvents()
+
+    assert window.log_header_label.text() == "سجل المهمة المحددة"
+    assert "رسالة خاصة بالمهمة" in window.log_area.toPlainText()
+    details = window.queue_job_details_label.text()
+    assert "تفاصيل" not in details
+    assert "درس" in details
+    assert "00:01:20-00:01:30" in window.queue_job_clips_table.item(0, EXCLUSIONS_COLUMN).text()
+    assert "1.10x" in details
+    assert "150%" in details
+    assert "firefox" in details
+    assert "secret" not in details
+    assert window.project_name_input.text() == "المحرر الحالي"
+    assert window.clips_table.rowCount() == 0
+
+    window.show_global_log()
+
+    assert window.log_header_label.text() == "سجل عام"
+
+    window.close()
+    app.processEvents()
+
+
+def test_failed_queue_job_details_and_row_show_failure_reason() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_url_job("https://youtu.be/abc123", title="يفشل")
+    job.mark_status(JobStatus.FAILED)
+    job.mark_failed("فشل تحميل أو معالجة رابط يوتيوب: sign in required", "download")
+    window._refresh_queue_job_row(0)
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    app.processEvents()
+
+    assert "سبب الفشل" in window.queue_table.item(0, QUEUE_ACTION_COLUMN).text()
+    assert "سبب الفشل" in window.queue_job_details_label.text()
+    assert "download" in window.queue_job_details_label.text()
+    assert "فشل تحميل أو معالجة رابط يوتيوب" in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
+def test_new_work_resets_workspace_without_clearing_queue_or_running_job(monkeypatch) -> None:
+    app = _app()
+    window = MainWindow()
+    window._add_queue_url_job("https://youtu.be/abc123", title="موجودة")
+    window._queue_processing_thread = object()
+    window.local_file_radio.setChecked(True)
+    window.local_file_input.setText("C:/videos/current.mp4")
+    window.project_name_input.setText("عمل حالي")
+    window.paste_message_input.setPlainText("رسالة")
+    window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00", "00:01:20-00:01:30")
+    window.pre_padding_input.setValue(2)
+    window.post_padding_input.setValue(3)
+    window.video_speed_enabled_checkbox.setChecked(True)
+    window.video_speed_input.setValue(1.10)
+    window.volume_enabled_checkbox.setChecked(True)
+    window.volume_input.setValue(150)
+    monkeypatch.setattr(window, "_ask_new_work_confirmation", lambda: True)
+
+    window.start_new_work()
+
+    assert len(window.job_queue) == 1
+    assert window._queue_processing_thread is not None
+    assert window.youtube_input.text() == ""
+    assert window.local_file_input.text() == ""
+    assert window.project_name_input.text() == ""
+    assert window.paste_message_input.toPlainText() == ""
+    assert window.clips_table.rowCount() == 0
+    assert window.pre_padding_input.value() == 0
+    assert window.post_padding_input.value() == 0
+    assert not window.video_speed_enabled_checkbox.isChecked()
+    assert window.video_speed_input.value() == 1.0
+    assert not window.volume_enabled_checkbox.isChecked()
+    assert window.volume_input.value() == 100
+    assert "المهمة الجارية مستمرة في الخلفية" in window.log_area.toPlainText()
+
+    window._queue_processing_thread = None
     window.close()
     app.processEvents()
 
@@ -1853,6 +1971,7 @@ def test_queue_processing_keeps_preparation_ui_available_while_running() -> None
     assert window.add_queue_url_button.isEnabled()
     assert window.add_and_run_queue_job_button.isEnabled()
     assert window.start_button.isEnabled()
+    assert window.new_work_button.isEnabled()
     assert window.queue_table.isEnabled()
     assert window.log_area.isEnabled()
     assert not window.direct_cut_button.isEnabled()
@@ -2234,6 +2353,7 @@ def test_queue_processing_worker_marks_youtube_failure_clearly() -> None:
     assert job.status == JobStatus.FAILED
     assert len(job.errors) == 1
     assert "فشل تحميل أو معالجة رابط يوتيوب" in job.errors[0]
+    assert job.failure_stage == "download"
 
 
 def test_queue_processing_worker_marks_failed_job_without_running_next() -> None:
@@ -2260,7 +2380,9 @@ def test_queue_processing_worker_marks_failed_job_without_running_next() -> None
     worker.run()
 
     assert first.status == JobStatus.FAILED
-    assert first.errors == ["failed cut"]
+    assert len(first.errors) == 1
+    assert "فشل قص المقاطع" in first.errors[0]
+    assert first.failure_stage == "cutting"
     assert second.status == JobStatus.QUEUED
 
 

@@ -184,11 +184,9 @@ def build_processing_report(data: ProcessingReportData) -> str:
             lines.extend(_format_clip_detail(clip))
     lines.append("Output folders:")
     lines.extend(f"- {folder}" for folder in data.output_folders)
-    lines.append("ZIP files created:")
     if data.zip_files:
+        lines.append("ZIP files created:")
         lines.extend(f"- {zip_file}" for zip_file in data.zip_files)
-    else:
-        lines.append("- None")
 
     lines.extend(
         [

@@ -45,7 +45,7 @@ Confirmed forbidden source/developer files are not present in the package:
 - Verify Smart Paste preview with a real team message.
 - Verify Excel/CSV import with Arabic titles.
 - Verify pre/post padding and multiple exclusions on real clips.
-- Verify ZIP output and final report files after a complete processing run.
+- Verify output folders and final report files after a complete processing run; ZIP output is not created by default.
 - Confirm queue actions remain simulation-only until real queue processing is intentionally implemented.
 
 ## Notes

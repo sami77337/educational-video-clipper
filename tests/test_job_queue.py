@@ -150,6 +150,18 @@ def test_mark_status_accepts_strings_and_enum_values() -> None:
     assert clip.status == JobStatus.CUTTING
 
 
+def test_video_job_stores_logs_and_failure_diagnostics() -> None:
+    job = VideoJob(source_type="youtube", source="https://youtu.be/example", title="درس")
+
+    job.add_log("تمت إضافة المهمة\nجاري المعالجة")
+    job.mark_failed("فشل تحميل أو معالجة رابط يوتيوب", "download")
+
+    assert job.log_messages[:2] == ["تمت إضافة المهمة", "جاري المعالجة"]
+    assert job.failure_message == "فشل تحميل أو معالجة رابط يوتيوب"
+    assert job.failure_stage == "download"
+    assert job.errors == ["فشل تحميل أو معالجة رابط يوتيوب"]
+
+
 def test_invalid_status_is_rejected() -> None:
     with pytest.raises(ValueError):
         ClipJob(title="مقطع", start="00:00:01", end="00:00:10", status="unknown")

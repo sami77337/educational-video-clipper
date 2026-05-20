@@ -103,6 +103,10 @@ class VideoJob:
     status: JobStatus = JobStatus.DRAFT
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    log_messages: list[str] = field(default_factory=list)
+    failure_message: str = ""
+    failure_stage: str = ""
+    output_folder: str = ""
 
     def __post_init__(self) -> None:
         self.source_type = VideoSourceType(self.source_type)
@@ -141,3 +145,21 @@ class VideoJob:
 
     def add_clip(self, clip: ClipJob) -> None:
         self.clips.append(clip)
+
+    def add_log(self, message: str) -> None:
+        """Store one or more human-readable messages for this job."""
+
+        for line in str(message).splitlines() or [str(message)]:
+            clean_line = line.strip()
+            if clean_line:
+                self.log_messages.append(clean_line)
+
+    def mark_failed(self, message: str, stage: str = "unknown") -> None:
+        """Store failure diagnostics without changing queue execution semantics."""
+
+        self.failure_message = str(message).strip()
+        self.failure_stage = str(stage or "unknown").strip() or "unknown"
+        if self.failure_message and self.failure_message not in self.errors:
+            self.errors.append(self.failure_message)
+        if self.failure_message:
+            self.add_log(self.failure_message)

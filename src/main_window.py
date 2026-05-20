@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import re
 import sys
 from urllib.parse import parse_qs, urlsplit
 
@@ -138,6 +139,21 @@ SMART_PASTE_REPLACE_LABEL = "استبدال البيانات الحالية"
 SMART_PASTE_APPEND_LABEL = "إضافة كمقاطع جديدة"
 SMART_PASTE_QUEUE_LABEL = "إضافة كمهمة جديدة في قائمة الانتظار"
 SMART_PASTE_CANCEL_LABEL = "إلغاء"
+URL_IN_LOG_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+
+
+def safe_log_text(message: str) -> str:
+    """Remove sensitive URL query details from runtime logs."""
+
+    def replace_url(match: re.Match[str]) -> str:
+        url = match.group(0)
+        parts = urlsplit(url)
+        if not parts.scheme or not parts.netloc:
+            return url
+        query_suffix = "?…" if parts.query else ""
+        return f"{parts.scheme}://{parts.netloc}{parts.path}{query_suffix}"
+
+    return URL_IN_LOG_PATTERN.sub(replace_url, str(message))
 
 
 class IntentionalDoubleSpinBox(QDoubleSpinBox):
@@ -390,6 +406,7 @@ class QueueProcessingWorker(QObject):
 
         source_request = self._source_request_from_job(job)
         progress_callback = self._progress_callback_for_job(job)
+        job.add_log("جاري معالجة المهمة في الخلفية")
         try:
             result = self.video_processor.process_project(
                 source_request,
@@ -405,10 +422,21 @@ class QueueProcessingWorker(QObject):
                 volume_percent=self._effective_job_volume_percent(job),
             )
         except Exception as error:
+            stage = job.failure_stage or ("download" if job.source_type == QueueVideoSourceType.YOUTUBE else "cutting")
+            safe_error = safe_log_text(str(error))
             if job.source_type == QueueVideoSourceType.YOUTUBE:
-                raise VideoProcessingError(f"فشل تحميل أو معالجة رابط يوتيوب: {error}") from error
+                message = f"فشل تحميل أو معالجة رابط يوتيوب: {safe_error}"
+                job.mark_failed(message, stage)
+                self.progress.emit(message)
+                raise VideoProcessingError(message) from error
+            message = f"فشل قص المقاطع: {safe_error}"
+            job.mark_failed(message, stage)
+            self.progress.emit(message)
             raise
-        self.progress.emit(f"تم حفظ النتائج داخل: {result.project_output_folder}")
+        job.output_folder = str(result.project_output_folder)
+        success_message = f"تم حفظ النتائج داخل: {result.project_output_folder}"
+        job.add_log(success_message)
+        self.progress.emit(success_message)
 
         row = self._job_row(job)
         if row is not None:
@@ -433,17 +461,32 @@ class QueueProcessingWorker(QObject):
         raise VideoProcessingError(AR_URL_QUEUE_PROCESSING_LATER)
 
     def _progress_callback_for_job(self, job: VideoJob):
-        if job.source_type != QueueVideoSourceType.YOUTUBE:
-            return self.progress.emit
+        def emit_job_progress(message: str) -> None:
+            clean_message = safe_log_text(str(message).strip())
+            if not clean_message:
+                return
+            job.add_log(clean_message)
+            if "تنزيل" in clean_message or "تحميل" in clean_message:
+                job.failure_stage = "download"
+            if "قص" in clean_message or "تم تنزيل الفيديو" in clean_message:
+                job.failure_stage = "cutting"
+            self.progress.emit(clean_message)
 
+        if job.source_type != QueueVideoSourceType.YOUTUBE:
+            return emit_job_progress
+
+        job.failure_stage = "download"
+        job.add_log("جاري تحميل الفيديو في الخلفية")
         self.progress.emit("جاري تحميل الفيديو في الخلفية")
         cutting_message_sent = False
 
         def emit_progress(message: str) -> None:
             nonlocal cutting_message_sent
-            self.progress.emit(message)
+            emit_job_progress(message)
             if not cutting_message_sent and "تم تنزيل الفيديو" in message:
                 cutting_message_sent = True
+                job.failure_stage = "cutting"
+                job.add_log("جاري قص المقاطع في الخلفية")
                 self.progress.emit("جاري قص المقاطع في الخلفية")
 
         return emit_progress
@@ -522,6 +565,9 @@ class MainWindow(QMainWindow):
         self.clear_queue_button = QPushButton("مسح القائمة")
         self.queue_selected_job_details_label = QLabel("اختر مهمة من قائمة الانتظار لعرض تفاصيلها.")
         self.queue_edit_status_label = QLabel("")
+        self.copy_queue_job_details_button = QPushButton("نسخ تفاصيل المهمة")
+        self.queue_job_details_label = QLabel("لم يتم تحديد مهمة")
+        self.queue_job_clips_table = QTableWidget(0, 5)
         self.queue_advanced_toggle_button = QPushButton("إدارة قائمة الانتظار المتقدمة")
         self.queue_advanced_group = QGroupBox("إدارة قائمة الانتظار المتقدمة")
         self.queue_advanced_controls_widget = QWidget()
@@ -551,11 +597,16 @@ class MainWindow(QMainWindow):
         self.smart_validation_button = QPushButton("فحص ذكي قبل القص")
         self.validate_button = QPushButton("فحص ذكي قبل القص")
         self.start_button = QPushButton("بدء القص")
+        self.new_work_button = QPushButton("عمل جديد")
         self.direct_cut_button = QPushButton("بدء القص المباشر - وضع قديم")
         self.open_output_button = QPushButton("فتح مجلد النتائج")
         self.processing_status_label = QLabel("الحالة: جاهز")
+        self.show_global_log_button = QPushButton("عرض السجل العام")
+        self.log_header_label = QLabel("سجل عام")
         self.log_area = QTextEdit()
         self.scroll_area = QScrollArea()
+        self._global_log_messages: list[str] = []
+        self._active_log_job: VideoJob | None = None
 
         self._apply_branding()
         self.setCentralWidget(self._build_scrollable_ui())
@@ -564,6 +615,8 @@ class MainWindow(QMainWindow):
         self._update_source_inputs()
         self._update_speed_volume_controls()
         self._update_queue_edit_controls()
+        self._update_selected_queue_job_details()
+        self.show_global_log()
         self.open_output_button.setEnabled(False)
         self.stop_queue_after_current_button.setEnabled(False)
 
@@ -713,6 +766,28 @@ class MainWindow(QMainWindow):
 
         self.queue_selected_job_details_label.setWordWrap(True)
         self.queue_edit_status_label.setWordWrap(True)
+        self.queue_job_details_label.setWordWrap(True)
+        self.queue_job_clips_table.setHorizontalHeaderLabels(["الرقم", "العنوان", "البداية", "النهاية", "الاستثناءات"])
+        self.queue_job_clips_table.verticalHeader().setVisible(False)
+        self.queue_job_clips_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.queue_job_clips_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.queue_job_clips_table.setAlternatingRowColors(True)
+        self.queue_job_clips_table.setMinimumHeight(100)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(NUMBER_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(TITLE_COLUMN, QHeaderView.Stretch)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(START_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(END_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(EXCLUSIONS_COLUMN, QHeaderView.Stretch)
+
+        details_group = QGroupBox("تفاصيل المهمة المحددة")
+        details_layout = QVBoxLayout(details_group)
+        details_layout.addWidget(self.queue_job_details_label)
+        details_layout.addWidget(QLabel("مقاطع المهمة"))
+        details_layout.addWidget(self.queue_job_clips_table)
+        details_button_row = QHBoxLayout()
+        details_button_row.addWidget(self.copy_queue_job_details_button)
+        details_button_row.addStretch(1)
+        details_layout.addLayout(details_button_row)
 
         edit_buttons = QHBoxLayout()
         edit_buttons.addWidget(self.load_queue_job_workspace_button)
@@ -753,6 +828,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.queue_table)
         layout.addWidget(self.queue_selected_job_details_label)
         layout.addWidget(self.queue_edit_status_label)
+        layout.addWidget(details_group)
         layout.addLayout(edit_buttons)
         layout.addWidget(self.queue_advanced_toggle_button)
         layout.addWidget(self.queue_advanced_group)
@@ -947,6 +1023,7 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(group)
 
         layout.addWidget(self.start_button)
+        layout.addWidget(self.new_work_button)
         layout.addWidget(self.validate_button)
         layout.addWidget(self.open_output_button)
         layout.addStretch(1)
@@ -961,6 +1038,11 @@ class MainWindow(QMainWindow):
 
         self.log_area.setReadOnly(True)
         self.log_area.setPlaceholderText("ستظهر رسائل الفحص والتقدم هنا.")
+        header_row = QHBoxLayout()
+        header_row.addWidget(self.log_header_label)
+        header_row.addStretch(1)
+        header_row.addWidget(self.show_global_log_button)
+        layout.addLayout(header_row)
         layout.addWidget(self.log_area)
 
         return group
@@ -1006,10 +1088,13 @@ class MainWindow(QMainWindow):
         self.delete_queue_job_button.clicked.connect(self.delete_selected_queue_job)
         self.clear_queue_button.clicked.connect(self.clear_queue)
         self.queue_table.itemChanged.connect(self._sync_queue_high_priority)
-        self.queue_table.itemSelectionChanged.connect(self._update_queue_edit_controls)
-        self.queue_table.currentCellChanged.connect(self._update_queue_edit_controls)
+        self.queue_table.itemSelectionChanged.connect(self._handle_queue_selection_changed)
+        self.queue_table.currentCellChanged.connect(self._handle_queue_selection_changed)
         self.smart_paste_button.clicked.connect(self.import_smart_paste_message)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
+        self.show_global_log_button.clicked.connect(self.show_global_log)
+        self.copy_queue_job_details_button.clicked.connect(self.copy_selected_queue_job_details)
+        self.new_work_button.clicked.connect(self.start_new_work)
         self.readiness_button.clicked.connect(self.check_readiness)
         self.smart_validation_button.clicked.connect(self.validate_before_cutting)
         self.validate_button.clicked.connect(self.validate_before_cutting)
@@ -1103,6 +1188,9 @@ class MainWindow(QMainWindow):
             settings=settings or JobSettings(),
             status=status,
         )
+        job.add_log(AR_QUEUE_JOB_ADDED)
+        if job.source_type == QueueVideoSourceType.YOUTUBE:
+            job.add_log("تم إضافة رابط يوتيوب إلى قائمة الانتظار")
         self.job_queue.append(job)
         self._insert_queue_job_row(job)
         return job
@@ -1309,6 +1397,9 @@ class MainWindow(QMainWindow):
         return labels[status]
 
     def _queue_settings_summary(self, job: VideoJob) -> str:
+        if job.status == JobStatus.FAILED and job.failure_message:
+            return f"سبب الفشل: {self._short_queue_text(job.failure_message)}"
+
         speed_state = "مفعّلة" if job.settings.speed_adjustment_enabled else "غير مفعّلة"
         speed_value = job.settings.speed if job.settings.speed_adjustment_enabled else DEFAULT_VIDEO_SPEED
         volume_state = "مفعّل" if job.settings.volume_adjustment_enabled else "غير مفعّل"
@@ -1317,6 +1408,12 @@ class MainWindow(QMainWindow):
             f"السرعة: {speed_state} ({speed_value:.2f}x) | "
             f"الصوت: {volume_state} ({volume_value}%)"
         )
+
+    def _short_queue_text(self, text: str, limit: int = 90) -> str:
+        clean_text = " ".join(str(text).split())
+        if len(clean_text) <= limit:
+            return clean_text
+        return f"{clean_text[: limit - 1]}…"
 
     def _queue_job_can_be_edited(self, job: VideoJob) -> bool:
         return job.status in QUEUE_EDITABLE_STATUSES and not self._queue_job_is_running(job)
@@ -1368,6 +1465,102 @@ class MainWindow(QMainWindow):
         else:
             self.queue_edit_status_label.setText("")
 
+    def _handle_queue_selection_changed(self, *_args) -> None:
+        self._update_queue_edit_controls()
+        self._update_selected_queue_job_details()
+        self._show_selected_queue_job_log()
+
+    def _selected_queue_job(self) -> VideoJob | None:
+        row = self._selected_queue_row()
+        if row is None or not 0 <= row < len(self.job_queue):
+            return None
+        return self.job_queue[row]
+
+    def _update_selected_queue_job_details(self) -> None:
+        job = self._selected_queue_job()
+        if job is None:
+            self.queue_job_details_label.setText("لم يتم تحديد مهمة")
+            self.queue_job_clips_table.setRowCount(0)
+            self.copy_queue_job_details_button.setEnabled(False)
+            return
+
+        self.copy_queue_job_details_button.setEnabled(True)
+        self.queue_job_details_label.setText(self._format_queue_job_details(job))
+        self._populate_queue_job_clips_preview(job)
+
+    def _format_queue_job_details(self, job: VideoJob) -> str:
+        settings = job.settings
+        speed_enabled = "نعم" if settings.speed_adjustment_enabled else "لا"
+        volume_enabled = "نعم" if settings.volume_adjustment_enabled else "لا"
+        cookies_state = "مفعّلة" if settings.use_browser_login else "غير مفعّلة"
+        browser_name = settings.browser_name or "chrome"
+
+        if self._queue_job_is_running(job):
+            edit_note = "هذه المهمة قيد المعالجة ولا يمكن تعديلها الآن"
+        elif job.status == JobStatus.DONE:
+            edit_note = "هذه المهمة مكتملة"
+        elif job.status in QUEUE_EDITABLE_STATUSES:
+            edit_note = "هذه المهمة في الانتظار ويمكن تعديلها"
+        else:
+            edit_note = "لم يتم تحديد مهمة قابلة للتعديل"
+
+        lines = [
+            edit_note,
+            "إعدادات المهمة",
+            f"الحالة: {self._queue_status_label(job.status)}",
+            f"المصدر: {self._queue_source_label(job)}",
+            f"رابط YouTube أو مسار الفيديو المحلي: {self._safe_queue_source_text(job.source)}",
+            f"اسم المشروع: {job.title}",
+            f"عدد المقاطع: {job.clip_count}",
+            f"أولوية عالية: {'نعم' if settings.high_priority else 'لا'}",
+            f"وقت قبل بداية المقطع: {settings.pre_roll_seconds:g}",
+            f"وقت بعد نهاية المقطع: {settings.post_roll_seconds:g}",
+            f"هل تعديل سرعة الفيديو مفعّل؟ {speed_enabled}",
+            f"سرعة الفيديو: {settings.speed if settings.speed_adjustment_enabled else DEFAULT_VIDEO_SPEED:.2f}x",
+            f"هل تعديل مستوى الصوت مفعّل؟ {volume_enabled}",
+            f"مستوى الصوت: {settings.volume_percent if settings.volume_adjustment_enabled else DEFAULT_VOLUME_PERCENT}%",
+            f"إعدادات المتصفح/الكوكيز: {cookies_state}، المتصفح: {browser_name}",
+        ]
+        if job.failure_stage:
+            lines.append(f"مرحلة الفشل: {job.failure_stage}")
+        if job.failure_message:
+            lines.append(f"سبب الفشل: {self._short_queue_text(job.failure_message, 180)}")
+        if job.output_folder:
+            lines.append(f"مسار مجلد النتائج: {job.output_folder}")
+        return "\n".join(lines)
+
+    def _safe_queue_source_text(self, source: str) -> str:
+        text = str(source).strip()
+        parts = urlsplit(text)
+        if not parts.scheme or not parts.netloc:
+            return text
+        query_suffix = "?…" if parts.query else ""
+        return f"{parts.scheme}://{parts.netloc}{parts.path}{query_suffix}"
+
+    def _populate_queue_job_clips_preview(self, job: VideoJob) -> None:
+        self.queue_job_clips_table.setRowCount(0)
+        for index, clip in enumerate(job.clips, start=1):
+            row = self.queue_job_clips_table.rowCount()
+            self.queue_job_clips_table.insertRow(row)
+            self.queue_job_clips_table.setItem(row, NUMBER_COLUMN, self._readonly_table_item(str(index)))
+            self.queue_job_clips_table.setItem(row, TITLE_COLUMN, self._readonly_table_item(clip.title))
+            self.queue_job_clips_table.setItem(row, START_COLUMN, self._readonly_table_item(clip.start))
+            self.queue_job_clips_table.setItem(row, END_COLUMN, self._readonly_table_item(clip.end))
+            self.queue_job_clips_table.setItem(row, EXCLUSIONS_COLUMN, self._readonly_table_item(clip.exclusions))
+
+    def copy_selected_queue_job_details(self) -> None:
+        job = self._selected_queue_job()
+        if job is None:
+            self._write_log("لم يتم تحديد مهمة")
+            return
+
+        lines = [self._format_queue_job_details(job), "", "مقاطع المهمة"]
+        for index, clip in enumerate(job.clips, start=1):
+            exclusion_text = f" | الاستثناءات: {clip.exclusions}" if clip.exclusions else ""
+            lines.append(f"{index}. {clip.title} | {clip.start} - {clip.end}{exclusion_text}")
+        QApplication.clipboard().setText("\n".join(lines))
+        self._append_log("تم نسخ تفاصيل المهمة")
+
     def _sync_queue_high_priority(self, item: QTableWidgetItem) -> None:
         if item.column() != QUEUE_HIGH_PRIORITY_COLUMN:
             return
@@ -1384,6 +1577,7 @@ class MainWindow(QMainWindow):
                 return
             job.settings.high_priority = item.checkState() == Qt.Checked
             self._update_queue_edit_controls()
+            self._update_selected_queue_job_details()
 
     def validate_selected_queue_job(self) -> None:
         row = self._selected_queue_row()
@@ -1398,6 +1592,7 @@ class MainWindow(QMainWindow):
 
         result = validate_queue_job(job)
         apply_queue_validation_result(job, result)
+        self._record_queue_validation_log(job, result, "تم فحص المهمة المحددة")
         self._refresh_queue_job_row(row)
         self._write_log("تم فحص المهمة المحددة\n" + format_queue_validation_result_ar(result))
 
@@ -1418,6 +1613,7 @@ class MainWindow(QMainWindow):
 
             result = validate_queue_job(job)
             apply_queue_validation_result(job, result)
+            self._record_queue_validation_log(job, result, "تم فحص كل قائمة الانتظار")
             self._refresh_queue_job_row(row)
             if result.status == JobStatus.READY:
                 ready_count += 1
@@ -1436,6 +1632,18 @@ class MainWindow(QMainWindow):
                 error_jobs=error_jobs,
             )
         )
+
+    def _record_queue_validation_log(self, job: VideoJob, result, heading: str) -> None:
+        job.add_log(heading)
+        formatted = format_queue_validation_result_ar(result)
+        if formatted:
+            job.add_log(formatted)
+        if result.status == JobStatus.VALIDATION_ERROR and result.errors:
+            job.failure_stage = "validation"
+            job.failure_message = result.errors[0]
+        elif job.failure_stage == "validation":
+            job.failure_stage = ""
+            job.failure_message = ""
 
     def _format_validate_all_queue_summary(
         self,
@@ -1662,6 +1870,76 @@ class MainWindow(QMainWindow):
         self._write_log("تم إلغاء تعديل المهمة")
         self._update_queue_edit_controls()
 
+    def start_new_work(self) -> None:
+        if self._editing_queue_job is not None:
+            if not self._ask_cancel_waiting_job_edit_for_new_work_confirmation():
+                return
+            self._editing_queue_job = None
+        elif self._workspace_has_resettable_data() and not self._ask_new_work_confirmation():
+            return
+
+        self._reset_workspace_to_defaults()
+        if self._queue_processing_thread is not None:
+            self._write_log("تم تجهيز مساحة عمل جديدة، والمهمة الجارية مستمرة في الخلفية")
+        else:
+            self._write_log("تم تجهيز مساحة عمل جديدة")
+        self._update_queue_edit_controls()
+
+    def _workspace_has_resettable_data(self) -> bool:
+        return any(
+            [
+                self.youtube_input.text().strip(),
+                self.local_file_input.text().strip(),
+                self.project_name_input.text().strip(),
+                self.paste_message_input.toPlainText().strip(),
+                self._table_has_clip_data(),
+                self.pre_padding_input.value() != 0,
+                self.post_padding_input.value() != 0,
+                self.video_speed_enabled_checkbox.isChecked(),
+                self.video_speed_input.value() != DEFAULT_VIDEO_SPEED,
+                self.volume_enabled_checkbox.isChecked(),
+                self.volume_input.value() != DEFAULT_VOLUME_PERCENT,
+            ]
+        )
+
+    def _reset_workspace_to_defaults(self) -> None:
+        self.youtube_radio.setChecked(True)
+        self.youtube_input.clear()
+        self.local_file_input.clear()
+        self.project_name_input.clear()
+        self.paste_message_input.clear()
+        self.clips_table.setRowCount(0)
+        self.pre_padding_input.setValue(0)
+        self.post_padding_input.setValue(0)
+        self.video_speed_enabled_checkbox.setChecked(False)
+        self.video_speed_input.setValue(DEFAULT_VIDEO_SPEED)
+        self.volume_enabled_checkbox.setChecked(False)
+        self.volume_input.setValue(DEFAULT_VOLUME_PERCENT)
+        self.use_browser_cookies_checkbox.setChecked(False)
+        self._set_browser_combo_from_identifier("chrome")
+        self._update_speed_volume_controls()
+        self._update_source_inputs()
+
+    def _ask_cancel_waiting_job_edit_for_new_work_confirmation(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("عمل جديد")
+        dialog.setText("لديك تعديلات غير محفوظة على مهمة منتظرة. هل تريد إلغاءها وبدء عمل جديد؟")
+        confirm_button = dialog.addButton("عمل جديد", QMessageBox.AcceptRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(confirm_button)
+        dialog.exec()
+        return dialog.clickedButton() == confirm_button
+
+    def _ask_new_work_confirmation(self) -> bool:
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("عمل جديد")
+        dialog.setText("سيتم مسح بيانات العمل الحالي من الواجهة فقط. هل تريد المتابعة؟")
+        confirm_button = dialog.addButton("متابعة", QMessageBox.AcceptRole)
+        dialog.addButton("إلغاء", QMessageBox.RejectRole)
+        dialog.setDefaultButton(confirm_button)
+        dialog.exec()
+        return dialog.clickedButton() == confirm_button
+
     def _replace_queue_job_snapshot_from_workspace(self, job: VideoJob) -> bool:
         source_snapshot = self._current_work_queue_source()
         if source_snapshot is None:
@@ -1790,6 +2068,7 @@ class MainWindow(QMainWindow):
         for job in self.job_queue:
             self._insert_queue_job_row(job)
         self._update_queue_edit_controls()
+        self._update_selected_queue_job_details()
 
     def _json_file_path(self, file_path: str) -> Path:
         path = Path(file_path)
@@ -1905,8 +2184,12 @@ class MainWindow(QMainWindow):
 
             if not job.clips and job.status != JobStatus.VALIDATION_ERROR:
                 job.mark_status(JobStatus.VALIDATION_ERROR)
-                if "لا توجد مقاطع محفوظة لهذه المهمة" not in job.errors:
-                    job.errors.append("لا توجد مقاطع محفوظة لهذه المهمة")
+                no_clips_message = "لا توجد مقاطع محفوظة لهذه المهمة"
+                if no_clips_message not in job.errors:
+                    job.errors.append(no_clips_message)
+                job.failure_stage = "validation"
+                job.failure_message = no_clips_message
+                job.add_log(no_clips_message)
 
             if self._queue_source_can_process_in_background(job) and job.can_start:
                 job.mark_status(JobStatus.QUEUED)
@@ -1918,6 +2201,7 @@ class MainWindow(QMainWindow):
                 job.mark_status(JobStatus.QUEUED)
                 if AR_URL_QUEUE_PROCESSING_LATER not in job.warnings:
                     job.warnings.append(AR_URL_QUEUE_PROCESSING_LATER)
+                job.add_log(AR_URL_QUEUE_PROCESSING_LATER)
 
             self._refresh_queue_job_row(row)
 
@@ -2033,6 +2317,7 @@ class MainWindow(QMainWindow):
         else:
             self._write_log("لا توجد مهمة محددة")
         self._update_queue_edit_controls()
+        self._update_selected_queue_job_details()
 
     def clear_queue(self) -> None:
         if not self.job_queue:
@@ -2052,6 +2337,7 @@ class MainWindow(QMainWindow):
         self.queue_table.setRowCount(0)
         self._write_log("تم مسح قائمة الانتظار")
         self._update_queue_edit_controls()
+        self._update_selected_queue_job_details()
 
     def _ask_clear_queue_confirmation(self) -> bool:
         dialog = QMessageBox(self)
@@ -2095,7 +2381,14 @@ class MainWindow(QMainWindow):
             self.queue_table.item(row, QUEUE_ACTION_COLUMN).setText(self._queue_settings_summary(job))
         finally:
             self.queue_table.blockSignals(False)
+        if job.status == JobStatus.DONE and job.output_folder:
+            self._last_output_folder = Path(job.output_folder)
+            self.open_output_button.setEnabled(True)
         self._update_queue_edit_controls()
+        if self._selected_queue_job() is job:
+            self._update_selected_queue_job_details()
+            if self._active_log_job is job:
+                self._show_selected_queue_job_log()
 
     def add_classification_rule(self) -> None:
         self._insert_classification_rule(
@@ -2909,12 +3202,35 @@ class MainWindow(QMainWindow):
             item.setText(str(row + 1))
 
     def _write_log(self, message: str) -> None:
-        self.log_area.setPlainText(self._format_log_message(message))
-        self._flush_log_update()
+        self._global_log_messages = [self._format_log_message(message)]
+        self._active_log_job = None
+        self._render_log("سجل عام", self._global_log_messages)
 
     def _append_log(self, message: str) -> None:
-        self.log_area.append(self._format_log_message(message))
+        self._global_log_messages.append(self._format_log_message(message))
+        if self._active_log_job is None:
+            self._render_log("سجل عام", self._global_log_messages)
+        else:
+            self._flush_log_update()
+
+    def _render_log(self, header: str, messages: list[str]) -> None:
+        self.log_header_label.setText(header)
+        self.log_area.setPlainText("\n".join(messages))
         self._flush_log_update()
+
+    def show_global_log(self) -> None:
+        self._active_log_job = None
+        self._render_log("سجل عام", self._global_log_messages)
+
+    def _show_selected_queue_job_log(self) -> None:
+        job = self._selected_queue_job()
+        if job is None:
+            self.show_global_log()
+            return
+
+        self._active_log_job = job
+        messages = job.log_messages or ["لا توجد رسائل لهذه المهمة بعد."]
+        self._render_log("سجل المهمة المحددة", messages)
 
     def _flush_log_update(self) -> None:
         scrollbar = self.log_area.verticalScrollBar()
@@ -3028,6 +3344,9 @@ class MainWindow(QMainWindow):
             self.queue_advanced_toggle_button,
             self.queue_selected_job_details_label,
             self.queue_edit_status_label,
+            self.copy_queue_job_details_button,
+            self.queue_job_details_label,
+            self.queue_job_clips_table,
             self.queue_advanced_group,
             self.queue_advanced_controls_widget,
             self.clips_table,
@@ -3056,8 +3375,10 @@ class MainWindow(QMainWindow):
             self.smart_validation_button,
             self.validate_button,
             self.start_button,
+            self.new_work_button,
             self.direct_cut_button,
             self.open_output_button,
+            self.show_global_log_button,
         ]
         for widget in widgets:
             widget.setEnabled(enabled)
