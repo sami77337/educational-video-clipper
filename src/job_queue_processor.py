@@ -1,8 +1,8 @@
 """Sequential queue processing foundation.
 
-This module owns the state machine for future real queue execution.  It keeps
-the execution model intentionally simple: one job at a time, no parallel work,
-and URL jobs left queued until internet-source queue processing is introduced.
+This module owns the state machine for real queue execution.  It keeps the
+execution model intentionally simple: one job at a time, no parallel work, and
+Facebook jobs left queued until that source is introduced.
 """
 
 from __future__ import annotations
@@ -23,8 +23,9 @@ AR_QUEUE_CAN_PREPARE_NEXT = "يمكنك تجهيز مهمة أخرى أثناء 
 AR_QUEUE_NEXT_JOB_STARTED = "بدأت المهمة التالية"
 AR_QUEUE_STOP_AFTER_CURRENT = "سيتم الإيقاف بعد المهمة الحالية"
 AR_QUEUE_FINISHED = "انتهت قائمة الانتظار"
-AR_URL_QUEUE_PROCESSING_LATER = "تشغيل روابط يوتيوب من قائمة الانتظار سيتم دعمه لاحقًا"
+AR_URL_QUEUE_PROCESSING_LATER = "تشغيل روابط Facebook من قائمة الانتظار سيتم دعمه لاحقًا"
 AR_QUEUE_JOB_SKIPPED_ERRORS = "تم تخطي المهمة بسبب أخطاء"
+RUNNABLE_QUEUE_SOURCE_TYPES = {VideoSourceType.LOCAL, VideoSourceType.YOUTUBE}
 
 
 class QueueProcessorState(str, Enum):
@@ -54,7 +55,7 @@ class QueueProcessingSummary:
 
 
 class SequentialQueueProcessor:
-    """Run ready local queue jobs sequentially through a supplied hook."""
+    """Run ready local/YouTube queue jobs sequentially through a supplied hook."""
 
     def __init__(
         self,
@@ -97,7 +98,7 @@ class SequentialQueueProcessor:
         }:
             return None
 
-        job = self._next_runnable_local_job()
+        job = self._next_runnable_queue_job()
         if job is None:
             self.state = QueueProcessorState.FINISHED
             return None
@@ -133,7 +134,7 @@ class SequentialQueueProcessor:
         self.state = QueueProcessorState.STOPPING if self.stop_requested else QueueProcessorState.IDLE
 
     def run_until_idle(self) -> QueueProcessingSummary:
-        """Process local jobs one by one until no runnable job remains."""
+        """Process supported jobs one by one until no runnable job remains."""
 
         self._prepare_non_local_jobs()
         while not self.stop_requested:
@@ -155,9 +156,9 @@ class SequentialQueueProcessor:
         self._emit(AR_QUEUE_FINISHED)
         return self.summary
 
-    def _next_runnable_local_job(self) -> VideoJob | None:
+    def _next_runnable_queue_job(self) -> VideoJob | None:
         for job in self.jobs:
-            if job.source_type != VideoSourceType.LOCAL:
+            if job.source_type not in RUNNABLE_QUEUE_SOURCE_TYPES:
                 continue
             if job.status in {JobStatus.SKIPPED, JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED}:
                 continue
@@ -172,7 +173,7 @@ class SequentialQueueProcessor:
 
     def _prepare_non_local_jobs(self) -> None:
         for job in self.jobs:
-            if job.source_type == VideoSourceType.LOCAL:
+            if job.source_type in RUNNABLE_QUEUE_SOURCE_TYPES:
                 continue
             if job.status in {JobStatus.READY, JobStatus.WARNING, JobStatus.QUEUED}:
                 job.mark_status(JobStatus.QUEUED)
