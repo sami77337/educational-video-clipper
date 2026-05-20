@@ -2,6 +2,7 @@ from src.job_queue import ClipJob, JobStatus, VideoJob
 from src.job_queue_processor import (
     AR_QUEUE_JOB_DONE,
     AR_QUEUE_JOB_FAILED,
+    AR_QUEUE_NEXT_JOB_STARTED,
     AR_URL_QUEUE_PROCESSING_LATER,
     QueueProcessorState,
     SequentialQueueProcessor,
@@ -89,6 +90,7 @@ def test_queue_processor_invokes_local_processing_hook_safely() -> None:
     assert [first.status, second.status] == [JobStatus.DONE, JobStatus.DONE]
     assert summary.completed_jobs == 2
     assert any(AR_QUEUE_JOB_DONE in message for message in summary.messages)
+    assert AR_QUEUE_NEXT_JOB_STARTED in summary.messages
 
 
 def test_queue_processor_does_not_allow_parallel_start_inside_processing_hook() -> None:
