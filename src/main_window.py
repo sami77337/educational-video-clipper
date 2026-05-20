@@ -220,6 +220,8 @@ class SmartPasteImportDialog(QDialog):
                     f"عدد المقاطع: {len(preview.clips)}",
                     f"عدد التحذيرات: {len(preview.warnings)}",
                     f"الأسطر التي لم يتم فهمها: {len(preview.unparsed_lines)}",
+                    f"عنوان المشروع: {preview.project_title or 'غير مكتشف'}",
+                    f"الرابط: {', '.join(preview.video_urls) if preview.video_urls else 'غير مكتشف'}",
                 ]
             )
         )
@@ -2306,6 +2308,10 @@ class MainWindow(QMainWindow):
             return self._add_smart_paste_preview_to_queue(preview)
 
         applied_messages: list[str] = []
+        if preview.project_title and (apply_mode == "replace" or not self.project_name_input.text().strip()):
+            self.project_name_input.setText(preview.project_title)
+            applied_messages.append("تم تطبيق عنوان المشروع المكتشف.")
+
         if apply_mode == "replace" and len(preview.video_urls) == 1:
             self.youtube_radio.setChecked(True)
             self.youtube_input.setText(preview.video_urls[0])

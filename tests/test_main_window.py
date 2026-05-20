@@ -40,6 +40,7 @@ from src.smart_paste_parser import (
     SmartPastePart,
     SmartPastePreview,
     SmartPasteWarning,
+    parse_smart_paste_message,
 )
 from src.smart_validation import SmartValidationReport
 
@@ -2169,6 +2170,55 @@ def test_smart_paste_main_paste_box_opens_preview_without_processing(monkeypatch
     app.processEvents()
 
 
+def test_smart_paste_preview_shows_detected_project_title_url_and_clip_titles() -> None:
+    app = _app()
+    dialog = SmartPasteImportDialog(
+        initial_text=(
+            "مقاطع من لمعة الإعتقاد ، الدرس الثاني\n"
+            "https://youtu.be/05spuILAwrQ\n\n"
+            "6:20 - 8:50\n"
+            ", إثبات صحة النبوة"
+        ),
+        auto_generate=True,
+    )
+
+    assert dialog.preview is not None
+    assert "عنوان المشروع: مقاطع من لمعة الإعتقاد ، الدرس الثاني" in dialog.summary_label.text()
+    assert "الرابط: https://youtu.be/05spuILAwrQ" in dialog.summary_label.text()
+    assert dialog.clips_preview_table.item(0, 0).text() == "إثبات صحة النبوة"
+    assert dialog.clips_preview_table.item(0, 1).text() == "00:06:20"
+    assert dialog.clips_preview_table.item(0, 2).text() == "00:08:50"
+
+    dialog.close()
+    app.processEvents()
+
+
+def test_smart_paste_replace_preserves_detected_project_and_clip_titles() -> None:
+    app = _app()
+    window = MainWindow()
+    window._ask_smart_paste_apply_mode = lambda preview: "replace"
+    preview = parse_smart_paste_message(
+        "مقاطع من لمعة الإعتقاد ، الدرس الثاني\n"
+        "https://youtu.be/05spuILAwrQ\n\n"
+        "6:20 - 8:50\n"
+        ", إثبات صحة النبوة\n\n"
+        "1:25:14 - 1:26:04"
+    )
+
+    assert window._apply_smart_paste_preview(preview) is True
+
+    assert window.project_name_input.text() == "مقاطع من لمعة الإعتقاد ، الدرس الثاني"
+    assert window.youtube_input.text() == "https://youtu.be/05spuILAwrQ"
+    assert window.clips_table.rowCount() == 2
+    assert window.clips_table.item(0, TITLE_COLUMN).text() == "إثبات صحة النبوة"
+    assert window.clips_table.item(1, TITLE_COLUMN).text() == "مقطع 02"
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
 def test_smart_paste_apply_choices_are_user_facing_arabic_labels() -> None:
     assert SMART_PASTE_REPLACE_LABEL == "استبدال البيانات الحالية"
     assert SMART_PASTE_APPEND_LABEL == "إضافة كمقاطع جديدة"
@@ -2197,6 +2247,30 @@ def test_smart_paste_can_add_detected_data_as_queue_job_without_processing() -> 
     assert window.job_queue[0].title == "عنوان من الرسالة"
     assert len(window.job_queue[0].clips) == 1
     assert window.queue_table.item(0, QUEUE_CLIP_COUNT_COLUMN).text() == "1"
+    assert window._processing_thread is None
+    assert window._processing_worker is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_smart_paste_queue_preserves_detected_project_and_clip_titles() -> None:
+    app = _app()
+    window = MainWindow()
+    window._ask_smart_paste_apply_mode = lambda preview: "queue"
+    preview = parse_smart_paste_message(
+        "مقاطع من لمعة الإعتقاد ، الدرس الثاني\n"
+        "https://youtu.be/05spuILAwrQ\n\n"
+        "6:20 - 8:50\n"
+        ", إثبات صحة النبوة"
+    )
+
+    assert window._apply_smart_paste_preview(preview) is True
+
+    assert len(window.job_queue) == 1
+    assert window.job_queue[0].title == "مقاطع من لمعة الإعتقاد ، الدرس الثاني"
+    assert window.job_queue[0].source == "https://youtu.be/05spuILAwrQ"
+    assert window.job_queue[0].clips[0].title == "إثبات صحة النبوة"
     assert window._processing_thread is None
     assert window._processing_worker is None
 
