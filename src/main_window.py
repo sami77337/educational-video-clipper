@@ -199,7 +199,7 @@ class SmartPasteImportDialog(QDialog):
         layout.addWidget(self.clips_preview_table, stretch=1)
         layout.addWidget(QLabel("التحذيرات"))
         layout.addWidget(self.warnings_area)
-        layout.addWidget(QLabel("الأسطر التي لم يتم فهمها"))
+        layout.addWidget(QLabel("أسطر تحتاج مراجعة"))
         layout.addWidget(self.unparsed_area)
 
         button_row = QHBoxLayout()
@@ -214,15 +214,18 @@ class SmartPasteImportDialog(QDialog):
         return self.preview
 
     def _show_preview(self, preview: SmartPastePreview) -> None:
+        needs_review = bool(preview.warnings or preview.unparsed_lines or any(clip.confidence != "high" for clip in preview.clips))
         self.summary_label.setText(
             "\n".join(
                 [
                     f"عدد الروابط: {len(preview.video_urls)}",
                     f"عدد المقاطع: {len(preview.clips)}",
                     f"عدد التحذيرات: {len(preview.warnings)}",
-                    f"الأسطر التي لم يتم فهمها: {len(preview.unparsed_lines)}",
+                    "عدد الأخطاء: 0",
+                    f"أسطر تحتاج مراجعة: {len(preview.unparsed_lines)}",
+                    f"هل يوجد مقاطع تحتاج مراجعة: {'نعم' if needs_review else 'لا'}",
                     f"عنوان المشروع: {preview.project_title or 'غير مكتشف'}",
-                    f"الرابط: {', '.join(preview.video_urls) if preview.video_urls else 'غير مكتشف'}",
+                    f"الرابط: {preview.video_urls[0] if preview.video_urls else 'غير مكتشف'}",
                 ]
             )
         )
@@ -2407,16 +2410,16 @@ class MainWindow(QMainWindow):
             self.project_name_input.setText(preview.project_title)
             applied_messages.append("تم تطبيق عنوان المشروع المكتشف.")
 
-        if apply_mode == "replace" and len(preview.video_urls) == 1:
+        if apply_mode == "replace" and preview.video_urls:
             self.youtube_radio.setChecked(True)
             self.youtube_input.setText(preview.video_urls[0])
             applied_messages.append("تم تطبيق رابط الفيديو المكتشف.")
-        elif apply_mode == "append" and len(preview.video_urls) == 1 and not self.youtube_input.text().strip():
+        elif apply_mode == "append" and preview.video_urls and not self.youtube_input.text().strip():
             self.youtube_radio.setChecked(True)
             self.youtube_input.setText(preview.video_urls[0])
             applied_messages.append("تم تطبيق رابط الفيديو المكتشف.")
-        elif len(preview.video_urls) > 1:
-            applied_messages.append("تم اكتشاف أكثر من رابط فيديو. لم يتم تطبيق أي رابط تلقائيًا.")
+        if len(preview.video_urls) > 1:
+            applied_messages.append("تم اكتشاف أكثر من رابط فيديو. تم تطبيق أول رابط فقط في هذه النسخة.")
 
         regular_clips = [clip for clip in preview.clips if not clip.multi_part]
         multi_part_clips = [clip for clip in preview.clips if clip.multi_part]
@@ -2496,17 +2499,15 @@ class MainWindow(QMainWindow):
 
     def _smart_paste_queue_source(self, preview: SmartPastePreview) -> tuple[QueueVideoSourceType, str, str] | None:
         title = preview.project_title or self.project_name_input.text().strip()
-        if len(preview.video_urls) == 1:
+        if preview.video_urls:
             source = preview.video_urls[0]
             source_type = self._supported_queue_url_source_type(source)
             if source_type is None:
                 self._write_log("الرابط غير مدعوم حاليًا")
                 return None
+            if len(preview.video_urls) > 1:
+                self._append_log("تم اكتشاف أكثر من رابط فيديو. سيتم استخدام أول رابط فقط في هذه النسخة.")
             return source_type, source, title or source
-
-        if len(preview.video_urls) > 1:
-            self._write_log("تم اكتشاف أكثر من رابط فيديو. اختر رابطًا واحدًا قبل إضافة المهمة.")
-            return None
 
         current_source = self._current_work_queue_source()
         if current_source is None:

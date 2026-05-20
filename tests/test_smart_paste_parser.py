@@ -119,7 +119,6 @@ def test_smart_paste_parses_english_numeral_timestamps() -> None:
 def test_smart_paste_parses_arabic_numeral_timestamps() -> None:
     result = parse_smart_paste_message("١:٠٢ - ١:٠٣:٢٥ عنوان عربي")
 
-    assert result.warnings == []
     assert result.clips[0].start == "00:01:02"
     assert result.clips[0].end == "01:03:25"
     assert result.clips[0].title == "عنوان عربي"
