@@ -7,6 +7,7 @@ from src.classification import ClassificationRule
 from src.clip_padding import ClipPadding
 from src.video_speed import AR_INVALID_VIDEO_SPEED
 from src.video_volume import AR_INVALID_VOLUME_PERCENT, AR_VOLUME_APPLIED
+from src.video_black_flash import AR_BLACK_FLASH_APPLIED, ClipBlackFlash
 from src.video_fade import AR_FADE_DURATION_CLAMPED, ClipFade
 from src.video_processor import (
     AR_BLACK_FADE_APPLIED,
@@ -767,6 +768,75 @@ def test_cut_clip_with_exclusion_uses_effective_padded_bounds(tmp_path) -> None:
     assert commands[1][commands[1].index("-t") + 1] == "42"
 
 
+def test_disabled_black_flash_preserves_old_exclusion_command_behavior(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    output_path = input_path.parent / REELS_FOLDER_NAME / "1_clip.mp4"
+    clip = ClipDefinition(
+        number=1,
+        title="clip",
+        start_seconds=1616,
+        end_seconds=1754,
+        exclusions="00:27:40-00:28:20",
+    )
+    default_commands: list[list[str]] = []
+    flash_disabled_commands: list[list[str]] = []
+
+    cut_clip_with_exclusions(
+        input_path,
+        output_path,
+        clip,
+        input_path.parent / "_temp_segments",
+        runner=lambda command, **kwargs: default_commands.append(command),
+    )
+    cut_clip_with_exclusions(
+        input_path,
+        output_path,
+        clip,
+        input_path.parent / "_temp_segments",
+        runner=lambda command, **kwargs: flash_disabled_commands.append(command),
+        clip_black_flash=ClipBlackFlash(enabled=False, duration_seconds=0.5),
+    )
+
+    assert flash_disabled_commands == default_commands
+    assert all("drawbox" not in " ".join(command) for command in flash_disabled_commands)
+
+
+def test_enabled_black_flash_applies_video_marker_at_single_exclusion_join(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    output_path = input_path.parent / REELS_FOLDER_NAME / "1_clip.mp4"
+    clip = ClipDefinition(
+        number=1,
+        title="clip",
+        start_seconds=1616,
+        end_seconds=1754,
+        exclusions="00:27:40-00:28:20",
+    )
+    commands: list[list[str]] = []
+    messages: list[str] = []
+
+    cut_clip_with_exclusions(
+        input_path,
+        output_path,
+        clip,
+        input_path.parent / "_temp_segments",
+        messages.append,
+        lambda command, **kwargs: commands.append(command),
+        clip_black_flash=ClipBlackFlash(enabled=True, duration_seconds=0.2),
+    )
+
+    assert len(commands) == 4
+    final_effect_command = commands[-1]
+    video_filter = final_effect_command[final_effect_command.index("-filter:v") + 1]
+    assert "drawbox" in video_filter
+    assert "between(t,44,44.2)" in video_filter
+    assert final_effect_command[final_effect_command.index("-c:a") + 1] == "copy"
+    assert AR_BLACK_FLASH_APPLIED in messages
+
+
 def test_cut_clips_with_multiple_exclusions_uses_all_kept_segments(tmp_path) -> None:
     input_path = tmp_path / "project" / INPUT_VIDEO_NAME
     input_path.parent.mkdir()
@@ -795,6 +865,67 @@ def test_cut_clips_with_multiple_exclusions_uses_all_kept_segments(tmp_path) -> 
     assert [command[command.index("-t") + 1] for command in commands[:3]] == ["60", "90", "100"]
     assert commands[-1][0:6] == ["ffmpeg", "-y", "-f", "concat", "-safe", "0"]
     assert f"{AR_MULTIPLE_EXCLUSIONS_APPLIED} 02" in messages
+
+
+def test_enabled_black_flash_applies_video_markers_at_multiple_exclusion_joins(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(
+        number=2,
+        title="multi",
+        start_seconds=600,
+        end_seconds=900,
+        exclusions="00:11:00-00:11:30, 00:13:00-00:13:20",
+    )
+    commands: list[list[str]] = []
+    messages: list[str] = []
+
+    cut_clips(
+        prepared_video,
+        [clip],
+        messages.append,
+        lambda command, **kwargs: commands.append(command),
+        clip_black_flash=ClipBlackFlash(enabled=True, duration_seconds=0.3),
+    )
+
+    assert len(commands) == 5
+    final_effect_command = commands[-1]
+    video_filter = final_effect_command[final_effect_command.index("-filter:v") + 1]
+    assert "between(t,60,60.3)" in video_filter
+    assert "between(t,150,150.3)" in video_filter
+    assert AR_BLACK_FLASH_APPLIED in messages
+
+
+def test_black_flash_enabled_does_nothing_for_clip_without_exclusions(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(number=1, title="clip", start_seconds=5, end_seconds=25)
+    commands: list[list[str]] = []
+    messages: list[str] = []
+
+    cut_clips(
+        prepared_video,
+        [clip],
+        messages.append,
+        lambda command, **kwargs: commands.append(command),
+        clip_black_flash=ClipBlackFlash(enabled=True, duration_seconds=0.2),
+    )
+
+    assert len(commands) == 1
+    assert "-filter:v" not in commands[0]
+    assert AR_BLACK_FLASH_APPLIED not in messages
 
 
 def test_cut_clips_accepts_semicolon_separated_multiple_exclusions(tmp_path) -> None:
@@ -928,6 +1059,51 @@ def test_cut_clips_speed_and_volume_preserve_padding_and_multiple_exclusion_comm
     assert f"{AR_MULTIPLE_EXCLUSIONS_APPLIED} 03" in messages
     assert AR_VIDEO_SPEED_APPLIED in messages
     assert AR_VOLUME_APPLIED in messages
+
+
+def test_black_flash_composes_with_speed_volume_fade_and_padding(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(
+        number=3,
+        title="padded multi speed",
+        start_seconds=100,
+        end_seconds=200,
+        exclusions="00:02:00-00:02:10, 00:02:40-00:02:45",
+    )
+    commands: list[list[str]] = []
+    messages: list[str] = []
+
+    cut_clips(
+        prepared_video,
+        [clip],
+        messages.append,
+        lambda command, **kwargs: commands.append(command),
+        clip_padding=ClipPadding(pre_seconds=10, post_seconds=5),
+        video_speed=1.25,
+        volume_percent=150,
+        clip_fade=ClipFade(enabled=True, fade_in_seconds=0.5, fade_out_seconds=0.5),
+        clip_black_flash=ClipBlackFlash(enabled=True, duration_seconds=0.2),
+    )
+
+    final_effect_command = commands[-1]
+    video_filter = final_effect_command[final_effect_command.index("-filter:v") + 1]
+    assert "drawbox" in video_filter
+    assert "between(t,24,24.2)" in video_filter
+    assert "between(t,48,48.2)" in video_filter
+    assert "fade=t=in:st=0:d=0.5" in video_filter
+    assert final_effect_command[final_effect_command.index("-c:a") + 1] == "copy"
+    for command in commands[:3]:
+        assert command[command.index("-filter:v") + 1] == "setpts=PTS/1.25"
+        assert command[command.index("-filter:a") + 1] == "atempo=1.25,volume=1.5"
+    assert AR_BLACK_FLASH_APPLIED in messages
+    assert AR_BLACK_FADE_APPLIED in messages
 
 
 def test_cut_clips_validates_exclusions_against_effective_padded_range(tmp_path) -> None:

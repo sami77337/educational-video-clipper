@@ -15,6 +15,11 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from src.job_queue import ClipJob, JobSettings, JobStatus, VideoJob, VideoSourceType
 from src.video_speed import DEFAULT_VIDEO_SPEED, VideoSpeedError, normalize_video_speed
 from src.video_volume import DEFAULT_VOLUME_PERCENT, VideoVolumeError, normalize_volume_percent
+from src.video_black_flash import (
+    DEFAULT_BLACK_FLASH_SECONDS,
+    VideoBlackFlashError,
+    normalize_black_flash_duration,
+)
 from src.video_fade import DEFAULT_FADE_IN_SECONDS, DEFAULT_FADE_OUT_SECONDS, VideoFadeError, normalize_fade_duration
 
 
@@ -176,6 +181,8 @@ def _settings_to_data(settings: JobSettings) -> dict[str, Any]:
         "fade_enabled": settings.fade_enabled,
         "fade_in_seconds": settings.fade_in_seconds,
         "fade_out_seconds": settings.fade_out_seconds,
+        "black_flash_enabled": settings.black_flash_enabled,
+        "black_flash_duration_seconds": settings.black_flash_duration_seconds,
         "use_browser_login": settings.use_browser_login,
         "browser_name": settings.browser_name,
         "watermark_enabled": settings.watermark_enabled,
@@ -208,6 +215,12 @@ def _settings_from_data(data: Any, *, high_priority: Any = None) -> JobSettings:
         if fade_enabled
         else DEFAULT_FADE_OUT_SECONDS
     )
+    black_flash_enabled = bool(data.get("black_flash_enabled", False))
+    black_flash_duration = (
+        _black_flash_duration_or_default(data.get("black_flash_duration_seconds"), DEFAULT_BLACK_FLASH_SECONDS)
+        if black_flash_enabled
+        else DEFAULT_BLACK_FLASH_SECONDS
+    )
     return JobSettings(
         pre_roll_seconds=_float_or_default(data.get("pre_roll_seconds"), 0.0),
         post_roll_seconds=_float_or_default(data.get("post_roll_seconds"), 0.0),
@@ -219,6 +232,8 @@ def _settings_from_data(data: Any, *, high_priority: Any = None) -> JobSettings:
         fade_enabled=fade_enabled,
         fade_in_seconds=fade_in,
         fade_out_seconds=fade_out,
+        black_flash_enabled=black_flash_enabled,
+        black_flash_duration_seconds=black_flash_duration,
         use_browser_login=bool(data.get("use_browser_login", False)),
         browser_name=str(data.get("browser_name") or "chrome"),
         watermark_enabled=bool(data.get("watermark_enabled", False)),
@@ -305,4 +320,11 @@ def _fade_duration_or_default(value: Any, default: float) -> float:
     try:
         return normalize_fade_duration(value)
     except VideoFadeError:
+        return default
+
+
+def _black_flash_duration_or_default(value: Any, default: float) -> float:
+    try:
+        return normalize_black_flash_duration(value)
+    except VideoBlackFlashError:
         return default

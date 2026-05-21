@@ -51,6 +51,8 @@ class JobSettings:
     fade_enabled: bool = False
     fade_in_seconds: float = 0.5
     fade_out_seconds: float = 0.5
+    black_flash_enabled: bool = False
+    black_flash_duration_seconds: float = 0.2
     use_browser_login: bool = False
     browser_name: str = "chrome"
     watermark_enabled: bool = False

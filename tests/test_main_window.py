@@ -35,6 +35,7 @@ from src.main_window import (
 from src.job_queue import ClipJob, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
 from src.job_queue_processor import AR_QUEUE_NEXT_JOB_STARTED, AR_URL_QUEUE_PROCESSING_LATER
 from src.readiness import STATUS_READY, ReadinessCheckItem, ReadinessReport
+from src.video_black_flash import AR_BLACK_FLASH_APPLIED
 from src.smart_paste_parser import (
     SmartPasteClip,
     SmartPasteExclusion,
@@ -135,6 +136,10 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert not window.fade_out_duration_combo.isEnabled()
     assert window.fade_in_duration_combo.currentText() == "0.50 ثانية"
     assert window.fade_out_duration_combo.currentText() == "0.50 ثانية"
+    assert window.black_flash_enabled_checkbox.text() == "إضافة وميض أسود عند الاستثناء"
+    assert not window.black_flash_enabled_checkbox.isChecked()
+    assert not window.black_flash_duration_combo.isEnabled()
+    assert window.black_flash_duration_combo.currentText() == "0.20 ثانية"
     assert window.pre_padding_input.minimum() == 0
     assert window.post_padding_input.minimum() == 0
     assert window.video_speed_input.minimum() == 0.75
@@ -274,6 +279,8 @@ def test_selecting_queue_job_shows_job_log_and_details_without_loading_editor() 
     job.settings.fade_enabled = True
     job.settings.fade_in_seconds = 1.0
     job.settings.fade_out_seconds = 1.5
+    job.settings.black_flash_enabled = True
+    job.settings.black_flash_duration_seconds = 0.3
     job.settings.use_browser_login = True
     job.settings.browser_name = "firefox"
     job.add_log("رسالة خاصة بالمهمة")
@@ -293,6 +300,8 @@ def test_selecting_queue_job_shows_job_log_and_details_without_loading_editor() 
     assert "هل البداية والنهاية السوداء مفعّلة؟ نعم" in details
     assert "1.00 ثانية" in details
     assert "1.50 ثانية" in details
+    assert "هل الوميض الأسود عند الاستثناء مفعّل؟ نعم" in details
+    assert "0.30 ثانية" in details
     assert "firefox" in details
     assert "secret" not in details
     assert window.project_name_input.text() == "المحرر الحالي"
@@ -345,6 +354,8 @@ def test_new_work_resets_workspace_without_clearing_queue_or_running_job(monkeyp
     window.black_fade_enabled_checkbox.setChecked(True)
     window.fade_in_duration_combo.setCurrentText("1.00 ثانية")
     window.fade_out_duration_combo.setCurrentText("1.50 ثانية")
+    window.black_flash_enabled_checkbox.setChecked(True)
+    window.black_flash_duration_combo.setCurrentText("0.30 ثانية")
     monkeypatch.setattr(window, "_ask_new_work_confirmation", lambda: True)
 
     window.start_new_work()
@@ -365,6 +376,8 @@ def test_new_work_resets_workspace_without_clearing_queue_or_running_job(monkeyp
     assert not window.black_fade_enabled_checkbox.isChecked()
     assert window.fade_in_duration_combo.currentText() == "0.50 ثانية"
     assert window.fade_out_duration_combo.currentText() == "0.50 ثانية"
+    assert not window.black_flash_enabled_checkbox.isChecked()
+    assert window.black_flash_duration_combo.currentText() == "0.20 ثانية"
     assert "المهمة الجارية مستمرة في الخلفية" in window.log_area.toPlainText()
 
     window._queue_processing_thread = None
@@ -387,6 +400,8 @@ def test_speed_and_volume_controls_require_explicit_enable() -> None:
     assert settings.volume_adjustment_enabled is False
     assert settings.volume_percent == 100
     assert settings.fade_enabled is False
+    assert settings.black_flash_enabled is False
+    assert settings.black_flash_duration_seconds == 0.2
 
     window.video_speed_enabled_checkbox.setChecked(True)
     window.volume_enabled_checkbox.setChecked(True)
@@ -442,6 +457,31 @@ def test_black_fade_controls_require_explicit_enable_and_snapshot_settings() -> 
     app.processEvents()
 
 
+def test_black_flash_controls_require_explicit_enable_and_snapshot_settings() -> None:
+    app = _app()
+    window = MainWindow()
+
+    assert not window.black_flash_enabled_checkbox.isChecked()
+    assert not window.black_flash_duration_combo.isEnabled()
+    assert window._collect_clip_black_flash().enabled is False
+
+    window.black_flash_enabled_checkbox.setChecked(True)
+    window.black_flash_duration_combo.setCurrentText("0.30 ثانية")
+
+    flash = window._collect_clip_black_flash()
+    settings = window._current_job_settings_snapshot()
+
+    assert window.black_flash_duration_combo.isEnabled()
+    assert flash.enabled is True
+    assert flash.duration_seconds == 0.3
+    assert settings.black_flash_enabled is True
+    assert settings.black_flash_duration_seconds == 0.3
+    assert "وميض أسود عند الاستثناء" in window.black_flash_status_label.text()
+
+    window.close()
+    app.processEvents()
+
+
 def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> None:
     app = _app()
     window = MainWindow()
@@ -457,6 +497,8 @@ def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> 
     window.black_fade_enabled_checkbox.setChecked(True)
     window.fade_in_duration_combo.setCurrentText("1.00 ثانية")
     window.fade_out_duration_combo.setCurrentText("1.50 ثانية")
+    window.black_flash_enabled_checkbox.setChecked(True)
+    window.black_flash_duration_combo.setCurrentText("0.30 ثانية")
     window._insert_clip_row(1, "قديم", "00:01:00", "00:02:00", "00:01:20-00:01:30")
 
     window.add_current_work_to_queue()
@@ -467,6 +509,7 @@ def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> 
     window.video_speed_input.setValue(1.0)
     window.volume_input.setValue(100)
     window.black_fade_enabled_checkbox.setChecked(False)
+    window.black_flash_enabled_checkbox.setChecked(False)
 
     job = window.job_queue[0]
     assert job.clips[0].title == "قديم"
@@ -480,6 +523,8 @@ def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> 
     assert job.settings.fade_enabled is True
     assert job.settings.fade_in_seconds == 1.0
     assert job.settings.fade_out_seconds == 1.5
+    assert job.settings.black_flash_enabled is True
+    assert job.settings.black_flash_duration_seconds == 0.3
 
     window.close()
     app.processEvents()
@@ -586,6 +631,8 @@ def test_main_queue_cut_button_click_creates_job_and_starts_idle_queue(tmp_path,
     window.black_fade_enabled_checkbox.setChecked(True)
     window.fade_in_duration_combo.setCurrentText("1.00 ثانية")
     window.fade_out_duration_combo.setCurrentText("1.50 ثانية")
+    window.black_flash_enabled_checkbox.setChecked(True)
+    window.black_flash_duration_combo.setCurrentText("0.30 ثانية")
     window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00", "00:01:20-00:01:30")
     monkeypatch.setattr(window, "_start_queue_processing_worker", lambda rules: started.append(len(rules)))
 
@@ -608,6 +655,8 @@ def test_main_queue_cut_button_click_creates_job_and_starts_idle_queue(tmp_path,
     assert job.settings.fade_enabled is True
     assert job.settings.fade_in_seconds == 1.0
     assert job.settings.fade_out_seconds == 1.5
+    assert job.settings.black_flash_enabled is True
+    assert job.settings.black_flash_duration_seconds == 0.3
     assert job.clips[0].title == "مقطع"
     assert job.clips[0].exclusions == "00:01:20-00:01:30"
     window.clips_table.item(0, TITLE_COLUMN).setText("تعديل لاحق")
@@ -1025,6 +1074,8 @@ def test_queue_load_selected_job_restores_speed_and_volume_intent() -> None:
     job.settings.fade_enabled = True
     job.settings.fade_in_seconds = 1.0
     job.settings.fade_out_seconds = 1.5
+    job.settings.black_flash_enabled = True
+    job.settings.black_flash_duration_seconds = 0.3
     job.settings.use_browser_login = True
     job.settings.browser_name = "firefox"
     window._refresh_queue_job_row(0)
@@ -1043,6 +1094,8 @@ def test_queue_load_selected_job_restores_speed_and_volume_intent() -> None:
     assert window.black_fade_enabled_checkbox.isChecked()
     assert window.fade_in_duration_combo.currentText() == "1.00 ثانية"
     assert window.fade_out_duration_combo.currentText() == "1.50 ثانية"
+    assert window.black_flash_enabled_checkbox.isChecked()
+    assert window.black_flash_duration_combo.currentText() == "0.30 ثانية"
     assert window.use_browser_cookies_checkbox.isChecked()
     assert window.browser_combo.currentText() == "Firefox"
 
@@ -1066,6 +1119,8 @@ def test_waiting_queue_job_can_be_loaded_edited_and_saved_in_place() -> None:
     second.settings.fade_enabled = True
     second.settings.fade_in_seconds = 1.0
     second.settings.fade_out_seconds = 1.5
+    second.settings.black_flash_enabled = True
+    second.settings.black_flash_duration_seconds = 0.3
     second.settings.use_browser_login = True
     second.settings.browser_name = "edge"
     second.clips = [
@@ -1090,6 +1145,8 @@ def test_waiting_queue_job_can_be_loaded_edited_and_saved_in_place() -> None:
     assert window.black_fade_enabled_checkbox.isChecked()
     assert window.fade_in_duration_combo.currentText() == "1.00 ثانية"
     assert window.fade_out_duration_combo.currentText() == "1.50 ثانية"
+    assert window.black_flash_enabled_checkbox.isChecked()
+    assert window.black_flash_duration_combo.currentText() == "0.30 ثانية"
     assert window.use_browser_cookies_checkbox.isChecked()
     assert window.browser_combo.currentText() == "Edge"
 
@@ -1105,6 +1162,7 @@ def test_waiting_queue_job_can_be_loaded_edited_and_saved_in_place() -> None:
     window.volume_input.setValue(200)
     window.fade_in_duration_combo.setCurrentText("0.25 ثانية")
     window.fade_out_duration_combo.setCurrentText("2.00 ثانية")
+    window.black_flash_duration_combo.setCurrentText("0.50 ثانية")
     window.browser_combo.setCurrentText("Brave")
 
     assert window.save_waiting_queue_job_edits() is True
@@ -1126,6 +1184,8 @@ def test_waiting_queue_job_can_be_loaded_edited_and_saved_in_place() -> None:
     assert second.settings.fade_enabled is True
     assert second.settings.fade_in_seconds == 0.25
     assert second.settings.fade_out_seconds == 2.0
+    assert second.settings.black_flash_enabled is True
+    assert second.settings.black_flash_duration_seconds == 0.5
     assert second.settings.use_browser_login is True
     assert second.settings.browser_name == "brave"
     assert window.queue_table.item(1, QUEUE_TITLE_COLUMN).text() == "الثاني المعدل"
@@ -1151,6 +1211,8 @@ def test_waiting_queue_job_edit_preserves_protected_speed_volume_defaults() -> N
     job.settings.fade_enabled = False
     job.settings.fade_in_seconds = 2.0
     job.settings.fade_out_seconds = 1.5
+    job.settings.black_flash_enabled = False
+    job.settings.black_flash_duration_seconds = 0.5
     window._refresh_queue_job_row(0)
 
     window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
@@ -1166,6 +1228,9 @@ def test_waiting_queue_job_edit_preserves_protected_speed_volume_defaults() -> N
     assert not window.fade_in_duration_combo.isEnabled()
     assert window.fade_in_duration_combo.currentText() == "0.50 ثانية"
     assert window.fade_out_duration_combo.currentText() == "0.50 ثانية"
+    assert not window.black_flash_enabled_checkbox.isChecked()
+    assert not window.black_flash_duration_combo.isEnabled()
+    assert window.black_flash_duration_combo.currentText() == "0.20 ثانية"
 
     assert window.save_waiting_queue_job_edits() is True
 
@@ -1176,6 +1241,8 @@ def test_waiting_queue_job_edit_preserves_protected_speed_volume_defaults() -> N
     assert job.settings.fade_enabled is False
     assert job.settings.fade_in_seconds == 0.5
     assert job.settings.fade_out_seconds == 0.5
+    assert job.settings.black_flash_enabled is False
+    assert job.settings.black_flash_duration_seconds == 0.2
 
     window.close()
     app.processEvents()
@@ -2067,6 +2134,8 @@ def test_queue_processing_keeps_preparation_ui_available_while_running() -> None
     assert window.black_fade_enabled_checkbox.isEnabled()
     assert not window.fade_in_duration_combo.isEnabled()
     assert not window.fade_out_duration_combo.isEnabled()
+    assert window.black_flash_enabled_checkbox.isEnabled()
+    assert not window.black_flash_duration_combo.isEnabled()
     assert window.add_current_work_to_queue_button.isEnabled()
     assert window.add_queue_local_video_button.isEnabled()
     assert window.add_queue_url_button.isEnabled()
@@ -2296,6 +2365,8 @@ def test_queue_processing_worker_processes_one_local_job_with_snapshot() -> None
     job.settings.fade_enabled = True
     job.settings.fade_in_seconds = 1.0
     job.settings.fade_out_seconds = 1.5
+    job.settings.black_flash_enabled = True
+    job.settings.black_flash_duration_seconds = 0.3
 
     class FakeVideoProcessor:
         def process_project(self, source_request, project_name, clip_rows, **kwargs):
@@ -2308,6 +2379,7 @@ def test_queue_processing_worker_processes_one_local_job_with_snapshot() -> None
                     "video_speed": kwargs["video_speed"],
                     "volume_percent": kwargs["volume_percent"],
                     "clip_fade": kwargs["clip_fade"],
+                    "clip_black_flash": kwargs["clip_black_flash"],
                 }
             )
             return SimpleNamespace(project_output_folder=Path("C:/output/lesson"))
@@ -2327,6 +2399,8 @@ def test_queue_processing_worker_processes_one_local_job_with_snapshot() -> None
     assert calls[0]["clip_fade"].enabled is True
     assert calls[0]["clip_fade"].fade_in_seconds == 1.0
     assert calls[0]["clip_fade"].fade_out_seconds == 1.5
+    assert calls[0]["clip_black_flash"].enabled is True
+    assert calls[0]["clip_black_flash"].duration_seconds == 0.3
     assert app is not None
 
 
@@ -2344,6 +2418,8 @@ def test_queue_processing_worker_uses_default_speed_and_volume_when_adjustments_
     job.settings.fade_enabled = False
     job.settings.fade_in_seconds = 2.0
     job.settings.fade_out_seconds = 2.0
+    job.settings.black_flash_enabled = False
+    job.settings.black_flash_duration_seconds = 0.5
 
     class FakeVideoProcessor:
         def process_project(self, _source_request, _project_name, _clip_rows, **kwargs):
@@ -2352,6 +2428,7 @@ def test_queue_processing_worker_uses_default_speed_and_volume_when_adjustments_
                     "video_speed": kwargs["video_speed"],
                     "volume_percent": kwargs["volume_percent"],
                     "clip_fade": kwargs["clip_fade"],
+                    "clip_black_flash": kwargs["clip_black_flash"],
                 }
             )
             return SimpleNamespace(project_output_folder=Path("C:/output/lesson"))
@@ -2362,6 +2439,7 @@ def test_queue_processing_worker_uses_default_speed_and_volume_when_adjustments_
     assert calls[0]["video_speed"] == 1.0
     assert calls[0]["volume_percent"] == 100
     assert calls[0]["clip_fade"].enabled is False
+    assert calls[0]["clip_black_flash"].enabled is False
 
 
 def test_queue_processing_worker_processes_youtube_job_with_cookie_snapshot() -> None:
@@ -2383,6 +2461,8 @@ def test_queue_processing_worker_processes_youtube_job_with_cookie_snapshot() ->
     job.settings.fade_enabled = True
     job.settings.fade_in_seconds = 0.25
     job.settings.fade_out_seconds = 2.0
+    job.settings.black_flash_enabled = True
+    job.settings.black_flash_duration_seconds = 0.5
     job.settings.use_browser_login = True
     job.settings.browser_name = "brave"
 
@@ -2397,9 +2477,11 @@ def test_queue_processing_worker_processes_youtube_job_with_cookie_snapshot() ->
                     "video_speed": kwargs["video_speed"],
                     "volume_percent": kwargs["volume_percent"],
                     "clip_fade": kwargs["clip_fade"],
+                    "clip_black_flash": kwargs["clip_black_flash"],
                 }
             )
             kwargs["progress_callback"]("تم تنزيل الفيديو")
+            kwargs["progress_callback"](AR_BLACK_FLASH_APPLIED)
             return SimpleNamespace(project_output_folder=Path("C:/output/youtube"))
 
     worker = QueueProcessingWorker([job], FakeVideoProcessor(), [])
@@ -2421,6 +2503,9 @@ def test_queue_processing_worker_processes_youtube_job_with_cookie_snapshot() ->
     assert calls[0]["clip_fade"].enabled is True
     assert calls[0]["clip_fade"].fade_in_seconds == 0.25
     assert calls[0]["clip_fade"].fade_out_seconds == 2.0
+    assert calls[0]["clip_black_flash"].enabled is True
+    assert calls[0]["clip_black_flash"].duration_seconds == 0.5
+    assert AR_BLACK_FLASH_APPLIED in job.log_messages
     assert "جاري تحميل الفيديو في الخلفية" in progress_messages
     assert "جاري قص المقاطع في الخلفية" in progress_messages
     assert not any("cookie" in message.lower() for message in progress_messages)
