@@ -18,6 +18,10 @@ from src.classification import (
 from src.file_utils import ensure_directory
 from src.video_speed import DEFAULT_VIDEO_SPEED, format_video_speed, normalize_video_speed
 from src.video_volume import DEFAULT_VOLUME_PERCENT, format_volume_percent, normalize_volume_percent
+from src.video_black_flash import (
+    DEFAULT_BLACK_FLASH_SECONDS,
+    normalize_clip_black_flash,
+)
 from src.video_fade import DEFAULT_FADE_IN_SECONDS, DEFAULT_FADE_OUT_SECONDS, normalize_clip_fade
 
 
@@ -78,6 +82,8 @@ class ProcessingReportData:
     fade_enabled: bool = False
     fade_in_seconds: float = DEFAULT_FADE_IN_SECONDS
     fade_out_seconds: float = DEFAULT_FADE_OUT_SECONDS
+    black_flash_enabled: bool = False
+    black_flash_duration_seconds: float = DEFAULT_BLACK_FLASH_SECONDS
 
 
 @dataclass(frozen=True)
@@ -185,6 +191,14 @@ def build_processing_report(data: ProcessingReportData) -> str:
                 "بداية ونهاية سوداء تدريجية",
                 f"مدة التدرج في البداية: {_format_seconds_value(fade.fade_in_seconds)} ثانية",
                 f"مدة التدرج في النهاية: {_format_seconds_value(fade.fade_out_seconds)} ثانية",
+            ]
+        )
+    if _has_black_flash(data):
+        flash = normalize_clip_black_flash(True, data.black_flash_duration_seconds)
+        lines.extend(
+            [
+                "وميض أسود عند الاستثناء",
+                f"مدة الوميض الأسود: {_format_seconds_value(flash.duration_seconds)} ثانية",
             ]
         )
     lines.append("Classification rules:")
@@ -308,6 +322,10 @@ def _has_volume(data: ProcessingReportData) -> bool:
 
 def _has_fade(data: ProcessingReportData) -> bool:
     return normalize_clip_fade(data.fade_enabled, data.fade_in_seconds, data.fade_out_seconds).enabled
+
+
+def _has_black_flash(data: ProcessingReportData) -> bool:
+    return normalize_clip_black_flash(data.black_flash_enabled, data.black_flash_duration_seconds).enabled
 
 
 def _format_seconds_value(value: float) -> str:

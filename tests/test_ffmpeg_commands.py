@@ -1,6 +1,11 @@
 import pytest
 
-from src.video.ffmpeg_commands import build_ffmpeg_command, build_ffmpeg_concat_command
+from src.video.ffmpeg_commands import (
+    build_ffmpeg_command,
+    build_ffmpeg_concat_command,
+    build_ffmpeg_video_effects_command,
+)
+from src.video_black_flash import ClipBlackFlash
 from src.video_fade import ClipFade
 
 
@@ -197,6 +202,38 @@ def test_build_ffmpeg_command_combines_speed_and_black_fade_filters(tmp_path) ->
     video_filter = command[command.index("-filter:v") + 1]
     assert video_filter.startswith("setpts=PTS/1.1,fade=t=in:st=0:d=0.5,fade=t=out:st=")
     assert command[command.index("-filter:a") + 1] == "atempo=1.1"
+
+
+def test_build_ffmpeg_video_effects_command_applies_black_flash_at_join_times(tmp_path) -> None:
+    command = build_ffmpeg_video_effects_command(
+        tmp_path / "merged.mp4",
+        tmp_path / "output.mp4",
+        duration_seconds=20,
+        clip_black_flash=ClipBlackFlash(enabled=True, duration_seconds=0.2),
+        black_flash_times_seconds=[8.0, 14.5],
+    )
+
+    video_filter = command[command.index("-filter:v") + 1]
+    assert "drawbox" in video_filter
+    assert "between(t,8,8.2)" in video_filter
+    assert "between(t,14.5,14.7)" in video_filter
+    assert command[command.index("-c:a") + 1] == "copy"
+
+
+def test_build_ffmpeg_video_effects_command_combines_black_flash_and_fade(tmp_path) -> None:
+    command = build_ffmpeg_video_effects_command(
+        tmp_path / "merged.mp4",
+        tmp_path / "output.mp4",
+        duration_seconds=20,
+        clip_fade=ClipFade(enabled=True, fade_in_seconds=0.5, fade_out_seconds=0.5),
+        clip_black_flash=ClipBlackFlash(enabled=True, duration_seconds=0.1),
+        black_flash_times_seconds=[8.0],
+    )
+
+    video_filter = command[command.index("-filter:v") + 1]
+    assert video_filter.startswith("drawbox=")
+    assert "between(t,8,8.1)" in video_filter
+    assert video_filter.endswith("fade=t=in:st=0:d=0.5,fade=t=out:st=19.5:d=0.5")
 
 
 def test_build_ffmpeg_concat_command_preserves_current_concat_arguments(tmp_path) -> None:

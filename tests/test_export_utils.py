@@ -285,6 +285,41 @@ def test_build_processing_report_includes_fade_only_when_enabled() -> None:
     assert "مدة التدرج في النهاية: 1 ثانية" in report
 
 
+def test_build_processing_report_includes_black_flash_only_when_enabled() -> None:
+    timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
+    default_data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+    )
+    flash_data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+        black_flash_enabled=True,
+        black_flash_duration_seconds=0.2,
+    )
+
+    assert "وميض أسود عند الاستثناء" not in build_processing_report(default_data)
+    report = build_processing_report(flash_data)
+    assert "وميض أسود عند الاستثناء" in report
+    assert "مدة الوميض الأسود: 0.2 ثانية" in report
+
+
 def test_build_processing_report_preserves_speed_padding_and_exclusion_details() -> None:
     timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
     data = ProcessingReportData(
@@ -305,6 +340,8 @@ def test_build_processing_report_preserves_speed_padding_and_exclusion_details()
         fade_enabled=True,
         fade_in_seconds=0.5,
         fade_out_seconds=0.5,
+        black_flash_enabled=True,
+        black_flash_duration_seconds=0.3,
         clip_details=[
             ProcessingReportClipData(
                 number=1,
@@ -324,6 +361,8 @@ def test_build_processing_report_preserves_speed_padding_and_exclusion_details()
     assert "سرعة الفيديو: 1.25" in report
     assert "مستوى الصوت: 150%" in report
     assert "بداية ونهاية سوداء تدريجية" in report
+    assert "وميض أسود عند الاستثناء" in report
+    assert "مدة الوميض الأسود: 0.3 ثانية" in report
     assert "الاستثناءات: 00:02:00-00:02:10, 00:03:00-00:03:15" in report
     assert "عدد الاستثناءات داخل المقطع: 2" in report
     assert "تم تطبيق أكثر من استثناء داخل هذا المقطع" in report

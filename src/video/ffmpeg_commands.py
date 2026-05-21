@@ -16,6 +16,7 @@ from src.video_volume import (
     build_audio_volume_filter,
     normalize_volume_percent,
 )
+from src.video_black_flash import ClipBlackFlash, build_black_flash_filters, normalize_clip_black_flash
 from src.video_fade import ClipFade, build_video_fade_filters, normalize_clip_fade
 
 
@@ -68,12 +69,44 @@ def build_ffmpeg_video_fade_command(
 ) -> list[str]:
     """Build an ffmpeg command that applies only final video fade to an existing clip."""
 
-    normalized_fade = normalize_clip_fade(
-        clip_fade.enabled,
-        clip_fade.fade_in_seconds,
-        clip_fade.fade_out_seconds,
+    return build_ffmpeg_video_effects_command(
+        input_video_path,
+        output_video_path,
+        duration_seconds,
+        clip_fade=clip_fade,
     )
-    video_filters, _clamped = build_video_fade_filters(normalized_fade, duration_seconds)
+
+
+def build_ffmpeg_video_effects_command(
+    input_video_path: str | Path,
+    output_video_path: str | Path,
+    duration_seconds: int | float,
+    clip_fade: ClipFade | None = None,
+    clip_black_flash: ClipBlackFlash | None = None,
+    black_flash_times_seconds: list[float] | tuple[float, ...] | None = None,
+) -> list[str]:
+    """Build an ffmpeg command for final video-only effects on an existing clip."""
+
+    normalized_fade = (
+        normalize_clip_fade(clip_fade.enabled, clip_fade.fade_in_seconds, clip_fade.fade_out_seconds)
+        if clip_fade is not None
+        else normalize_clip_fade(False)
+    )
+    normalized_flash = (
+        normalize_clip_black_flash(clip_black_flash.enabled, clip_black_flash.duration_seconds)
+        if clip_black_flash is not None
+        else normalize_clip_black_flash(False)
+    )
+    video_filters: list[str] = []
+    video_filters.extend(
+        build_black_flash_filters(
+            normalized_flash,
+            black_flash_times_seconds or (),
+            duration_seconds,
+        )
+    )
+    fade_filters, _clamped = build_video_fade_filters(normalized_fade, duration_seconds)
+    video_filters.extend(fade_filters)
     command = ["ffmpeg", "-y", "-i", str(input_video_path)]
     if video_filters:
         command.extend(["-filter:v", ",".join(video_filters)])
