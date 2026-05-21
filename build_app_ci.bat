@@ -44,6 +44,10 @@ if exist "%~dp0tools\ffmpeg.exe" (
     echo WARNING: tools\ffmpeg.exe was not found. YouTube best-quality merge may fail on team devices.
 )
 
+if not exist "%~dp0RELEASE_README_AR.md" goto missing_release_readme
+copy /y "%~dp0RELEASE_README_AR.md" "%~dp0dist\AlmiqsAlBaseet\README_AR.txt" >nul
+if errorlevel 1 goto build_failed
+
 if not exist "%~dp0dist\AlmiqsAlBaseet\AlmiqsAlBaseet.exe" goto build_failed
 
 echo تم بناء النسخة بنجاح
@@ -53,3 +57,7 @@ exit /b 0
 :build_failed
 echo فشل بناء النسخة
 exit /b 1
+
+:missing_release_readme
+echo RELEASE_README_AR.md غير موجود
+goto build_failed
