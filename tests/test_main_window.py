@@ -7,7 +7,7 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt, QThread
-from PySide6.QtWidgets import QApplication, QDialog, QGroupBox, QPushButton, QScrollArea
+from PySide6.QtWidgets import QApplication, QDialog, QGroupBox, QLabel, QPushButton, QScrollArea
 
 from src.main_window import (
     END_COLUMN,
@@ -226,6 +226,41 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     ):
         assert "قائمة الانتظار" in _ancestor_group_titles(button)
         assert "إدارة قائمة الانتظار المتقدمة" in _ancestor_group_titles(button)
+
+    window.close()
+    app.processEvents()
+
+
+def test_cut_export_settings_are_grouped_into_clear_sections() -> None:
+    app = _app()
+    window = MainWindow()
+
+    section_titles = {group.title() for group in window.findChildren(QGroupBox)}
+    assert "إعدادات القص الأساسية" in section_titles
+    assert "تعديلات اختيارية" in section_titles
+    assert "المؤثرات البصرية الاختيارية" in section_titles
+    assert "جودة التصدير" in section_titles
+
+    assert "إعدادات القص الأساسية" in _ancestor_group_titles(window.pre_padding_input)
+    assert "إعدادات القص الأساسية" in _ancestor_group_titles(window.post_padding_input)
+    assert "تعديلات اختيارية" in _ancestor_group_titles(window.video_speed_enabled_checkbox)
+    assert "تعديلات اختيارية" in _ancestor_group_titles(window.video_speed_input)
+    assert "تعديلات اختيارية" in _ancestor_group_titles(window.reset_video_speed_button)
+    assert "تعديلات اختيارية" in _ancestor_group_titles(window.volume_enabled_checkbox)
+    assert "تعديلات اختيارية" in _ancestor_group_titles(window.volume_input)
+    assert "تعديلات اختيارية" in _ancestor_group_titles(window.reset_volume_button)
+    assert "المؤثرات البصرية الاختيارية" in _ancestor_group_titles(window.black_fade_enabled_checkbox)
+    assert "المؤثرات البصرية الاختيارية" in _ancestor_group_titles(window.fade_in_duration_combo)
+    assert "المؤثرات البصرية الاختيارية" in _ancestor_group_titles(window.fade_out_duration_combo)
+    assert "المؤثرات البصرية الاختيارية" in _ancestor_group_titles(window.black_flash_enabled_checkbox)
+    assert "المؤثرات البصرية الاختيارية" in _ancestor_group_titles(window.black_flash_duration_combo)
+    assert "جودة التصدير" in _ancestor_group_titles(window.export_quality_enabled_checkbox)
+    assert "جودة التصدير" in _ancestor_group_titles(window.export_quality_preset_combo)
+    assert "جودة التصدير" in _ancestor_group_titles(window.resolution_limit_combo)
+    assert any(
+        label.text() == "الإعدادات الاختيارية لا تؤثر على التصدير إلا عند تفعيلها."
+        for label in window.findChildren(QLabel)
+    )
 
     window.close()
     app.processEvents()
