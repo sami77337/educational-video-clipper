@@ -89,6 +89,45 @@ def test_main_window_uses_scroll_area_for_tall_ui() -> None:
 
     assert isinstance(window.centralWidget(), QScrollArea)
     assert window.centralWidget().widgetResizable()
+    assert window.centralWidget().horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff
+
+    window.close()
+    app.processEvents()
+
+
+def test_main_window_applies_visual_polish_without_hiding_workflow_controls() -> None:
+    app = _app()
+    window = MainWindow()
+
+    assert "QPushButton#primaryActionButton" in window.styleSheet()
+    assert "QGroupBox#nestedSettingsGroup" in window.styleSheet()
+    assert "QGroupBox#mainActionsCard" in window.styleSheet()
+    assert "QTextEdit#warningArea" in window.styleSheet()
+    assert window.start_button.objectName() == "primaryActionButton"
+    assert window.smart_paste_button.objectName() == "smartImportButton"
+    assert window.new_work_button.objectName() == "newWorkButton"
+    assert window.validate_button.objectName() == "validateActionButton"
+    assert window.open_output_button.objectName() == "openOutputButton"
+    assert window.queue_advanced_toggle_button.objectName() == "advancedToggleButton"
+    assert window.queue_selected_job_details_label.objectName() == "queueSummaryLabel"
+    assert window.queue_job_details_label.objectName() == "queueDetailsLabel"
+    assert window.log_area.objectName() == "logArea"
+    assert window.paste_message_input.objectName() == "pasteBox"
+    assert window.minimumWidth() >= 980
+    assert window.queue_table.showGrid() is False
+    assert window.clips_table.showGrid() is False
+    assert window.queue_table.verticalHeader().defaultSectionSize() >= 34
+    assert not window.start_button.isHidden()
+    assert not window.smart_paste_button.isHidden()
+    assert not window.validate_button.isHidden()
+    assert not window.open_output_button.isHidden()
+    assert not window.queue_table.isHidden()
+    assert not window.queue_job_details_label.isHidden()
+    assert not window.log_area.isHidden()
+    assert window.start_button.parent().objectName() == "mainActionsCard"
+    assert window.clips_table.parent().objectName() == "clipsCard"
+    assert window.queue_table.parent().objectName() == "queueCard"
+    assert window.start_button.parent().graphicsEffect() is not None
 
     window.close()
     app.processEvents()
@@ -396,6 +435,26 @@ def test_failed_queue_job_details_and_row_show_failure_reason() -> None:
     assert "سبب الفشل" in window.queue_job_details_label.text()
     assert "download" in window.queue_job_details_label.text()
     assert "فشل تحميل أو معالجة رابط يوتيوب" in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
+def test_queue_status_cells_use_readable_visual_status_colors() -> None:
+    app = _app()
+    window = MainWindow()
+    ready_job = window._add_queue_url_job("https://youtu.be/ready123", title="جاهزة")
+    ready_job.mark_status(JobStatus.READY)
+    failed_job = window._add_queue_url_job("https://youtu.be/fail123", title="فاشلة")
+    failed_job.mark_status(JobStatus.FAILED)
+    failed_job.mark_failed("سبب واضح", "download")
+    window._refresh_queue_job_row(0)
+    window._refresh_queue_job_row(1)
+
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).background().color().name() == "#163f34"
+    assert window.queue_table.item(1, QUEUE_STATUS_COLUMN).background().color().name() == "#542929"
+    assert window.queue_table.item(1, QUEUE_ACTION_COLUMN).background().color().name() == "#3a2428"
+    assert "سبب الفشل" in window.queue_table.item(1, QUEUE_ACTION_COLUMN).text()
 
     window.close()
     app.processEvents()
@@ -3075,6 +3134,12 @@ def test_combined_validation_button_runs_table_and_smart_validation(monkeypatch)
 def test_smart_paste_preview_dialog_generates_summary_and_clip_table() -> None:
     app = _app()
     dialog = SmartPasteImportDialog()
+    assert dialog.message_input.objectName() == "pasteBox"
+    assert dialog.parse_button.objectName() == "smartImportButton"
+    assert dialog.apply_button.objectName() == "primaryActionButton"
+    assert dialog.warnings_area.objectName() == "warningArea"
+    assert dialog.unparsed_area.objectName() == "reviewArea"
+    assert dialog.analysis_details_area.objectName() == "reviewArea"
     dialog.message_input.setPlainText(
         "https://youtu.be/abc123\n"
         "01:41 - 03:12 : اسم الله الوهاب\n"

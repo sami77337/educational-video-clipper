@@ -9,7 +9,7 @@ import sys
 from urllib.parse import parse_qs, urlsplit
 
 from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
+from PySide6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -175,6 +176,224 @@ SMART_PASTE_REPLACE_LABEL = "استبدال البيانات الحالية"
 SMART_PASTE_APPEND_LABEL = "إضافة كمقاطع جديدة"
 SMART_PASTE_QUEUE_LABEL = "إضافة كمهمة جديدة في قائمة الانتظار"
 SMART_PASTE_CANCEL_LABEL = "إلغاء"
+APP_STYLE_SHEET = """
+QMainWindow, QScrollArea, QWidget {
+    background: #07111d;
+    color: #edf2f7;
+    font-size: 12px;
+}
+QScrollArea {
+    border: none;
+}
+QFrame#appHeader {
+    background: #101c2b;
+    border: 1px solid #244157;
+    border-radius: 14px;
+}
+QLabel#appTitle {
+    color: #f8fafc;
+    font-size: 24px;
+    font-weight: 700;
+}
+QLabel#appSubtitle {
+    color: #b8c7d8;
+    font-size: 13px;
+}
+QLabel#sectionHelpText, QLabel#statusHelperLabel {
+    color: #aebdd0;
+}
+QGroupBox {
+    background: #101d2b;
+    border: 1px solid #263f55;
+    border-radius: 12px;
+    margin-top: 20px;
+    padding: 16px 14px 14px 14px;
+    font-weight: 600;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top right;
+    right: 14px;
+    padding: 2px 8px;
+    color: #d7e5f6;
+    background: #101d2b;
+}
+QGroupBox#dashboardCard {
+    background: #101d2b;
+}
+QGroupBox#mainActionsCard {
+    background: #0f2133;
+    border-color: #315875;
+}
+QGroupBox#clipsCard {
+    border-color: #345c7a;
+}
+QGroupBox#queueCard {
+    border-color: #2e536e;
+}
+QGroupBox#nestedSettingsGroup, QGroupBox#jobDetailsCard {
+    background: #0c1825;
+    border-color: #33506a;
+    margin-top: 16px;
+}
+QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTableWidget {
+    background: #08131f;
+    border: 1px solid #2b4054;
+    border-radius: 8px;
+    color: #f4f7fb;
+    selection-background-color: #2d6cdf;
+    selection-color: #ffffff;
+}
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
+    min-height: 28px;
+    padding: 3px 8px;
+}
+QTextEdit {
+    padding: 8px;
+}
+QTextEdit#pasteBox {
+    min-height: 92px;
+}
+QTextEdit#logArea {
+    background: #07111c;
+    border-color: #31465b;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.35;
+}
+QTextEdit#warningArea {
+    background: #15170c;
+    border-color: #7a6022;
+    color: #ffe6a3;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
+QTextEdit#reviewArea {
+    background: #07111c;
+    border-color: #31465b;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
+QLineEdit:disabled, QTextEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
+    background: #172331;
+    color: #7e8fa3;
+    border-color: #26384a;
+}
+QTableWidget {
+    gridline-color: #26394b;
+    alternate-background-color: #0d1b29;
+    border-radius: 9px;
+}
+QTableWidget::item {
+    padding: 8px;
+}
+QTableWidget::item:selected {
+    background: #1f5f9f;
+    color: #ffffff;
+}
+QHeaderView::section {
+    background: #17283a;
+    color: #e7eef8;
+    border: 0;
+    border-left: 1px solid #2b4054;
+    padding: 8px 10px;
+    font-weight: 600;
+}
+QPushButton {
+    background: #1b2e42;
+    border: 1px solid #365a76;
+    border-radius: 9px;
+    color: #f2f6fb;
+    padding: 8px 13px;
+    min-height: 32px;
+}
+QPushButton:hover {
+    background: #253d56;
+    border-color: #5783a8;
+}
+QPushButton:pressed {
+    background: #132638;
+}
+QPushButton:disabled {
+    background: #121f2e;
+    border-color: #28394a;
+    color: #718196;
+}
+QPushButton#primaryActionButton {
+    background: #2679e8;
+    border-color: #69abff;
+    color: #ffffff;
+    font-weight: 700;
+    min-height: 42px;
+    padding: 10px 22px;
+    font-size: 14px;
+}
+QPushButton#primaryActionButton:hover {
+    background: #3a90ff;
+}
+QPushButton#smartImportButton {
+    background: #1c6f67;
+    border-color: #39a99a;
+    font-weight: 700;
+}
+QPushButton#newWorkButton, QPushButton#validateActionButton, QPushButton#openOutputButton {
+    background: #1a334b;
+    border-color: #416886;
+}
+QPushButton#advancedToggleButton {
+    background: #122235;
+    border-style: dashed;
+}
+QLabel#processingStatusLabel, QLabel#logHeaderLabel {
+    background: #0a1623;
+    border: 1px solid #2b4054;
+    border-radius: 999px;
+    padding: 7px 13px;
+    font-weight: 600;
+    color: #d9e7f7;
+}
+QLabel#queueEditStatusLabel {
+    color: #f1d18a;
+}
+QLabel#queueSummaryLabel {
+    color: #d7e5f6;
+    background: #0b1724;
+    border: 1px solid #243d54;
+    border-radius: 8px;
+    padding: 8px 10px;
+}
+QLabel#queueDetailsLabel {
+    color: #e4edf8;
+    background: #08131f;
+    border: 1px solid #253f56;
+    border-radius: 8px;
+    padding: 10px 12px;
+    line-height: 1.35;
+}
+QCheckBox, QRadioButton {
+    spacing: 8px;
+}
+QCheckBox::indicator, QRadioButton::indicator {
+    width: 15px;
+    height: 15px;
+}
+"""
+
+QUEUE_STATUS_COLORS: dict[JobStatus, tuple[str, str]] = {
+    JobStatus.DRAFT: ("#243445", "#d9e7f7"),
+    JobStatus.READY: ("#163f34", "#bff4dc"),
+    JobStatus.WARNING: ("#4d3d18", "#ffe6a3"),
+    JobStatus.VALIDATION_ERROR: ("#4d2525", "#ffc4c4"),
+    JobStatus.QUEUED: ("#273545", "#d9e7f7"),
+    JobStatus.DOWNLOADING: ("#1d4773", "#d2ecff"),
+    JobStatus.CUTTING: ("#1d4773", "#d2ecff"),
+    JobStatus.VERIFYING: ("#1d4773", "#d2ecff"),
+    JobStatus.DONE: ("#173f2a", "#c7f6d8"),
+    JobStatus.FAILED: ("#542929", "#ffd1d1"),
+    JobStatus.SKIPPED: ("#40364d", "#ead8ff"),
+    JobStatus.CANCELLED: ("#343a43", "#d2d9e2"),
+}
+
 URL_IN_LOG_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
 SMART_PASTE_BLOCKING_WARNING_MARKERS = (
     "نهاية المقطع قبل بدايته",
@@ -232,8 +451,10 @@ class SmartPasteImportDialog(QDialog):
         self.setWindowTitle("استيراد ذكي")
         self.setLayoutDirection(Qt.RightToLeft)
         self.resize(760, 620)
+        self.setStyleSheet(APP_STYLE_SHEET)
 
         self.message_input = QTextEdit()
+        self.message_input.setObjectName("pasteBox")
         self.message_input.setPlaceholderText("الصق الرسالة كاملة هنا، بما في ذلك رابط الفيديو والمقاطع.")
         self.message_input.setMinimumHeight(120)
 
@@ -247,6 +468,8 @@ class SmartPasteImportDialog(QDialog):
         self.detected_project_label.setWordWrap(True)
 
         self.clips_preview_table = QTableWidget(0, 6)
+        self.clips_preview_table.setShowGrid(False)
+        self.clips_preview_table.verticalHeader().setDefaultSectionSize(34)
         self.clips_preview_table.setHorizontalHeaderLabels(
             ["الرقم", "العنوان", "البداية", "النهاية", "الاستثناءات", "الحالة / الملاحظات"]
         )
@@ -261,14 +484,17 @@ class SmartPasteImportDialog(QDialog):
         self.clips_preview_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
 
         self.warnings_area = QTextEdit()
+        self.warnings_area.setObjectName("warningArea")
         self.warnings_area.setReadOnly(True)
         self.warnings_area.setMaximumHeight(95)
 
         self.unparsed_area = QTextEdit()
+        self.unparsed_area.setObjectName("reviewArea")
         self.unparsed_area.setReadOnly(True)
         self.unparsed_area.setMaximumHeight(95)
 
         self.analysis_details_area = QTextEdit()
+        self.analysis_details_area.setObjectName("reviewArea")
         self.analysis_details_area.setReadOnly(True)
         self.analysis_details_area.setMaximumHeight(130)
 
@@ -276,6 +502,9 @@ class SmartPasteImportDialog(QDialog):
         self.apply_button = QPushButton("تطبيق النتائج")
         self.copy_debug_button = QPushButton("نسخ تقرير التحليل")
         self.cancel_button = QPushButton("إلغاء")
+        self.parse_button.setObjectName("smartImportButton")
+        self.apply_button.setObjectName("primaryActionButton")
+        self.review_status_label.setObjectName("statusHelperLabel")
         self.apply_button.setEnabled(False)
         self.copy_debug_button.setEnabled(False)
 
@@ -797,6 +1026,7 @@ class MainWindow(QMainWindow):
         self._active_log_job: VideoJob | None = None
 
         self._apply_branding()
+        self._apply_visual_polish()
         self.setCentralWidget(self._build_scrollable_ui())
         self._connect_signals()
         self._reset_classification_rules(log=False)
@@ -815,26 +1045,27 @@ class MainWindow(QMainWindow):
         self.scroll_area.setWidget(content)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.NoFrame)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         return self.scroll_area
 
     def _build_ui(self) -> QWidget:
         central = QWidget()
+        central.setObjectName("mainContent")
         layout = QVBoxLayout(central)
-        layout.setSpacing(14)
-        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(16)
+        layout.setContentsMargins(22, 22, 22, 22)
 
         layout.addWidget(self._build_header_section())
         layout.addWidget(self._build_video_source_section())
         layout.addWidget(self._build_project_section())
-        layout.addWidget(self._build_help_section())
         layout.addWidget(self._build_paste_section())
+        layout.addWidget(self._build_action_section())
+        layout.addWidget(self._build_help_section())
         layout.addWidget(self._build_clips_section(), stretch=1)
         layout.addWidget(self._build_classification_section())
         layout.addWidget(self._build_padding_section())
         layout.addWidget(self._build_queue_section())
-        layout.addWidget(self._build_action_section())
         layout.addWidget(self._build_log_section(), stretch=1)
 
         return central
@@ -854,6 +1085,58 @@ class MainWindow(QMainWindow):
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 
+    def _apply_visual_polish(self) -> None:
+        self.setMinimumSize(980, 720)
+
+        self.smart_paste_button.setObjectName("smartImportButton")
+        self.start_button.setObjectName("primaryActionButton")
+        self.new_work_button.setObjectName("newWorkButton")
+        self.validate_button.setObjectName("validateActionButton")
+        self.open_output_button.setObjectName("openOutputButton")
+        self.queue_advanced_toggle_button.setObjectName("advancedToggleButton")
+        self.processing_status_label.setObjectName("processingStatusLabel")
+        self.log_header_label.setObjectName("logHeaderLabel")
+        self.queue_edit_status_label.setObjectName("queueEditStatusLabel")
+        self.queue_selected_job_details_label.setObjectName("queueSummaryLabel")
+        self.queue_job_details_label.setObjectName("queueDetailsLabel")
+        self.paste_message_input.setObjectName("pasteBox")
+        self.log_area.setObjectName("logArea")
+
+        self.smart_paste_button.setMinimumWidth(140)
+        self.start_button.setMinimumWidth(165)
+        self.validate_button.setMinimumWidth(140)
+        self.new_work_button.setMinimumWidth(110)
+        self.open_output_button.setMinimumWidth(135)
+        self.processing_status_label.setMinimumWidth(170)
+
+        for table in (
+            self.queue_table,
+            self.queue_job_clips_table,
+            self.clips_table,
+            self.classification_rules_table,
+        ):
+            self._apply_table_visual_defaults(table)
+
+        self.queue_job_details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.queue_selected_job_details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.log_area.setLineWrapMode(QTextEdit.WidgetWidth)
+        self.setStyleSheet(APP_STYLE_SHEET)
+
+    def _apply_table_visual_defaults(self, table: QTableWidget) -> None:
+        table.setShowGrid(False)
+        table.verticalHeader().setDefaultSectionSize(38)
+        table.horizontalHeader().setHighlightSections(False)
+        table.horizontalHeader().setMinimumSectionSize(58)
+
+    def _style_card(self, group: QGroupBox, object_name: str = "dashboardCard") -> QGroupBox:
+        group.setObjectName(object_name)
+        shadow = QGraphicsDropShadowEffect(group)
+        shadow.setBlurRadius(18)
+        shadow.setOffset(0, 4)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        group.setGraphicsEffect(shadow)
+        return group
+
     def _build_header_section(self) -> QFrame:
         frame = QFrame()
         frame.setObjectName("appHeader")
@@ -868,17 +1151,15 @@ class MainWindow(QMainWindow):
             logo_path = self._asset_path("icon.png")
         if logo_path.exists():
             pixmap = QPixmap(str(logo_path))
-            logo.setPixmap(pixmap.scaled(150, 150, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        logo.setFixedSize(160, 160)
+            logo.setPixmap(pixmap.scaled(104, 104, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo.setFixedSize(116, 116)
         logo.setAlignment(Qt.AlignCenter)
 
         title_layout = QVBoxLayout()
         title = QLabel(APP_NAME)
         title.setObjectName("appTitle")
-        title.setStyleSheet("font-size: 24px; font-weight: 700;")
         subtitle = QLabel(APP_SUBTITLE)
         subtitle.setObjectName("appSubtitle")
-        subtitle.setStyleSheet("font-size: 13px; color: #555;")
         subtitle.setWordWrap(True)
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
@@ -890,6 +1171,7 @@ class MainWindow(QMainWindow):
 
     def _build_video_source_section(self) -> QGroupBox:
         group = QGroupBox("مصدر الفيديو")
+        self._style_card(group)
         layout = QGridLayout(group)
 
         source_group = QButtonGroup(self)
@@ -925,6 +1207,7 @@ class MainWindow(QMainWindow):
 
     def _build_project_section(self) -> QGroupBox:
         group = QGroupBox("اسم المشروع")
+        self._style_card(group)
         layout = QGridLayout(group)
 
         self.project_name_input.setPlaceholderText("مثال: درس الجبر - الوحدة الأولى")
@@ -937,7 +1220,9 @@ class MainWindow(QMainWindow):
 
     def _build_queue_section(self) -> QGroupBox:
         group = QGroupBox("قائمة الانتظار")
+        self._style_card(group, "queueCard")
         layout = QVBoxLayout(group)
+        layout.setSpacing(12)
 
         self.queue_table.setHorizontalHeaderLabels(
             ["المصدر", "العنوان", "عدد المقاطع", "الحالة", "أولوية عالية", "الإجراء"]
@@ -970,7 +1255,9 @@ class MainWindow(QMainWindow):
         self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(EXCLUSIONS_COLUMN, QHeaderView.Stretch)
 
         details_group = QGroupBox("تفاصيل المهمة المحددة")
+        details_group.setObjectName("jobDetailsCard")
         details_layout = QVBoxLayout(details_group)
+        details_layout.setSpacing(10)
         details_layout.addWidget(self.queue_job_details_label)
         details_layout.addWidget(QLabel("مقاطع المهمة"))
         details_layout.addWidget(self.queue_job_clips_table)
@@ -988,7 +1275,10 @@ class MainWindow(QMainWindow):
         self.queue_advanced_toggle_button.setCheckable(True)
         self.queue_advanced_toggle_button.setChecked(False)
         advanced_group_layout = QVBoxLayout(self.queue_advanced_group)
+        advanced_group_layout.setSpacing(10)
         advanced_controls_layout = QGridLayout(self.queue_advanced_controls_widget)
+        advanced_controls_layout.setHorizontalSpacing(8)
+        advanced_controls_layout.setVerticalSpacing(8)
         advanced_buttons = [
             self.add_current_work_to_queue_button,
             self.add_queue_local_video_button,
@@ -1027,6 +1317,7 @@ class MainWindow(QMainWindow):
 
     def _build_help_section(self) -> QGroupBox:
         group = QGroupBox("تعليمات سريعة")
+        self._style_card(group)
         layout = QVBoxLayout(group)
 
         help_text = QLabel(
@@ -1038,6 +1329,7 @@ class MainWindow(QMainWindow):
             "مثال: من 3 إلى مفتوح = فوائد.\n"
             "يمكن إضافة تصنيفات أكثر مثل Shorts أو فوائد طويلة أو دروس."
         )
+        help_text.setObjectName("sectionHelpText")
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
 
@@ -1045,6 +1337,7 @@ class MainWindow(QMainWindow):
 
     def _build_classification_section(self) -> QGroupBox:
         group = QGroupBox("إعدادات التصنيف والمجلدات")
+        self._style_card(group)
         layout = QVBoxLayout(group)
 
         self.classification_rules_table.setHorizontalHeaderLabels(
@@ -1073,6 +1366,7 @@ class MainWindow(QMainWindow):
 
     def _build_paste_section(self) -> QGroupBox:
         group = QGroupBox("الصق الرسالة هنا")
+        self._style_card(group)
         layout = QVBoxLayout(group)
 
         layout.addWidget(QLabel("الصق الرسالة هنا"))
@@ -1090,7 +1384,9 @@ class MainWindow(QMainWindow):
 
     def _build_padding_section(self) -> QGroupBox:
         group = QGroupBox("إعدادات القص")
+        self._style_card(group)
         layout = QVBoxLayout(group)
+        layout.setSpacing(12)
 
         self._configure_padding_input(self.pre_padding_input)
         self._configure_padding_input(self.post_padding_input)
@@ -1103,7 +1399,10 @@ class MainWindow(QMainWindow):
         self._configure_resolution_limit_input(self.resolution_limit_combo)
 
         basic_group = QGroupBox("إعدادات القص الأساسية")
+        basic_group.setObjectName("nestedSettingsGroup")
         basic_layout = QGridLayout(basic_group)
+        basic_layout.setHorizontalSpacing(12)
+        basic_layout.setVerticalSpacing(8)
         basic_layout.addWidget(QLabel("وقت قبل بداية المقطع"), 0, 0)
         basic_layout.addWidget(self.pre_padding_input, 0, 1)
         basic_layout.addWidget(QLabel("وقت بعد نهاية المقطع"), 1, 0)
@@ -1111,7 +1410,10 @@ class MainWindow(QMainWindow):
         basic_layout.setColumnStretch(1, 1)
 
         optional_group = QGroupBox("تعديلات اختيارية")
+        optional_group.setObjectName("nestedSettingsGroup")
         optional_layout = QGridLayout(optional_group)
+        optional_layout.setHorizontalSpacing(12)
+        optional_layout.setVerticalSpacing(8)
         optional_layout.addWidget(self.video_speed_enabled_checkbox, 0, 0)
         optional_layout.addWidget(QLabel("سرعة الفيديو"), 0, 1)
         optional_layout.addWidget(self.video_speed_input, 0, 2)
@@ -1125,7 +1427,10 @@ class MainWindow(QMainWindow):
         optional_layout.setColumnStretch(2, 1)
 
         visual_group = QGroupBox("المؤثرات البصرية الاختيارية")
+        visual_group.setObjectName("nestedSettingsGroup")
         visual_layout = QGridLayout(visual_group)
+        visual_layout.setHorizontalSpacing(12)
+        visual_layout.setVerticalSpacing(8)
         visual_layout.addWidget(self.black_fade_enabled_checkbox, 0, 0, 1, 4)
         visual_layout.addWidget(QLabel("مدة التدرج في البداية"), 1, 0)
         visual_layout.addWidget(self.fade_in_duration_combo, 1, 1)
@@ -1139,7 +1444,10 @@ class MainWindow(QMainWindow):
         visual_layout.setColumnStretch(3, 1)
 
         export_group = QGroupBox("جودة التصدير")
+        export_group.setObjectName("nestedSettingsGroup")
         export_layout = QGridLayout(export_group)
+        export_layout.setHorizontalSpacing(12)
+        export_layout.setVerticalSpacing(8)
         export_layout.addWidget(self.export_quality_enabled_checkbox, 0, 0, 1, 3)
         export_layout.addWidget(QLabel("إعداد الجودة"), 1, 0)
         export_layout.addWidget(self.export_quality_preset_combo, 1, 1)
@@ -1149,6 +1457,7 @@ class MainWindow(QMainWindow):
         export_layout.setColumnStretch(2, 1)
 
         helper_label = QLabel("الإعدادات الاختيارية لا تؤثر على التصدير إلا عند تفعيلها.")
+        helper_label.setObjectName("statusHelperLabel")
         helper_label.setWordWrap(True)
 
         layout.addWidget(basic_group)
@@ -1339,7 +1648,9 @@ class MainWindow(QMainWindow):
 
     def _build_clips_section(self) -> QGroupBox:
         group = QGroupBox("جدول المقاطع")
+        self._style_card(group, "clipsCard")
         layout = QVBoxLayout(group)
+        layout.setSpacing(12)
 
         self.clips_table.setHorizontalHeaderLabels(["الرقم", "العنوان", "البداية", "النهاية", "استثناءات"])
         self.clips_table.verticalHeader().setVisible(False)
@@ -1374,7 +1685,9 @@ class MainWindow(QMainWindow):
 
     def _build_action_section(self) -> QGroupBox:
         group = QGroupBox("أزرار التشغيل")
+        self._style_card(group, "mainActionsCard")
         layout = QHBoxLayout(group)
+        layout.setSpacing(10)
 
         layout.addWidget(self.start_button)
         layout.addWidget(self.new_work_button)
@@ -1388,7 +1701,9 @@ class MainWindow(QMainWindow):
 
     def _build_log_section(self) -> QGroupBox:
         group = QGroupBox("سجل الحالة")
+        self._style_card(group)
         layout = QVBoxLayout(group)
+        layout.setSpacing(10)
 
         self.log_area.setReadOnly(True)
         self.log_area.setPlaceholderText("ستظهر رسائل الفحص والتقدم هنا.")
@@ -1718,6 +2033,7 @@ class MainWindow(QMainWindow):
             self.queue_table.setItem(row, QUEUE_HIGH_PRIORITY_COLUMN, priority_item)
 
             self.queue_table.setItem(row, QUEUE_ACTION_COLUMN, self._readonly_table_item(self._queue_settings_summary(job)))
+            self._apply_queue_row_visual_state(row, job)
         finally:
             self.queue_table.blockSignals(False)
         self._update_queue_edit_controls()
@@ -1726,6 +2042,24 @@ class MainWindow(QMainWindow):
         item = QTableWidgetItem(text)
         item.setFlags(item.flags() & ~Qt.ItemIsEditable)
         return item
+
+    def _apply_queue_row_visual_state(self, row: int, job: VideoJob) -> None:
+        status_item = self.queue_table.item(row, QUEUE_STATUS_COLUMN)
+        if status_item is not None:
+            background, foreground = QUEUE_STATUS_COLORS.get(job.status, QUEUE_STATUS_COLORS[JobStatus.DRAFT])
+            status_item.setBackground(QBrush(QColor(background)))
+            status_item.setForeground(QBrush(QColor(foreground)))
+            status_item.setTextAlignment(Qt.AlignCenter)
+            status_item.setToolTip(self._queue_status_label(job.status))
+
+        action_item = self.queue_table.item(row, QUEUE_ACTION_COLUMN)
+        if action_item is not None:
+            if job.status == JobStatus.FAILED:
+                action_item.setBackground(QBrush(QColor("#3a2428")))
+                action_item.setForeground(QBrush(QColor("#ffd1d1")))
+            else:
+                action_item.setBackground(QBrush())
+                action_item.setForeground(QBrush())
 
     def _infer_queue_url_source_type(self, url: str) -> QueueVideoSourceType:
         lowered_url = url.lower()
@@ -2808,6 +3142,7 @@ class MainWindow(QMainWindow):
                 Qt.Checked if job.settings.high_priority else Qt.Unchecked
             )
             self.queue_table.item(row, QUEUE_ACTION_COLUMN).setText(self._queue_settings_summary(job))
+            self._apply_queue_row_visual_state(row, job)
         finally:
             self.queue_table.blockSignals(False)
         if job.status == JobStatus.DONE and job.output_folder:
@@ -3244,8 +3579,8 @@ class MainWindow(QMainWindow):
         self.source_status_label.setText(
             "المصدر النشط: رابط يوتيوب" if use_youtube else "المصدر النشط: فيديو من الجهاز"
         )
-        self.youtube_input.setStyleSheet("" if use_youtube else "background-color: #f2f2f2;")
-        self.local_file_input.setStyleSheet("" if not use_youtube else "background-color: #f2f2f2;")
+        self.youtube_input.setStyleSheet("")
+        self.local_file_input.setStyleSheet("")
 
     def _collect_clip_rows(self) -> list[ClipRowInput]:
         rows: list[ClipRowInput] = []
