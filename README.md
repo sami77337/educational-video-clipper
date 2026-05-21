@@ -245,6 +245,12 @@ python scripts\check_release_package.py
 docs\RELEASE_PACKAGE_GUIDE.md
 ```
 
+وخطة الاختبار اليدوي للنسخة المرشحة الداخلية موجودة هنا:
+
+```text
+docs\RC_MANUAL_TEST_PLAN.md
+```
+
 وتعليمات الاستخدام العربية التي تُنسخ داخل الحزمة موجودة هنا:
 
 ```text
