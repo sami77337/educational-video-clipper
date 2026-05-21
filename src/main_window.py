@@ -40,6 +40,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.app_paths import (
+    AR_OUTPUT_CREATE_FAILED,
+    OutputPathError,
+    documents_output_root,
+    resolve_output_root,
+)
 from src.classification import (
     ClassificationRule,
     ClassificationRuleError,
@@ -556,6 +562,10 @@ class QueueProcessingWorker(QObject):
                 export_quality=self._effective_job_export_quality(job),
             )
         except Exception as error:
+            if str(error).strip() == AR_OUTPUT_CREATE_FAILED:
+                job.mark_failed(AR_OUTPUT_CREATE_FAILED, "output")
+                self.progress.emit(AR_OUTPUT_CREATE_FAILED)
+                raise VideoProcessingError(AR_OUTPUT_CREATE_FAILED) from error
             stage = job.failure_stage or ("download" if job.source_type == QueueVideoSourceType.YOUTUBE else "cutting")
             safe_error = safe_log_text(str(error))
             if job.source_type == QueueVideoSourceType.YOUTUBE:
@@ -675,7 +685,14 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.output_root = Path.cwd() / "output"
+        self._output_root_warning = ""
+        try:
+            output_resolution = resolve_output_root()
+            self.output_root = output_resolution.path
+            self._output_root_warning = output_resolution.warning
+        except OutputPathError as error:
+            self.output_root = documents_output_root()
+            self._output_root_warning = str(error)
         self.video_processor = VideoProcessor(self.output_root)
         self.job_queue: list[VideoJob] = []
         self._processing_thread: QThread | None = None
@@ -788,6 +805,8 @@ class MainWindow(QMainWindow):
         self._update_queue_edit_controls()
         self._update_selected_queue_job_details()
         self.show_global_log()
+        if self._output_root_warning:
+            self._append_log(self._output_root_warning)
         self.open_output_button.setEnabled(False)
         self.stop_queue_after_current_button.setEnabled(False)
 
@@ -1886,7 +1905,7 @@ class MainWindow(QMainWindow):
         if job.failure_message:
             lines.append(f"سبب الفشل: {self._short_queue_text(job.failure_message, 180)}")
         if job.output_folder:
-            lines.append(f"مسار مجلد النتائج: {job.output_folder}")
+            lines.append(f"مجلد النتائج الفعلي: {job.output_folder}")
         return "\n".join(lines)
 
     def _safe_queue_source_text(self, source: str) -> str:
