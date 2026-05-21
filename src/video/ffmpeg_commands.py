@@ -18,6 +18,12 @@ from src.video_volume import (
 )
 from src.video_black_flash import ClipBlackFlash, build_black_flash_filters, normalize_clip_black_flash
 from src.video_fade import ClipFade, build_video_fade_filters, normalize_clip_fade
+from src.video_export_quality import (
+    ExportQualitySettings,
+    build_resolution_limit_filter,
+    export_quality_encoding_arguments,
+    normalize_export_quality_settings,
+)
 
 
 def build_ffmpeg_command(
@@ -28,6 +34,7 @@ def build_ffmpeg_command(
     video_speed: int | float = DEFAULT_VIDEO_SPEED,
     volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
     clip_fade: ClipFade | None = None,
+    export_quality: ExportQualitySettings | None = None,
 ) -> list[str]:
     """Build the ffmpeg command used to cut a clip."""
 
@@ -37,6 +44,15 @@ def build_ffmpeg_command(
         normalize_clip_fade(clip_fade.enabled, clip_fade.fade_in_seconds, clip_fade.fade_out_seconds)
         if clip_fade is not None
         else normalize_clip_fade(False)
+    )
+    normalized_quality = (
+        normalize_export_quality_settings(
+            export_quality.enabled,
+            export_quality.quality_preset,
+            export_quality.resolution_limit,
+        )
+        if export_quality is not None
+        else normalize_export_quality_settings(False)
     )
     command = [
         "ffmpeg",
@@ -49,7 +65,7 @@ def build_ffmpeg_command(
         str(input_video_path),
     ]
 
-    video_filters = _build_video_filters(normalized_speed, normalized_fade, duration_seconds)
+    video_filters = _build_video_filters(normalized_speed, normalized_fade, duration_seconds, normalized_quality)
     if video_filters:
         command.extend(["-filter:v", video_filters])
 
@@ -57,7 +73,7 @@ def build_ffmpeg_command(
     if audio_filters:
         command.extend(["-filter:a", audio_filters])
 
-    command.extend(_encoding_arguments(output_video_path))
+    command.extend(_encoding_arguments(output_video_path, normalized_quality))
     return command
 
 
@@ -84,6 +100,7 @@ def build_ffmpeg_video_effects_command(
     clip_fade: ClipFade | None = None,
     clip_black_flash: ClipBlackFlash | None = None,
     black_flash_times_seconds: list[float] | tuple[float, ...] | None = None,
+    export_quality: ExportQualitySettings | None = None,
 ) -> list[str]:
     """Build an ffmpeg command for final video-only effects on an existing clip."""
 
@@ -97,6 +114,15 @@ def build_ffmpeg_video_effects_command(
         if clip_black_flash is not None
         else normalize_clip_black_flash(False)
     )
+    normalized_quality = (
+        normalize_export_quality_settings(
+            export_quality.enabled,
+            export_quality.quality_preset,
+            export_quality.resolution_limit,
+        )
+        if export_quality is not None
+        else normalize_export_quality_settings(False)
+    )
     video_filters: list[str] = []
     video_filters.extend(
         build_black_flash_filters(
@@ -107,26 +133,22 @@ def build_ffmpeg_video_effects_command(
     )
     fade_filters, _clamped = build_video_fade_filters(normalized_fade, duration_seconds)
     video_filters.extend(fade_filters)
+    resolution_filter = build_resolution_limit_filter(normalized_quality)
+    if resolution_filter:
+        video_filters.append(resolution_filter)
     command = ["ffmpeg", "-y", "-i", str(input_video_path)]
     if video_filters:
         command.extend(["-filter:v", ",".join(video_filters)])
-    command.extend(
-        [
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "20",
-            "-c:a",
-            "copy",
-            str(output_video_path),
-        ]
-    )
+    command.extend(_encoding_arguments(output_video_path, normalized_quality, audio_copy=True))
     return command
 
 
-def _build_video_filters(video_speed: float, clip_fade: ClipFade, duration_seconds: int | float) -> str:
+def _build_video_filters(
+    video_speed: float,
+    clip_fade: ClipFade,
+    duration_seconds: int | float,
+    export_quality: ExportQualitySettings,
+) -> str:
     filters: list[str] = []
     if video_speed != DEFAULT_VIDEO_SPEED:
         filters.append(build_video_speed_filter(video_speed))
@@ -137,6 +159,9 @@ def _build_video_filters(video_speed: float, clip_fade: ClipFade, duration_secon
             speed_adjusted_duration(duration_seconds, video_speed),
         )
         filters.extend(fade_filters)
+    resolution_filter = build_resolution_limit_filter(export_quality)
+    if resolution_filter:
+        filters.append(resolution_filter)
     return ",".join(filters)
 
 
@@ -149,20 +174,13 @@ def _build_audio_filters(video_speed: float, volume_percent: int) -> str:
     return ",".join(filters)
 
 
-def _encoding_arguments(output_video_path: str | Path) -> list[str]:
-    return [
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "20",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        str(output_video_path),
-    ]
+def _encoding_arguments(
+    output_video_path: str | Path,
+    export_quality: ExportQualitySettings,
+    *,
+    audio_copy: bool = False,
+) -> list[str]:
+    return export_quality_encoding_arguments(export_quality, str(output_video_path), audio_copy=audio_copy)
 
 
 def build_ffmpeg_concat_command(

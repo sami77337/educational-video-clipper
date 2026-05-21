@@ -69,6 +69,14 @@ from src.video_volume import (
     VideoVolumeError,
     normalize_volume_percent,
 )
+from src.video_export_quality import (
+    AR_EXPORT_QUALITY_APPLIED,
+    DEFAULT_EXPORT_QUALITY_PRESET,
+    DEFAULT_RESOLUTION_LIMIT,
+    ExportQualityError,
+    ExportQualitySettings,
+    normalize_export_quality_settings,
+)
 from src.video.ffmpeg_commands import (
     build_ffmpeg_command,
     build_ffmpeg_concat_command,
@@ -342,6 +350,7 @@ class VideoProcessor:
         volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
         clip_fade: ClipFade | None = None,
         clip_black_flash: ClipBlackFlash | None = None,
+        export_quality: ExportQualitySettings | None = None,
     ) -> list[CutClipResult]:
         """Cut all clips from the prepared input video and sort them automatically."""
 
@@ -358,6 +367,7 @@ class VideoProcessor:
             volume_percent,
             clip_fade,
             clip_black_flash,
+            export_quality,
         )
 
     def process_project(
@@ -373,6 +383,7 @@ class VideoProcessor:
         volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
         clip_fade: ClipFade | None = None,
         clip_black_flash: ClipBlackFlash | None = None,
+        export_quality: ExportQualitySettings | None = None,
     ) -> ProcessingResult:
         """Prepare, cut, sort, and report one project."""
 
@@ -394,6 +405,10 @@ class VideoProcessor:
         try:
             active_black_flash = _normalize_clip_black_flash(clip_black_flash)
         except VideoBlackFlashError as error:
+            raise VideoProcessingError(str(error)) from error
+        try:
+            active_export_quality = _normalize_export_quality(export_quality)
+        except ExportQualityError as error:
             raise VideoProcessingError(str(error)) from error
         clips = self.build_clip_definitions(clip_rows)
         exclusion_errors = validate_exclusions_for_clips(clips, active_padding)
@@ -419,6 +434,7 @@ class VideoProcessor:
             active_volume,
             active_fade,
             active_black_flash,
+            active_export_quality,
         )
         export_artifacts = self.export_results(
             project_output_folder=prepared_video.project_output_folder,
@@ -434,6 +450,7 @@ class VideoProcessor:
             volume_percent=active_volume,
             clip_fade=active_fade,
             clip_black_flash=active_black_flash,
+            export_quality=active_export_quality,
         )
         _emit(progress_callback, AR_PROCESSING_SUCCESS)
 
@@ -459,6 +476,7 @@ class VideoProcessor:
         volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
         clip_fade: ClipFade | None = None,
         clip_black_flash: ClipBlackFlash | None = None,
+        export_quality: ExportQualitySettings | None = None,
     ) -> ExportArtifacts:
         """Create result folders and a final report after successful clipping."""
 
@@ -469,6 +487,7 @@ class VideoProcessor:
         active_volume = normalize_volume_percent(volume_percent)
         active_fade = _normalize_clip_fade(clip_fade)
         active_black_flash = _normalize_clip_black_flash(clip_black_flash)
+        active_export_quality = _normalize_export_quality(export_quality)
         folder_names = classification_folder_names(active_rules)
         output_folders = list(ensure_result_folders(project_folder, folder_names))
         zip_files: list[Path] = []
@@ -496,6 +515,9 @@ class VideoProcessor:
             fade_out_seconds=active_fade.fade_out_seconds,
             black_flash_enabled=active_black_flash.enabled,
             black_flash_duration_seconds=active_black_flash.duration_seconds,
+            export_quality_enabled=active_export_quality.enabled,
+            quality_preset=active_export_quality.quality_preset,
+            resolution_limit=active_export_quality.resolution_limit,
         )
         report_path = write_processing_report(project_folder, report_data)
         _emit(progress_callback, AR_REPORT_CREATED)
@@ -802,6 +824,7 @@ def cut_clip(
     video_speed: int | float = DEFAULT_VIDEO_SPEED,
     volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
     clip_fade: ClipFade | None = None,
+    export_quality: ExportQualitySettings | None = None,
 ) -> Path:
     """Cut one clip using ffmpeg."""
 
@@ -814,6 +837,7 @@ def cut_clip(
     normalized_speed = normalize_video_speed(video_speed)
     normalized_volume = normalize_volume_percent(volume_percent)
     normalized_fade = _normalize_clip_fade(clip_fade)
+    normalized_export_quality = _normalize_export_quality(export_quality)
     command = build_ffmpeg_command(
         input_path,
         output_path,
@@ -822,6 +846,7 @@ def cut_clip(
         normalized_speed,
         normalized_volume,
         normalized_fade,
+        normalized_export_quality,
     )
 
     try:
@@ -847,6 +872,7 @@ def cut_clip_with_exclusions(
     volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
     clip_fade: ClipFade | None = None,
     clip_black_flash: ClipBlackFlash | None = None,
+    export_quality: ExportQualitySettings | None = None,
 ) -> Path:
     """Cut kept segments for a clip with exclusions and merge them into one mp4."""
 
@@ -856,6 +882,7 @@ def cut_clip_with_exclusions(
     normalized_volume = normalize_volume_percent(volume_percent)
     normalized_fade = _normalize_clip_fade(clip_fade)
     normalized_black_flash = _normalize_clip_black_flash(clip_black_flash)
+    normalized_export_quality = _normalize_export_quality(export_quality)
     try:
         kept_segments = calculate_kept_segment_seconds(
             effective_start_seconds if effective_start_seconds is not None else clip.start_seconds,
@@ -875,6 +902,7 @@ def cut_clip_with_exclusions(
                     normalized_speed,
                     normalized_volume,
                     ClipFade(),
+                    normalized_export_quality,
                 )
             )
 
@@ -909,13 +937,21 @@ def cut_clip_with_exclusions(
                     black_flash_times,
                     expected_duration,
                     runner,
+                    normalized_export_quality,
                 )
             except ClipCutError:
                 if not black_flash_times:
                     raise
                 _emit(progress_callback, AR_BLACK_FLASH_FAILED)
                 if normalized_fade.enabled:
-                    apply_final_video_fade(concat_output_path, output_path, normalized_fade, expected_duration, runner)
+                    apply_final_video_fade(
+                        concat_output_path,
+                        output_path,
+                        normalized_fade,
+                        expected_duration,
+                        runner,
+                        normalized_export_quality,
+                    )
                 else:
                     shutil.copy2(concat_output_path, output_path)
             else:
@@ -963,6 +999,7 @@ def apply_final_video_fade(
     clip_fade: ClipFade,
     duration_seconds: int | float,
     runner: SubprocessRunner = subprocess.run,
+    export_quality: ExportQualitySettings | None = None,
 ) -> Path:
     """Apply black video fade to an already-created clip without audio filters."""
 
@@ -974,6 +1011,7 @@ def apply_final_video_fade(
         (),
         duration_seconds,
         runner,
+        export_quality,
     )
 
 
@@ -985,6 +1023,7 @@ def apply_final_video_effects(
     black_flash_times_seconds: list[float] | tuple[float, ...],
     duration_seconds: int | float,
     runner: SubprocessRunner = subprocess.run,
+    export_quality: ExportQualitySettings | None = None,
 ) -> Path:
     """Apply final video-only effects to an already-created clip."""
 
@@ -993,6 +1032,7 @@ def apply_final_video_effects(
     ensure_directory(output_path.parent)
     normalized_fade = _normalize_clip_fade(clip_fade)
     normalized_black_flash = _normalize_clip_black_flash(clip_black_flash)
+    normalized_export_quality = _normalize_export_quality(export_quality)
     command = build_ffmpeg_video_effects_command(
         input_path,
         output_path,
@@ -1000,6 +1040,7 @@ def apply_final_video_effects(
         normalized_fade,
         normalized_black_flash,
         black_flash_times_seconds,
+        normalized_export_quality,
     )
 
     try:
@@ -1090,6 +1131,7 @@ def cut_clips(
     volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
     clip_fade: ClipFade | None = None,
     clip_black_flash: ClipBlackFlash | None = None,
+    export_quality: ExportQualitySettings | None = None,
 ) -> list[CutClipResult]:
     """Cut and sort all requested clips."""
 
@@ -1101,6 +1143,7 @@ def cut_clips(
     normalized_volume = normalize_volume_percent(volume_percent)
     normalized_fade = _normalize_clip_fade(clip_fade)
     normalized_black_flash = _normalize_clip_black_flash(clip_black_flash)
+    normalized_export_quality = _normalize_export_quality(export_quality)
     exclusion_errors = validate_exclusions_for_clips(clips, active_padding, video_duration_seconds)
     if exclusion_errors:
         raise VideoProcessingError(f"{AR_EXCLUSIONS_INVALID}:\n" + "\n".join(exclusion_errors))
@@ -1114,6 +1157,8 @@ def cut_clips(
         _emit(progress_callback, AR_VOLUME_APPLIED)
     if normalized_fade.enabled:
         _emit(progress_callback, AR_BLACK_FADE_APPLIED)
+    if normalized_export_quality.enabled:
+        _emit(progress_callback, AR_EXPORT_QUALITY_APPLIED)
 
     results: list[CutClipResult] = []
     for clip in clips:
@@ -1164,6 +1209,7 @@ def cut_clips(
                     normalized_volume,
                     normalized_fade,
                     normalized_black_flash,
+                    normalized_export_quality,
                 )
             else:
                 _emit(progress_callback, f"{AR_NO_EXCLUSIONS_FOR_CLIP} {clip.number:02d}")
@@ -1176,6 +1222,7 @@ def cut_clips(
                     normalized_speed,
                     normalized_volume,
                     normalized_fade,
+                    normalized_export_quality,
                 )
                 _emit(progress_callback, AR_CUT_WITHOUT_EXCLUSIONS)
         except FfmpegNotFoundError:
@@ -1242,6 +1289,16 @@ def _normalize_clip_black_flash(clip_black_flash: ClipBlackFlash | None) -> Clip
     if clip_black_flash is None:
         return normalize_clip_black_flash(False)
     return normalize_clip_black_flash(clip_black_flash.enabled, clip_black_flash.duration_seconds)
+
+
+def _normalize_export_quality(export_quality: ExportQualitySettings | None) -> ExportQualitySettings:
+    if export_quality is None:
+        return normalize_export_quality_settings(False, DEFAULT_EXPORT_QUALITY_PRESET, DEFAULT_RESOLUTION_LIMIT)
+    return normalize_export_quality_settings(
+        export_quality.enabled,
+        export_quality.quality_preset,
+        export_quality.resolution_limit,
+    )
 
 
 def _probe_video_duration_if_needed(input_video_path: Path, clip_padding: ClipPadding) -> float | None:

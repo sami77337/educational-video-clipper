@@ -23,6 +23,13 @@ from src.video_black_flash import (
     normalize_clip_black_flash,
 )
 from src.video_fade import DEFAULT_FADE_IN_SECONDS, DEFAULT_FADE_OUT_SECONDS, normalize_clip_fade
+from src.video_export_quality import (
+    DEFAULT_EXPORT_QUALITY_PRESET,
+    DEFAULT_RESOLUTION_LIMIT,
+    normalize_export_quality_settings,
+    quality_preset_label_ar,
+    resolution_limit_label_ar,
+)
 
 
 REELS_FOLDER_NAME = "ريلز"
@@ -84,6 +91,9 @@ class ProcessingReportData:
     fade_out_seconds: float = DEFAULT_FADE_OUT_SECONDS
     black_flash_enabled: bool = False
     black_flash_duration_seconds: float = DEFAULT_BLACK_FLASH_SECONDS
+    export_quality_enabled: bool = False
+    quality_preset: str = DEFAULT_EXPORT_QUALITY_PRESET
+    resolution_limit: str = DEFAULT_RESOLUTION_LIMIT
 
 
 @dataclass(frozen=True)
@@ -201,6 +211,10 @@ def build_processing_report(data: ProcessingReportData) -> str:
                 f"مدة الوميض الأسود: {_format_seconds_value(flash.duration_seconds)} ثانية",
             ]
         )
+    if _has_export_quality(data):
+        lines.append(f"جودة التصدير: {quality_preset_label_ar(data.quality_preset)}")
+        if data.resolution_limit != DEFAULT_RESOLUTION_LIMIT:
+            lines.append(f"حد الدقة: {resolution_limit_label_ar(data.resolution_limit)}")
     lines.append("Classification rules:")
     lines.extend(_format_classification_rule(rule) for rule in classification_rules)
     lines.append("Clip counts by folder:")
@@ -326,6 +340,14 @@ def _has_fade(data: ProcessingReportData) -> bool:
 
 def _has_black_flash(data: ProcessingReportData) -> bool:
     return normalize_clip_black_flash(data.black_flash_enabled, data.black_flash_duration_seconds).enabled
+
+
+def _has_export_quality(data: ProcessingReportData) -> bool:
+    return normalize_export_quality_settings(
+        data.export_quality_enabled,
+        data.quality_preset,
+        data.resolution_limit,
+    ).enabled
 
 
 def _format_seconds_value(value: float) -> str:

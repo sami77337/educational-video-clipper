@@ -8,6 +8,7 @@ from src.clip_padding import ClipPadding
 from src.video_speed import AR_INVALID_VIDEO_SPEED
 from src.video_volume import AR_INVALID_VOLUME_PERCENT, AR_VOLUME_APPLIED
 from src.video_black_flash import AR_BLACK_FLASH_APPLIED, ClipBlackFlash
+from src.video_export_quality import AR_EXPORT_QUALITY_APPLIED, ExportQualitySettings
 from src.video_fade import AR_FADE_DURATION_CLAMPED, ClipFade
 from src.video_processor import (
     AR_BLACK_FADE_APPLIED,
@@ -336,6 +337,57 @@ def test_cut_clips_disabled_fade_preserves_existing_ffmpeg_command(tmp_path) -> 
 
     assert fade_disabled_commands == default_commands
     assert "-filter:v" not in fade_disabled_commands[0]
+
+
+def test_cut_clips_disabled_export_quality_preserves_existing_ffmpeg_command(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(number=1, title="clip", start_seconds=5, end_seconds=25)
+    default_commands: list[list[str]] = []
+    disabled_quality_commands: list[list[str]] = []
+
+    cut_clips(prepared_video, [clip], runner=lambda command, **kwargs: default_commands.append(command))
+    cut_clips(
+        prepared_video,
+        [clip],
+        runner=lambda command, **kwargs: disabled_quality_commands.append(command),
+        export_quality=ExportQualitySettings(enabled=False, quality_preset="small", resolution_limit="720p"),
+    )
+
+    assert disabled_quality_commands == default_commands
+
+
+def test_cut_clips_applies_custom_export_quality_and_resolution(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(number=1, title="clip", start_seconds=5, end_seconds=25)
+    commands: list[list[str]] = []
+    messages: list[str] = []
+
+    cut_clips(
+        prepared_video,
+        [clip],
+        messages.append,
+        lambda command, **kwargs: commands.append(command),
+        export_quality=ExportQualitySettings(enabled=True, quality_preset="high", resolution_limit="1080p"),
+    )
+
+    assert commands[0][commands[0].index("-preset") + 1] == "slow"
+    assert commands[0][commands[0].index("-crf") + 1] == "18"
+    assert "scale=" in commands[0][commands[0].index("-filter:v") + 1]
+    assert AR_EXPORT_QUALITY_APPLIED in messages
 
 
 @pytest.mark.parametrize(
@@ -900,6 +952,57 @@ def test_enabled_black_flash_applies_video_markers_at_multiple_exclusion_joins(t
     assert "between(t,60,60.3)" in video_filter
     assert "between(t,150,150.3)" in video_filter
     assert AR_BLACK_FLASH_APPLIED in messages
+
+
+def test_export_quality_composes_with_speed_volume_fade_flash_padding_and_exclusions(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(
+        number=2,
+        title="multi",
+        start_seconds=600,
+        end_seconds=900,
+        exclusions="00:11:00-00:11:30, 00:13:00-00:13:20",
+    )
+    commands: list[list[str]] = []
+    messages: list[str] = []
+
+    cut_clips(
+        prepared_video,
+        [clip],
+        messages.append,
+        lambda command, **kwargs: commands.append(command),
+        clip_padding=ClipPadding(pre_seconds=1, post_seconds=1),
+        video_speed=1.10,
+        volume_percent=150,
+        clip_fade=ClipFade(enabled=True, fade_in_seconds=0.5, fade_out_seconds=0.5),
+        clip_black_flash=ClipBlackFlash(enabled=True, duration_seconds=0.2),
+        export_quality=ExportQualitySettings(enabled=True, quality_preset="small", resolution_limit="720p"),
+    )
+
+    segment_command = commands[0]
+    final_effect_command = commands[-1]
+    assert segment_command[segment_command.index("-preset") + 1] == "veryfast"
+    assert segment_command[segment_command.index("-crf") + 1] == "26"
+    assert "setpts=PTS/1.1" in segment_command[segment_command.index("-filter:v") + 1]
+    assert "scale=" in segment_command[segment_command.index("-filter:v") + 1]
+    assert segment_command[segment_command.index("-filter:a") + 1] == "atempo=1.1,volume=1.5"
+    assert "drawbox" in final_effect_command[final_effect_command.index("-filter:v") + 1]
+    assert "fade=t=in" in final_effect_command[final_effect_command.index("-filter:v") + 1]
+    assert "scale=" in final_effect_command[final_effect_command.index("-filter:v") + 1]
+    assert final_effect_command[final_effect_command.index("-crf") + 1] == "26"
+    assert AR_CLIP_PADDING_APPLIED in messages
+    assert AR_VIDEO_SPEED_APPLIED in messages
+    assert AR_VOLUME_APPLIED in messages
+    assert AR_BLACK_FADE_APPLIED in messages
+    assert AR_BLACK_FLASH_APPLIED in messages
+    assert AR_EXPORT_QUALITY_APPLIED in messages
 
 
 def test_black_flash_enabled_does_nothing_for_clip_without_exclusions(tmp_path) -> None:

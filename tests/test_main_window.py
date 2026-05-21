@@ -36,6 +36,7 @@ from src.job_queue import ClipJob, JobStatus, VideoJob, VideoSourceType as Queue
 from src.job_queue_processor import AR_QUEUE_NEXT_JOB_STARTED, AR_URL_QUEUE_PROCESSING_LATER
 from src.readiness import STATUS_READY, ReadinessCheckItem, ReadinessReport
 from src.video_black_flash import AR_BLACK_FLASH_APPLIED
+from src.video_export_quality import AR_EXPORT_QUALITY_APPLIED
 from src.smart_paste_parser import (
     SmartPasteClip,
     SmartPasteExclusion,
@@ -140,6 +141,12 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert not window.black_flash_enabled_checkbox.isChecked()
     assert not window.black_flash_duration_combo.isEnabled()
     assert window.black_flash_duration_combo.currentText() == "0.20 ثانية"
+    assert window.export_quality_enabled_checkbox.text() == "تخصيص جودة التصدير"
+    assert not window.export_quality_enabled_checkbox.isChecked()
+    assert not window.export_quality_preset_combo.isEnabled()
+    assert not window.resolution_limit_combo.isEnabled()
+    assert window.export_quality_preset_combo.currentText() == "متوازن"
+    assert window.resolution_limit_combo.currentText() == "الأصلية"
     assert window.pre_padding_input.minimum() == 0
     assert window.post_padding_input.minimum() == 0
     assert window.video_speed_input.minimum() == 0.75
@@ -281,6 +288,9 @@ def test_selecting_queue_job_shows_job_log_and_details_without_loading_editor() 
     job.settings.fade_out_seconds = 1.5
     job.settings.black_flash_enabled = True
     job.settings.black_flash_duration_seconds = 0.3
+    job.settings.export_quality_enabled = True
+    job.settings.quality_preset = "high"
+    job.settings.resolution_limit = "1080p"
     job.settings.use_browser_login = True
     job.settings.browser_name = "firefox"
     job.add_log("رسالة خاصة بالمهمة")
@@ -302,6 +312,9 @@ def test_selecting_queue_job_shows_job_log_and_details_without_loading_editor() 
     assert "1.50 ثانية" in details
     assert "هل الوميض الأسود عند الاستثناء مفعّل؟ نعم" in details
     assert "0.30 ثانية" in details
+    assert "هل تخصيص جودة التصدير مفعّل؟ نعم" in details
+    assert "جودة التصدير: جودة عالية" in details
+    assert "حد الدقة: 1080p" in details
     assert "firefox" in details
     assert "secret" not in details
     assert window.project_name_input.text() == "المحرر الحالي"
@@ -356,6 +369,9 @@ def test_new_work_resets_workspace_without_clearing_queue_or_running_job(monkeyp
     window.fade_out_duration_combo.setCurrentText("1.50 ثانية")
     window.black_flash_enabled_checkbox.setChecked(True)
     window.black_flash_duration_combo.setCurrentText("0.30 ثانية")
+    window.export_quality_enabled_checkbox.setChecked(True)
+    window.export_quality_preset_combo.setCurrentText("حجم أصغر")
+    window.resolution_limit_combo.setCurrentText("720p")
     monkeypatch.setattr(window, "_ask_new_work_confirmation", lambda: True)
 
     window.start_new_work()
@@ -378,6 +394,9 @@ def test_new_work_resets_workspace_without_clearing_queue_or_running_job(monkeyp
     assert window.fade_out_duration_combo.currentText() == "0.50 ثانية"
     assert not window.black_flash_enabled_checkbox.isChecked()
     assert window.black_flash_duration_combo.currentText() == "0.20 ثانية"
+    assert not window.export_quality_enabled_checkbox.isChecked()
+    assert window.export_quality_preset_combo.currentText() == "متوازن"
+    assert window.resolution_limit_combo.currentText() == "الأصلية"
     assert "المهمة الجارية مستمرة في الخلفية" in window.log_area.toPlainText()
 
     window._queue_processing_thread = None
@@ -402,6 +421,9 @@ def test_speed_and_volume_controls_require_explicit_enable() -> None:
     assert settings.fade_enabled is False
     assert settings.black_flash_enabled is False
     assert settings.black_flash_duration_seconds == 0.2
+    assert settings.export_quality_enabled is False
+    assert settings.quality_preset == "default"
+    assert settings.resolution_limit == "original"
 
     window.video_speed_enabled_checkbox.setChecked(True)
     window.volume_enabled_checkbox.setChecked(True)
@@ -482,6 +504,36 @@ def test_black_flash_controls_require_explicit_enable_and_snapshot_settings() ->
     app.processEvents()
 
 
+def test_export_quality_controls_require_explicit_enable_and_snapshot_settings() -> None:
+    app = _app()
+    window = MainWindow()
+
+    assert not window.export_quality_enabled_checkbox.isChecked()
+    assert not window.export_quality_preset_combo.isEnabled()
+    assert not window.resolution_limit_combo.isEnabled()
+    assert window._collect_export_quality_settings().enabled is False
+
+    window.export_quality_enabled_checkbox.setChecked(True)
+    window.export_quality_preset_combo.setCurrentText("حجم أصغر")
+    window.resolution_limit_combo.setCurrentText("720p")
+
+    export_quality = window._collect_export_quality_settings()
+    settings = window._current_job_settings_snapshot()
+
+    assert window.export_quality_preset_combo.isEnabled()
+    assert window.resolution_limit_combo.isEnabled()
+    assert export_quality.enabled is True
+    assert export_quality.quality_preset == "small"
+    assert export_quality.resolution_limit == "720p"
+    assert settings.export_quality_enabled is True
+    assert settings.quality_preset == "small"
+    assert settings.resolution_limit == "720p"
+    assert "جودة التصدير" in window.export_quality_status_label.text()
+
+    window.close()
+    app.processEvents()
+
+
 def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> None:
     app = _app()
     window = MainWindow()
@@ -499,6 +551,9 @@ def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> 
     window.fade_out_duration_combo.setCurrentText("1.50 ثانية")
     window.black_flash_enabled_checkbox.setChecked(True)
     window.black_flash_duration_combo.setCurrentText("0.30 ثانية")
+    window.export_quality_enabled_checkbox.setChecked(True)
+    window.export_quality_preset_combo.setCurrentText("حجم أصغر")
+    window.resolution_limit_combo.setCurrentText("720p")
     window._insert_clip_row(1, "قديم", "00:01:00", "00:02:00", "00:01:20-00:01:30")
 
     window.add_current_work_to_queue()
@@ -510,6 +565,9 @@ def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> 
     window.volume_input.setValue(100)
     window.black_fade_enabled_checkbox.setChecked(False)
     window.black_flash_enabled_checkbox.setChecked(False)
+    window.export_quality_enabled_checkbox.setChecked(False)
+    window.export_quality_preset_combo.setCurrentText("جودة عالية")
+    window.resolution_limit_combo.setCurrentText("1080p")
 
     job = window.job_queue[0]
     assert job.clips[0].title == "قديم"
@@ -525,6 +583,9 @@ def test_queue_current_work_snapshot_is_independent_from_later_table_edits() -> 
     assert job.settings.fade_out_seconds == 1.5
     assert job.settings.black_flash_enabled is True
     assert job.settings.black_flash_duration_seconds == 0.3
+    assert job.settings.export_quality_enabled is True
+    assert job.settings.quality_preset == "small"
+    assert job.settings.resolution_limit == "720p"
 
     window.close()
     app.processEvents()
@@ -633,6 +694,9 @@ def test_main_queue_cut_button_click_creates_job_and_starts_idle_queue(tmp_path,
     window.fade_out_duration_combo.setCurrentText("1.50 ثانية")
     window.black_flash_enabled_checkbox.setChecked(True)
     window.black_flash_duration_combo.setCurrentText("0.30 ثانية")
+    window.export_quality_enabled_checkbox.setChecked(True)
+    window.export_quality_preset_combo.setCurrentText("جودة عالية")
+    window.resolution_limit_combo.setCurrentText("1080p")
     window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00", "00:01:20-00:01:30")
     monkeypatch.setattr(window, "_start_queue_processing_worker", lambda rules: started.append(len(rules)))
 
@@ -657,6 +721,9 @@ def test_main_queue_cut_button_click_creates_job_and_starts_idle_queue(tmp_path,
     assert job.settings.fade_out_seconds == 1.5
     assert job.settings.black_flash_enabled is True
     assert job.settings.black_flash_duration_seconds == 0.3
+    assert job.settings.export_quality_enabled is True
+    assert job.settings.quality_preset == "high"
+    assert job.settings.resolution_limit == "1080p"
     assert job.clips[0].title == "مقطع"
     assert job.clips[0].exclusions == "00:01:20-00:01:30"
     window.clips_table.item(0, TITLE_COLUMN).setText("تعديل لاحق")
@@ -1076,6 +1143,9 @@ def test_queue_load_selected_job_restores_speed_and_volume_intent() -> None:
     job.settings.fade_out_seconds = 1.5
     job.settings.black_flash_enabled = True
     job.settings.black_flash_duration_seconds = 0.3
+    job.settings.export_quality_enabled = True
+    job.settings.quality_preset = "high"
+    job.settings.resolution_limit = "1080p"
     job.settings.use_browser_login = True
     job.settings.browser_name = "firefox"
     window._refresh_queue_job_row(0)
@@ -1096,6 +1166,9 @@ def test_queue_load_selected_job_restores_speed_and_volume_intent() -> None:
     assert window.fade_out_duration_combo.currentText() == "1.50 ثانية"
     assert window.black_flash_enabled_checkbox.isChecked()
     assert window.black_flash_duration_combo.currentText() == "0.30 ثانية"
+    assert window.export_quality_enabled_checkbox.isChecked()
+    assert window.export_quality_preset_combo.currentText() == "جودة عالية"
+    assert window.resolution_limit_combo.currentText() == "1080p"
     assert window.use_browser_cookies_checkbox.isChecked()
     assert window.browser_combo.currentText() == "Firefox"
 
@@ -1121,6 +1194,9 @@ def test_waiting_queue_job_can_be_loaded_edited_and_saved_in_place() -> None:
     second.settings.fade_out_seconds = 1.5
     second.settings.black_flash_enabled = True
     second.settings.black_flash_duration_seconds = 0.3
+    second.settings.export_quality_enabled = True
+    second.settings.quality_preset = "balanced"
+    second.settings.resolution_limit = "1080p"
     second.settings.use_browser_login = True
     second.settings.browser_name = "edge"
     second.clips = [
@@ -1147,6 +1223,9 @@ def test_waiting_queue_job_can_be_loaded_edited_and_saved_in_place() -> None:
     assert window.fade_out_duration_combo.currentText() == "1.50 ثانية"
     assert window.black_flash_enabled_checkbox.isChecked()
     assert window.black_flash_duration_combo.currentText() == "0.30 ثانية"
+    assert window.export_quality_enabled_checkbox.isChecked()
+    assert window.export_quality_preset_combo.currentText() == "متوازن"
+    assert window.resolution_limit_combo.currentText() == "1080p"
     assert window.use_browser_cookies_checkbox.isChecked()
     assert window.browser_combo.currentText() == "Edge"
 
@@ -1163,6 +1242,8 @@ def test_waiting_queue_job_can_be_loaded_edited_and_saved_in_place() -> None:
     window.fade_in_duration_combo.setCurrentText("0.25 ثانية")
     window.fade_out_duration_combo.setCurrentText("2.00 ثانية")
     window.black_flash_duration_combo.setCurrentText("0.50 ثانية")
+    window.export_quality_preset_combo.setCurrentText("حجم أصغر")
+    window.resolution_limit_combo.setCurrentText("720p")
     window.browser_combo.setCurrentText("Brave")
 
     assert window.save_waiting_queue_job_edits() is True
@@ -1186,6 +1267,9 @@ def test_waiting_queue_job_can_be_loaded_edited_and_saved_in_place() -> None:
     assert second.settings.fade_out_seconds == 2.0
     assert second.settings.black_flash_enabled is True
     assert second.settings.black_flash_duration_seconds == 0.5
+    assert second.settings.export_quality_enabled is True
+    assert second.settings.quality_preset == "small"
+    assert second.settings.resolution_limit == "720p"
     assert second.settings.use_browser_login is True
     assert second.settings.browser_name == "brave"
     assert window.queue_table.item(1, QUEUE_TITLE_COLUMN).text() == "الثاني المعدل"
@@ -1213,6 +1297,9 @@ def test_waiting_queue_job_edit_preserves_protected_speed_volume_defaults() -> N
     job.settings.fade_out_seconds = 1.5
     job.settings.black_flash_enabled = False
     job.settings.black_flash_duration_seconds = 0.5
+    job.settings.export_quality_enabled = False
+    job.settings.quality_preset = "high"
+    job.settings.resolution_limit = "720p"
     window._refresh_queue_job_row(0)
 
     window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
@@ -1231,6 +1318,11 @@ def test_waiting_queue_job_edit_preserves_protected_speed_volume_defaults() -> N
     assert not window.black_flash_enabled_checkbox.isChecked()
     assert not window.black_flash_duration_combo.isEnabled()
     assert window.black_flash_duration_combo.currentText() == "0.20 ثانية"
+    assert not window.export_quality_enabled_checkbox.isChecked()
+    assert not window.export_quality_preset_combo.isEnabled()
+    assert not window.resolution_limit_combo.isEnabled()
+    assert window.export_quality_preset_combo.currentText() == "متوازن"
+    assert window.resolution_limit_combo.currentText() == "الأصلية"
 
     assert window.save_waiting_queue_job_edits() is True
 
@@ -1243,6 +1335,9 @@ def test_waiting_queue_job_edit_preserves_protected_speed_volume_defaults() -> N
     assert job.settings.fade_out_seconds == 0.5
     assert job.settings.black_flash_enabled is False
     assert job.settings.black_flash_duration_seconds == 0.2
+    assert job.settings.export_quality_enabled is False
+    assert job.settings.quality_preset == "default"
+    assert job.settings.resolution_limit == "original"
 
     window.close()
     app.processEvents()
@@ -2440,6 +2535,59 @@ def test_queue_processing_worker_uses_default_speed_and_volume_when_adjustments_
     assert calls[0]["volume_percent"] == 100
     assert calls[0]["clip_fade"].enabled is False
     assert calls[0]["clip_black_flash"].enabled is False
+
+
+def test_queue_processing_worker_passes_export_quality_snapshot_and_logs_when_enabled() -> None:
+    calls: list[dict] = []
+    job = VideoJob(
+        source_type=QueueVideoSourceType.LOCAL,
+        source="C:/videos/lesson.mp4",
+        title="درس",
+        clips=[ClipJob(title="مقطع", start="00:01:00", end="00:02:00")],
+        status=JobStatus.QUEUED,
+    )
+    job.settings.export_quality_enabled = True
+    job.settings.quality_preset = "small"
+    job.settings.resolution_limit = "720p"
+
+    class FakeVideoProcessor:
+        def process_project(self, _source_request, _project_name, _clip_rows, **kwargs):
+            calls.append({"export_quality": kwargs["export_quality"]})
+            kwargs["progress_callback"](AR_EXPORT_QUALITY_APPLIED)
+            return SimpleNamespace(project_output_folder=Path("C:/output/lesson"))
+
+    worker = QueueProcessingWorker([job], FakeVideoProcessor(), [])
+    worker.run()
+
+    assert calls[0]["export_quality"].enabled is True
+    assert calls[0]["export_quality"].quality_preset == "small"
+    assert calls[0]["export_quality"].resolution_limit == "720p"
+    assert AR_EXPORT_QUALITY_APPLIED in job.log_messages
+
+
+def test_queue_processing_worker_uses_default_export_quality_when_disabled() -> None:
+    calls: list[dict] = []
+    job = VideoJob(
+        source_type=QueueVideoSourceType.LOCAL,
+        source="C:/videos/lesson.mp4",
+        title="درس",
+        clips=[ClipJob(title="مقطع", start="00:01:00", end="00:02:00")],
+        status=JobStatus.QUEUED,
+    )
+    job.settings.quality_preset = "high"
+    job.settings.resolution_limit = "720p"
+
+    class FakeVideoProcessor:
+        def process_project(self, _source_request, _project_name, _clip_rows, **kwargs):
+            calls.append({"export_quality": kwargs["export_quality"]})
+            return SimpleNamespace(project_output_folder=Path("C:/output/lesson"))
+
+    worker = QueueProcessingWorker([job], FakeVideoProcessor(), [])
+    worker.run()
+
+    assert calls[0]["export_quality"].enabled is False
+    assert calls[0]["export_quality"].quality_preset == "default"
+    assert calls[0]["export_quality"].resolution_limit == "original"
 
 
 def test_queue_processing_worker_processes_youtube_job_with_cookie_snapshot() -> None:

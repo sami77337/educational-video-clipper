@@ -61,7 +61,9 @@ def test_default_settings_are_safe() -> None:
 
     assert settings.pre_roll_seconds == 0.0
     assert settings.post_roll_seconds == 0.0
+    assert settings.export_quality_enabled is False
     assert settings.quality_preset == "default"
+    assert settings.resolution_limit == "original"
     assert settings.speed_adjustment_enabled is False
     assert settings.speed == 1.0
     assert settings.volume_adjustment_enabled is False
