@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QRadioButton,
     QScrollArea,
     QSpinBox,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -336,6 +337,24 @@ QPushButton#smartImportButton {
     border-color: #39a99a;
     font-weight: 700;
 }
+QPushButton#navButton {
+    background: transparent;
+    border: 0;
+    border-radius: 10px;
+    color: #b9c9db;
+    padding: 10px 14px;
+    text-align: right;
+    min-height: 36px;
+}
+QPushButton#navButton:checked {
+    background: #14345b;
+    color: #ffffff;
+    border: 1px solid #2878dd;
+}
+QPushButton#navButton:hover {
+    background: #14263a;
+    color: #ffffff;
+}
 QPushButton#newWorkButton, QPushButton#validateActionButton, QPushButton#openOutputButton {
     background: #1a334b;
     border-color: #416886;
@@ -369,6 +388,30 @@ QLabel#queueDetailsLabel {
     border-radius: 8px;
     padding: 10px 12px;
     line-height: 1.35;
+}
+QLabel#metricValue {
+    color: #ffffff;
+    font-size: 22px;
+    font-weight: 700;
+}
+QLabel#metricCaption {
+    color: #aebdd0;
+}
+QLabel#emptyStateLabel {
+    color: #aebdd0;
+    background: #08131f;
+    border: 1px dashed #2e4b64;
+    border-radius: 10px;
+    padding: 18px;
+}
+QFrame#dashboardShell, QFrame#sideRail, QFrame#topNav, QFrame#bottomStatusBar {
+    background: #07111d;
+}
+QFrame#sideRail {
+    border-left: 1px solid #1d3448;
+}
+QFrame#topNav, QFrame#bottomStatusBar {
+    border-top: 1px solid #1d3448;
 }
 QCheckBox, QRadioButton {
     spacing: 8px;
@@ -947,7 +990,14 @@ class MainWindow(QMainWindow):
         self.browser_cookies_help_label = QLabel()
         self.project_name_input = QLineEdit()
         self.paste_message_input = QTextEdit()
-        self.smart_paste_button = QPushButton("استيراد ذكي")
+        self.smart_paste_button = QPushButton("تحليل النص")
+        self.global_smart_import_button = QPushButton("استيراد ذكي")
+        self.clear_paste_text_button = QPushButton("مسح النص")
+        self.replace_import_button = QPushButton("استبدال الجدول الحالي")
+        self.append_import_button = QPushButton("إضافة إلى جدول المقاطع")
+        self.queue_import_button = QPushButton("إضافة إلى قائمة الانتظار")
+        self.import_summary_label = QLabel("سيظهر ملخص الاستيراد بعد تحليل النص أو تحميل مصدر.")
+        self.import_extracted_clips_table = QTableWidget(0, 7)
         self.parse_message_button = QPushButton("تحويل بسيط إلى جدول")
         self.queue_table = QTableWidget(0, 6)
         self.add_current_work_to_queue_button = QPushButton("إضافة العمل الحالي إلى قائمة الانتظار")
@@ -980,7 +1030,13 @@ class MainWindow(QMainWindow):
         self.clips_table = QTableWidget(0, 5)
         self.classification_rules_table = QTableWidget(0, 4)
         self.add_row_button = QPushButton("إضافة مقطع")
-        self.import_excel_button = QPushButton("استيراد من Excel")
+        self.clips_import_shortcut_button = QPushButton("استيراد ذكي")
+        self.clips_new_work_shortcut_button = QPushButton("عمل جديد")
+        self.clips_clear_shortcut_button = QPushButton("مسح القائمة")
+        self.clips_delete_shortcut_button = QPushButton("حذف المحدد")
+        self.clips_point_shortcut_button = QPushButton("نقطة المقطع")
+        self.clips_export_shortcut_button = QPushButton("تصدير")
+        self.import_excel_button = QPushButton("استيراد من Excel / CSV")
         self.delete_row_button = QPushButton("حذف المقطع المحدد")
         self.clear_table_button = QPushButton("مسح الجدول")
         self.preview_clip_start_button = QPushButton("معاينة بداية المقطع")
@@ -1021,6 +1077,35 @@ class MainWindow(QMainWindow):
         self.show_global_log_button = QPushButton("عرض السجل العام")
         self.log_header_label = QLabel("سجل عام")
         self.log_area = QTextEdit()
+        self.page_stack = QStackedWidget()
+        self.nav_import_button = QPushButton("الاستيراد")
+        self.nav_clips_button = QPushButton("المقاطع")
+        self.nav_queue_button = QPushButton("قائمة الانتظار")
+        self.nav_logs_button = QPushButton("السجل")
+        self.top_nav_buttons: dict[str, QPushButton] = {}
+        self.dashboard_source_label = QLabel()
+        self.dashboard_clips_label = QLabel()
+        self.dashboard_queue_label = QLabel()
+        self.dashboard_status_label = QLabel()
+        self.dashboard_output_label = QLabel()
+        self.operations_log_table = QTableWidget(0, 5)
+        self.queue_snapshot_table = QTableWidget(0, 4)
+        self.current_work_label = QLabel()
+        self.system_status_label = QLabel()
+        self.selected_clip_details_label = QLabel("لم يتم تحديد مقطع")
+        self.selected_clip_preview_label = QLabel("المعاينة المتقدمة قريبًا")
+        self.queue_current_job_label = QLabel("لا توجد وظيفة قيد المعالجة الآن")
+        self.queue_info_preview_label = QLabel("لا توجد معلومات إضافية متاحة")
+        self.queue_job_log_area = QTextEdit()
+        self.queue_stop_all_button = QPushButton("إيقاف الكل — قريبًا")
+        self.queue_move_up_button = QPushButton("تحريك لأعلى — قريبًا")
+        self.queue_move_down_button = QPushButton("تحريك لأسفل — قريبًا")
+        self.queue_reorder_button = QPushButton("إعادة الترتيب — قريبًا")
+        self.future_reports_button = QPushButton("تقارير متقدمة — قريبًا")
+        self.future_schedule_button = QPushButton("الجدولة — قريبًا")
+        self.future_templates_button = QPushButton("مشاركة القوالب — قريبًا")
+        self.bottom_status_label = QLabel("جاهز")
+        self.bottom_output_label = QLabel(str(self.output_root))
         self.scroll_area = QScrollArea()
         self._global_log_messages: list[str] = []
         self._active_log_job: VideoJob | None = None
@@ -1050,25 +1135,185 @@ class MainWindow(QMainWindow):
         return self.scroll_area
 
     def _build_ui(self) -> QWidget:
-        central = QWidget()
-        central.setObjectName("mainContent")
-        layout = QVBoxLayout(central)
-        layout.setSpacing(16)
-        layout.setContentsMargins(22, 22, 22, 22)
+        shell = QFrame()
+        shell.setObjectName("dashboardShell")
+        layout = QHBoxLayout(shell)
+        layout.setSpacing(14)
+        layout.setContentsMargins(14, 14, 14, 14)
+
+        content = QFrame()
+        content.setObjectName("mainContent")
+        content_layout = QVBoxLayout(content)
+        content_layout.setSpacing(12)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+
+        content_layout.addWidget(self._build_top_navigation())
+        content_layout.addWidget(self._build_action_section())
+
+        self.page_stack.addWidget(self._page_scroll("الاستيراد", self._build_import_page()))
+        self.page_stack.addWidget(self._page_scroll("المقاطع", self._build_clips_page()))
+        self.page_stack.addWidget(self._page_scroll("قائمة الانتظار", self._build_queue_dashboard_page()))
+        self.page_stack.addWidget(self._page_scroll("السجل", self._build_logs_dashboard_page()))
+        content_layout.addWidget(self.page_stack, stretch=1)
+        content_layout.addWidget(self._build_bottom_status_bar())
+
+        layout.addWidget(content, stretch=1)
+        layout.addWidget(self._build_side_rail())
+
+        self.switch_dashboard_page("logs")
+        self._refresh_dashboard_overview()
+        return shell
+
+    def _page_scroll(self, name: str, page: QWidget) -> QScrollArea:
+        page.setObjectName(f"{name}Page")
+        scroll = QScrollArea()
+        scroll.setObjectName("pageScrollArea")
+        scroll.setWidget(page)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        return scroll
+
+    def _build_side_rail(self) -> QFrame:
+        rail = QFrame()
+        rail.setObjectName("sideRail")
+        rail.setFixedWidth(210)
+        layout = QVBoxLayout(rail)
+        layout.setSpacing(10)
+        layout.setContentsMargins(12, 12, 12, 12)
 
         layout.addWidget(self._build_header_section())
-        layout.addWidget(self._build_video_source_section())
-        layout.addWidget(self._build_project_section())
-        layout.addWidget(self._build_paste_section())
-        layout.addWidget(self._build_action_section())
-        layout.addWidget(self._build_help_section())
-        layout.addWidget(self._build_clips_section(), stretch=1)
-        layout.addWidget(self._build_classification_section())
-        layout.addWidget(self._build_padding_section())
-        layout.addWidget(self._build_queue_section())
-        layout.addWidget(self._build_log_section(), stretch=1)
+        for button in (
+            self.nav_import_button,
+            self.nav_clips_button,
+            self.nav_queue_button,
+            self.nav_logs_button,
+        ):
+            layout.addWidget(button)
+        layout.addSpacing(12)
+        future_title = QLabel("ميزات قادمة")
+        future_title.setObjectName("sectionHelpText")
+        layout.addWidget(future_title)
+        layout.addWidget(self.future_reports_button)
+        layout.addWidget(self.future_schedule_button)
+        layout.addWidget(self.future_templates_button)
+        layout.addStretch(1)
+        layout.addWidget(self.processing_status_label)
+        return rail
 
-        return central
+    def _build_top_navigation(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("topNav")
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addStretch(1)
+        self.top_nav_buttons = {}
+        for key, button in (
+            ("logs", self.nav_logs_button),
+            ("queue", self.nav_queue_button),
+            ("clips", self.nav_clips_button),
+            ("import", self.nav_import_button),
+        ):
+            top_button = QPushButton(button.text())
+            top_button.setObjectName("navButton")
+            top_button.setCheckable(True)
+            top_button.clicked.connect(lambda _checked=False, page=key: self.switch_dashboard_page(page))
+            self.top_nav_buttons[key] = top_button
+            layout.addWidget(top_button)
+        return frame
+
+    def _build_bottom_status_bar(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("bottomStatusBar")
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(14)
+        layout.addWidget(self.bottom_status_label)
+        layout.addStretch(1)
+        layout.addWidget(self.bottom_output_label)
+        language_label = QLabel("العربية | داكن")
+        language_label.setObjectName("sectionHelpText")
+        layout.addWidget(language_label)
+        return frame
+
+    def switch_dashboard_page(self, page: str) -> None:
+        page_indexes = {"import": 0, "clips": 1, "queue": 2, "logs": 3}
+        if page not in page_indexes:
+            return
+        self.page_stack.setCurrentIndex(page_indexes[page])
+        for key, button in {
+            "import": self.nav_import_button,
+            "clips": self.nav_clips_button,
+            "queue": self.nav_queue_button,
+            "logs": self.nav_logs_button,
+        }.items():
+            button.setChecked(key == page)
+        for key, button in self.top_nav_buttons.items():
+            button.setChecked(key == page)
+        self._refresh_dashboard_overview()
+
+    def _build_import_page(self) -> QWidget:
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setSpacing(14)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._build_paste_section(), 0, 0, 2, 2)
+        layout.addWidget(self._build_video_source_section(), 0, 2)
+        layout.addWidget(self._build_project_section(), 1, 2)
+        layout.addWidget(self._build_import_summary_section(), 2, 2)
+        layout.addWidget(self._build_import_extracted_clips_section(), 2, 0, 1, 2)
+        layout.addWidget(self._build_import_apply_section(), 3, 0, 1, 3)
+        layout.setColumnStretch(0, 2)
+        layout.setColumnStretch(1, 2)
+        layout.setColumnStretch(2, 2)
+        return page
+
+    def _build_clips_page(self) -> QWidget:
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setSpacing(14)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._build_clips_toolbar_section(), 0, 0, 1, 2)
+        layout.addWidget(self._build_clips_section(), 1, 0, 1, 2)
+        layout.addWidget(self._build_selected_clip_details_section(), 2, 0)
+        layout.addWidget(self._build_clip_quick_actions_section(), 2, 1)
+        layout.addWidget(self._build_padding_section(), 3, 0, 1, 2)
+        layout.addWidget(self._build_classification_section(), 4, 0, 1, 2)
+        layout.setColumnStretch(0, 2)
+        layout.setColumnStretch(1, 1)
+        return page
+
+    def _build_queue_dashboard_page(self) -> QWidget:
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setSpacing(14)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._build_queue_controls_card(), 0, 0)
+        layout.addWidget(self._build_current_job_card(), 0, 1)
+        layout.addWidget(self._build_queue_table_card(), 1, 0, 1, 2)
+        layout.addWidget(self._build_queue_task_details_card(), 2, 0)
+        layout.addWidget(self._build_queue_info_preview_card(), 2, 1)
+        layout.addWidget(self._build_queue_job_log_card(), 3, 0, 1, 2)
+        layout.setColumnStretch(0, 1)
+        layout.setColumnStretch(1, 2)
+        return page
+
+    def _build_logs_dashboard_page(self) -> QWidget:
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setSpacing(14)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._build_dashboard_summary_section(), 0, 0, 1, 3)
+        layout.addWidget(self._build_operations_log_section(), 1, 0, 2, 2)
+        layout.addWidget(self._build_queue_snapshot_section(), 1, 2)
+        layout.addWidget(self._build_current_work_section(), 2, 2)
+        layout.addWidget(self._build_system_status_section(), 3, 0, 1, 3)
+        layout.setColumnStretch(0, 2)
+        layout.setColumnStretch(1, 2)
+        layout.setColumnStretch(2, 2)
+        return page
 
 
     def _asset_path(self, filename: str) -> Path:
@@ -1089,6 +1334,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(980, 720)
 
         self.smart_paste_button.setObjectName("smartImportButton")
+        self.global_smart_import_button.setObjectName("smartImportButton")
         self.start_button.setObjectName("primaryActionButton")
         self.new_work_button.setObjectName("newWorkButton")
         self.validate_button.setObjectName("validateActionButton")
@@ -1101,8 +1347,25 @@ class MainWindow(QMainWindow):
         self.queue_job_details_label.setObjectName("queueDetailsLabel")
         self.paste_message_input.setObjectName("pasteBox")
         self.log_area.setObjectName("logArea")
+        self.queue_job_log_area.setObjectName("logArea")
+        self.import_summary_label.setObjectName("queueSummaryLabel")
+        self.selected_clip_details_label.setObjectName("queueDetailsLabel")
+        self.selected_clip_preview_label.setObjectName("emptyStateLabel")
+        self.current_work_label.setObjectName("queueDetailsLabel")
+        self.system_status_label.setObjectName("queueDetailsLabel")
+        self.queue_current_job_label.setObjectName("queueDetailsLabel")
+        self.queue_info_preview_label.setObjectName("queueDetailsLabel")
+        for button in (
+            self.nav_import_button,
+            self.nav_clips_button,
+            self.nav_queue_button,
+            self.nav_logs_button,
+        ):
+            button.setObjectName("navButton")
+            button.setCheckable(True)
 
         self.smart_paste_button.setMinimumWidth(140)
+        self.global_smart_import_button.setMinimumWidth(140)
         self.start_button.setMinimumWidth(165)
         self.validate_button.setMinimumWidth(140)
         self.new_work_button.setMinimumWidth(110)
@@ -1114,11 +1377,32 @@ class MainWindow(QMainWindow):
             self.queue_job_clips_table,
             self.clips_table,
             self.classification_rules_table,
+            self.import_extracted_clips_table,
+            self.operations_log_table,
+            self.queue_snapshot_table,
         ):
             self._apply_table_visual_defaults(table)
 
         self.queue_job_details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.queue_selected_job_details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.import_summary_label.setWordWrap(True)
+        self.selected_clip_details_label.setWordWrap(True)
+        self.selected_clip_preview_label.setWordWrap(True)
+        self.current_work_label.setWordWrap(True)
+        self.system_status_label.setWordWrap(True)
+        self.queue_current_job_label.setWordWrap(True)
+        self.queue_info_preview_label.setWordWrap(True)
+        self.queue_job_log_area.setReadOnly(True)
+        for button in (
+            self.queue_stop_all_button,
+            self.queue_move_up_button,
+            self.queue_move_down_button,
+            self.queue_reorder_button,
+            self.future_reports_button,
+            self.future_schedule_button,
+            self.future_templates_button,
+        ):
+            button.setEnabled(False)
         self.log_area.setLineWrapMode(QTextEdit.WidgetWidth)
         self.setStyleSheet(APP_STYLE_SHEET)
 
@@ -1158,10 +1442,13 @@ class MainWindow(QMainWindow):
         title_layout = QVBoxLayout()
         title = QLabel(APP_NAME)
         title.setObjectName("appTitle")
+        english_name = QLabel("AlmiqsAlBaseet")
+        english_name.setObjectName("metricCaption")
         subtitle = QLabel(APP_SUBTITLE)
         subtitle.setObjectName("appSubtitle")
         subtitle.setWordWrap(True)
         title_layout.addWidget(title)
+        title_layout.addWidget(english_name)
         title_layout.addWidget(subtitle)
 
         layout.addWidget(logo)
@@ -1169,8 +1456,65 @@ class MainWindow(QMainWindow):
 
         return frame
 
+    def _build_metric_card(self, title: str, value_label: QLabel, caption: str = "") -> QGroupBox:
+        group = QGroupBox(title)
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        value_label.setObjectName("metricValue")
+        value_label.setWordWrap(True)
+        layout.addWidget(value_label)
+        if caption:
+            caption_label = QLabel(caption)
+            caption_label.setObjectName("metricCaption")
+            caption_label.setWordWrap(True)
+            layout.addWidget(caption_label)
+        return group
+
+    def _build_import_summary_section(self) -> QGroupBox:
+        group = QGroupBox("ملخص الاستيراد")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        self.import_summary_label.setWordWrap(True)
+        layout.addWidget(self.import_summary_label)
+        return group
+
+    def _build_import_extracted_clips_section(self) -> QGroupBox:
+        group = QGroupBox("المقاطع المستخرجة")
+        self._style_card(group, "clipsCard")
+        layout = QVBoxLayout(group)
+        self.import_extracted_clips_table.setHorizontalHeaderLabels(
+            ["", "#", "العنوان", "البداية", "النهاية", "الاستثناءات", "الحالة"]
+        )
+        self.import_extracted_clips_table.verticalHeader().setVisible(False)
+        self.import_extracted_clips_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.import_extracted_clips_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.import_extracted_clips_table.setMinimumHeight(180)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        self.import_empty_label = QLabel("لا توجد مقاطع بعد\nقم بلصق النص أو استيراد ملف أو إدخال رابط لبدء التحليل.")
+        self.import_empty_label.setObjectName("emptyStateLabel")
+        self.import_empty_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.import_extracted_clips_table)
+        layout.addWidget(self.import_empty_label)
+        return group
+
+    def _build_import_apply_section(self) -> QGroupBox:
+        group = QGroupBox("تطبيق النتائج")
+        self._style_card(group, "mainActionsCard")
+        layout = QHBoxLayout(group)
+        layout.addWidget(self.replace_import_button)
+        layout.addWidget(self.append_import_button)
+        layout.addWidget(self.queue_import_button)
+        layout.addStretch(1)
+        return group
+
     def _build_video_source_section(self) -> QGroupBox:
-        group = QGroupBox("مصدر الفيديو")
+        group = QGroupBox("مصدر الاستيراد")
         self._style_card(group)
         layout = QGridLayout(group)
 
@@ -1365,16 +1709,21 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_paste_section(self) -> QGroupBox:
-        group = QGroupBox("الصق الرسالة هنا")
+        group = QGroupBox("الاستيراد الذكي")
         self._style_card(group)
         layout = QVBoxLayout(group)
 
-        layout.addWidget(QLabel("الصق الرسالة هنا"))
-        self.paste_message_input.setPlaceholderText("الصق رسالة واتساب أو تيليجرام كاملة، ويمكن أن تحتوي على رابط الفيديو والمقاطع.")
-        self.paste_message_input.setMinimumHeight(80)
+        helper = QLabel("الصق نص المقاطع هنا لتحليلها تلقائيًا. يدعم الصيغ الشائعة مثل: [بداية:نهاية] العنوان")
+        helper.setObjectName("sectionHelpText")
+        helper.setWordWrap(True)
+        layout.addWidget(helper)
+        self.paste_message_input.setPlaceholderText("الصق نص المقاطع هنا ...")
+        self.paste_message_input.setMinimumHeight(220)
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
+        button_row.addWidget(self.clear_paste_text_button)
+        button_row.addWidget(self.import_excel_button)
         button_row.addWidget(self.smart_paste_button)
 
         layout.addWidget(self.paste_message_input)
@@ -1383,7 +1732,7 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_padding_section(self) -> QGroupBox:
-        group = QGroupBox("إعدادات القص")
+        group = QGroupBox("إعدادات المقطع")
         self._style_card(group)
         layout = QVBoxLayout(group)
         layout.setSpacing(12)
@@ -1646,8 +1995,22 @@ class MainWindow(QMainWindow):
         else:
             self.export_quality_status_label.setText("الإعدادات الافتراضية آمنة")
 
+    def _build_clips_toolbar_section(self) -> QGroupBox:
+        group = QGroupBox("أدوات المقاطع")
+        self._style_card(group, "mainActionsCard")
+        layout = QHBoxLayout(group)
+        layout.setSpacing(8)
+        layout.addWidget(self.clips_import_shortcut_button)
+        layout.addWidget(self.clips_new_work_shortcut_button)
+        layout.addWidget(self.clips_clear_shortcut_button)
+        layout.addWidget(self.clips_delete_shortcut_button)
+        layout.addWidget(self.clips_point_shortcut_button)
+        layout.addWidget(self.clips_export_shortcut_button)
+        layout.addStretch(1)
+        return group
+
     def _build_clips_section(self) -> QGroupBox:
-        group = QGroupBox("جدول المقاطع")
+        group = QGroupBox("قائمة المقاطع")
         self._style_card(group, "clipsCard")
         layout = QVBoxLayout(group)
         layout.setSpacing(12)
@@ -1666,21 +2029,251 @@ class MainWindow(QMainWindow):
 
         table_buttons = QHBoxLayout()
         table_buttons.addWidget(self.add_row_button)
-        table_buttons.addWidget(self.delete_row_button)
         table_buttons.addWidget(self.clear_table_button)
         table_buttons.addStretch(1)
-        table_buttons.addWidget(self.import_excel_button)
-
-        preview_buttons = QHBoxLayout()
-        preview_buttons.addWidget(self.preview_clip_start_button)
-        preview_buttons.addWidget(self.preview_clip_end_button)
-        preview_buttons.addWidget(self.preview_selected_clip_button)
-        preview_buttons.addStretch(1)
 
         layout.addWidget(self.clips_table)
         layout.addLayout(table_buttons)
-        layout.addLayout(preview_buttons)
 
+        return group
+
+    def _build_selected_clip_details_section(self) -> QGroupBox:
+        group = QGroupBox("معاينة المقطع المحدد")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        self.selected_clip_preview_label.setAlignment(Qt.AlignCenter)
+        self.selected_clip_preview_label.setMinimumHeight(120)
+        layout.addWidget(self.selected_clip_preview_label)
+        details_title = QLabel("تفاصيل المقطع المحدد")
+        details_title.setObjectName("sectionHelpText")
+        layout.addWidget(details_title)
+        layout.addWidget(self.selected_clip_details_label)
+        return group
+
+    def _build_clip_quick_actions_section(self) -> QGroupBox:
+        group = QGroupBox("إجراءات سريعة")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.preview_selected_clip_button)
+        layout.addWidget(self.preview_clip_start_button)
+        layout.addWidget(self.preview_clip_end_button)
+        layout.addWidget(self.delete_row_button)
+        duplicate_button = QPushButton("تكرار المقطع — قريبًا")
+        duplicate_button.setEnabled(False)
+        move_button = QPushButton("نقل إلى قائمة الانتظار — قريبًا")
+        move_button.setEnabled(False)
+        layout.addWidget(duplicate_button)
+        layout.addWidget(move_button)
+        layout.addStretch(1)
+        return group
+
+    def _build_queue_controls_card(self) -> QGroupBox:
+        group = QGroupBox("التحكم في القائمة")
+        self._style_card(group, "mainActionsCard")
+        layout = QGridLayout(group)
+        buttons = [
+            self.start_queue_processing_button,
+            self.stop_queue_after_current_button,
+            self.queue_stop_all_button,
+            self.queue_move_up_button,
+            self.queue_move_down_button,
+            self.queue_reorder_button,
+            self.load_queue_clips_button,
+            self.delete_queue_job_button,
+        ]
+        for index, button in enumerate(buttons):
+            layout.addWidget(button, index // 2, index % 2)
+        return group
+
+    def _build_current_job_card(self) -> QGroupBox:
+        group = QGroupBox("الوظيفة قيد المعالجة الآن")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.queue_current_job_label)
+        return group
+
+    def _build_queue_table_card(self) -> QGroupBox:
+        group = QGroupBox("قائمة الانتظار")
+        self._style_card(group, "queueCard")
+        layout = QVBoxLayout(group)
+        self.queue_table.setHorizontalHeaderLabels(
+            ["المصدر", "العنوان", "عدد المقاطع", "الحالة", "أولوية عالية", "الإخراج / الملاحظات"]
+        )
+        self.queue_table.verticalHeader().setVisible(False)
+        self.queue_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.queue_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.queue_table.setAlternatingRowColors(True)
+        self.queue_table.setMinimumHeight(220)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_SOURCE_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_TITLE_COLUMN, QHeaderView.Stretch)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_CLIP_COUNT_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_STATUS_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_HIGH_PRIORITY_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_ACTION_COLUMN, QHeaderView.Stretch)
+        layout.addWidget(self.queue_table)
+
+        edit_buttons = QHBoxLayout()
+        edit_buttons.addWidget(self.load_queue_job_workspace_button)
+        edit_buttons.addWidget(self.save_queue_job_edits_button)
+        edit_buttons.addWidget(self.cancel_queue_job_edit_button)
+        edit_buttons.addStretch(1)
+        edit_buttons.addWidget(self.queue_advanced_toggle_button)
+        layout.addLayout(edit_buttons)
+
+        self.queue_advanced_toggle_button.setCheckable(True)
+        self.queue_advanced_toggle_button.setChecked(False)
+        advanced_group_layout = QVBoxLayout(self.queue_advanced_group)
+        advanced_controls_layout = QGridLayout(self.queue_advanced_controls_widget)
+        advanced_buttons = [
+            self.add_current_work_to_queue_button,
+            self.add_queue_local_video_button,
+            self.add_queue_url_button,
+            self.validate_queue_job_button,
+            self.validate_all_queue_jobs_button,
+            self.run_selected_queue_job_button,
+            self.run_all_queue_simulation_button,
+            self.save_queue_clips_button,
+            self.save_queue_state_button,
+            self.load_queue_state_button,
+            self.clear_queue_button,
+            self.readiness_button,
+            self.direct_cut_button,
+        ]
+        for index, button in enumerate(advanced_buttons):
+            advanced_controls_layout.addWidget(button, index // 4, index % 4)
+        advanced_group_layout.addWidget(self.queue_advanced_controls_widget)
+        self.queue_advanced_controls_widget.setVisible(False)
+        self.queue_advanced_toggle_button.toggled.connect(self.queue_advanced_controls_widget.setVisible)
+        layout.addWidget(self.queue_advanced_group)
+        return group
+
+    def _build_queue_task_details_card(self) -> QGroupBox:
+        group = QGroupBox("تفاصيل الوظيفة المحددة")
+        self._style_card(group, "jobDetailsCard")
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.queue_selected_job_details_label)
+        layout.addWidget(self.queue_edit_status_label)
+        layout.addWidget(self.queue_job_details_label)
+        layout.addWidget(QLabel("مقاطع المهمة"))
+        self.queue_job_clips_table.setHorizontalHeaderLabels(["الرقم", "العنوان", "البداية", "النهاية", "الاستثناءات"])
+        self.queue_job_clips_table.verticalHeader().setVisible(False)
+        self.queue_job_clips_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.queue_job_clips_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.queue_job_clips_table.setAlternatingRowColors(True)
+        self.queue_job_clips_table.setMinimumHeight(100)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(NUMBER_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(TITLE_COLUMN, QHeaderView.Stretch)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(START_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(END_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(EXCLUSIONS_COLUMN, QHeaderView.Stretch)
+        layout.addWidget(self.queue_job_clips_table)
+        details_button_row = QHBoxLayout()
+        details_button_row.addWidget(self.copy_queue_job_details_button)
+        details_button_row.addStretch(1)
+        layout.addLayout(details_button_row)
+        return group
+
+    def _build_queue_info_preview_card(self) -> QGroupBox:
+        group = QGroupBox("معاينة المعلومات")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.queue_info_preview_label)
+        return group
+
+    def _build_queue_job_log_card(self) -> QGroupBox:
+        group = QGroupBox("سجل الوظيفة المحددة")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        filter_row = QHBoxLayout()
+        for label in ("الكل", "تحذيرات", "معلومات", "أخطاء"):
+            button = QPushButton(label)
+            button.setEnabled(label == "الكل")
+            filter_row.addWidget(button)
+        filter_row.addStretch(1)
+        layout.addLayout(filter_row)
+        layout.addWidget(self.queue_job_log_area)
+        button_row = QHBoxLayout()
+        copy_button = QPushButton("نسخ السجل — قريبًا")
+        copy_button.setEnabled(False)
+        button_row.addWidget(copy_button)
+        save_button = QPushButton("حفظ السجل — قريبًا")
+        save_button.setEnabled(False)
+        button_row.addWidget(save_button)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
+        return group
+
+    def _build_dashboard_summary_section(self) -> QWidget:
+        widget = QWidget()
+        layout = QGridLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+        cards = [
+            self._build_metric_card("مصدر الفيديو", self.dashboard_source_label, "مصدر العمل الحالي"),
+            self._build_metric_card("المقاطع", self.dashboard_clips_label, "إجمالي المقاطع في الجدول"),
+            self._build_metric_card("قائمة الانتظار", self.dashboard_queue_label, "المهام الحالية"),
+            self._build_metric_card("الحالة الحالية", self.dashboard_status_label, "حالة التشغيل"),
+            self._build_metric_card("مسار الإخراج", self.dashboard_output_label, "المجلد المستخدم فعليًا"),
+        ]
+        for index, card in enumerate(cards):
+            layout.addWidget(card, 0, index)
+        return widget
+
+    def _build_operations_log_section(self) -> QGroupBox:
+        group = QGroupBox("سجل العمليات")
+        self._style_card(group, "clipsCard")
+        layout = QVBoxLayout(group)
+        filters = QHBoxLayout()
+        filters.addWidget(QPushButton("آخر 7 أيام"))
+        filters.addWidget(QPushButton("كل الحالات"))
+        search = QLineEdit()
+        search.setPlaceholderText("بحث في السجل...")
+        filters.addWidget(search, stretch=1)
+        layout.addLayout(filters)
+        self.operations_log_table.setHorizontalHeaderLabels(["العمل", "التفاصيل", "الحدث", "الوقت", "الحالة"])
+        self.operations_log_table.verticalHeader().setVisible(False)
+        self.operations_log_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.operations_log_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.operations_log_table.setMinimumHeight(240)
+        self.operations_log_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.operations_log_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.operations_log_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.operations_log_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.operations_log_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        layout.addWidget(self.operations_log_table)
+        layout.addWidget(self._build_log_section())
+        return group
+
+    def _build_queue_snapshot_section(self) -> QGroupBox:
+        group = QGroupBox("لقطة سريعة لقائمة الانتظار")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        self.queue_snapshot_table.setHorizontalHeaderLabels(["#", "العنوان", "الحالة", "التقدم"])
+        self.queue_snapshot_table.verticalHeader().setVisible(False)
+        self.queue_snapshot_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.queue_snapshot_table.setMinimumHeight(160)
+        self.queue_snapshot_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.queue_snapshot_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.queue_snapshot_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.queue_snapshot_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        layout.addWidget(self.queue_snapshot_table)
+        return group
+
+    def _build_current_work_section(self) -> QGroupBox:
+        group = QGroupBox("العمل المحدد حاليًا")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.current_work_label)
+        open_button = QPushButton("فتح المجلد")
+        open_button.clicked.connect(self.open_output_folder)
+        layout.addWidget(open_button)
+        return group
+
+    def _build_system_status_section(self) -> QGroupBox:
+        group = QGroupBox("حالة النظام")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.system_status_label)
         return group
 
     def _build_action_section(self) -> QGroupBox:
@@ -1689,9 +2282,10 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(group)
         layout.setSpacing(10)
 
-        layout.addWidget(self.start_button)
         layout.addWidget(self.new_work_button)
+        layout.addWidget(self.global_smart_import_button)
         layout.addWidget(self.validate_button)
+        layout.addWidget(self.start_button)
         layout.addWidget(self.open_output_button)
         layout.addStretch(1)
         layout.addWidget(self.processing_status_label)
@@ -1745,6 +2339,15 @@ class MainWindow(QMainWindow):
         self.export_quality_enabled_checkbox.toggled.connect(self._update_speed_volume_controls)
         self.export_quality_preset_combo.currentIndexChanged.connect(self._update_speed_volume_controls)
         self.resolution_limit_combo.currentIndexChanged.connect(self._update_speed_volume_controls)
+        self.nav_import_button.clicked.connect(lambda: self.switch_dashboard_page("import"))
+        self.nav_clips_button.clicked.connect(lambda: self.switch_dashboard_page("clips"))
+        self.nav_queue_button.clicked.connect(lambda: self.switch_dashboard_page("queue"))
+        self.nav_logs_button.clicked.connect(lambda: self.switch_dashboard_page("logs"))
+        self.global_smart_import_button.clicked.connect(lambda: self.switch_dashboard_page("import"))
+        self.clear_paste_text_button.clicked.connect(self.paste_message_input.clear)
+        self.replace_import_button.clicked.connect(self.import_smart_paste_message)
+        self.append_import_button.clicked.connect(self.import_smart_paste_message)
+        self.queue_import_button.clicked.connect(self.import_smart_paste_message)
         self.add_current_work_to_queue_button.clicked.connect(self.add_current_work_to_queue)
         self.add_queue_local_video_button.clicked.connect(self.add_local_video_to_queue)
         self.add_queue_url_button.clicked.connect(self.add_url_to_queue)
@@ -1767,7 +2370,15 @@ class MainWindow(QMainWindow):
         self.queue_table.itemChanged.connect(self._sync_queue_high_priority)
         self.queue_table.itemSelectionChanged.connect(self._handle_queue_selection_changed)
         self.queue_table.currentCellChanged.connect(self._handle_queue_selection_changed)
+        self.clips_table.itemChanged.connect(self._refresh_dashboard_overview)
+        self.clips_table.itemSelectionChanged.connect(self._refresh_dashboard_overview)
         self.smart_paste_button.clicked.connect(self.import_smart_paste_message)
+        self.clips_import_shortcut_button.clicked.connect(lambda: self.switch_dashboard_page("import"))
+        self.clips_new_work_shortcut_button.clicked.connect(self.start_new_work)
+        self.clips_clear_shortcut_button.clicked.connect(self.clear_table)
+        self.clips_delete_shortcut_button.clicked.connect(self.delete_selected_row)
+        self.clips_point_shortcut_button.clicked.connect(self.preview_selected_clip)
+        self.clips_export_shortcut_button.clicked.connect(self.add_current_work_and_start_queue)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
         self.show_global_log_button.clicked.connect(self.show_global_log)
         self.copy_queue_job_details_button.clicked.connect(self.copy_selected_queue_job_details)
@@ -1803,6 +2414,7 @@ class MainWindow(QMainWindow):
         self.clips_table.setItem(row, START_COLUMN, QTableWidgetItem(start))
         self.clips_table.setItem(row, END_COLUMN, QTableWidgetItem(end))
         self.clips_table.setItem(row, EXCLUSIONS_COLUMN, QTableWidgetItem(exclusions))
+        self._refresh_dashboard_overview()
 
     def preview_selected_clip_start(self) -> None:
         self._preview_selected_clip(ClipPreviewKind.START)
@@ -2037,6 +2649,7 @@ class MainWindow(QMainWindow):
         finally:
             self.queue_table.blockSignals(False)
         self._update_queue_edit_controls()
+        self._refresh_dashboard_overview()
 
     def _readonly_table_item(self, text: str) -> QTableWidgetItem:
         item = QTableWidgetItem(text)
@@ -2178,17 +2791,294 @@ class MainWindow(QMainWindow):
             return None
         return self.job_queue[row]
 
+    def _refresh_dashboard_overview(self, *_args) -> None:
+        if not hasattr(self, "dashboard_source_label"):
+            return
+
+        output_path = self._dashboard_output_path()
+        status_text = self.processing_status_label.text().replace("الحالة:", "").strip() or "جاهز"
+        source_summary = self._current_source_summary(short=True)
+        clip_count = self.clips_table.rowCount()
+        queue_count = len(self.job_queue)
+
+        self.dashboard_source_label.setText(source_summary)
+        self.dashboard_clips_label.setText(str(clip_count))
+        self.dashboard_queue_label.setText(str(queue_count))
+        self.dashboard_status_label.setText(status_text)
+        self.dashboard_output_label.setText(str(output_path))
+        self.bottom_status_label.setText(status_text)
+        self.bottom_output_label.setText(f"مجلد النتائج: {output_path}")
+
+        project_title = self.project_name_input.text().strip() or "عمل بلا عنوان"
+        self.current_work_label.setText(
+            "\n".join(
+                [
+                    f"العنوان: {project_title}",
+                    f"المصدر: {self._current_source_summary(short=False)}",
+                    f"عدد المقاطع: {clip_count}",
+                    f"مجلد النتائج: {output_path}",
+                ]
+            )
+        )
+
+        running_job = self._current_running_queue_job()
+        if running_job is None:
+            self.queue_current_job_label.setText("لا توجد وظيفة قيد المعالجة الآن")
+        else:
+            self.queue_current_job_label.setText(
+                "\n".join(
+                    [
+                        f"العنوان: {running_job.title}",
+                        f"الحالة: {self._queue_status_label(running_job.status)}",
+                        f"المصدر: {self._queue_source_label(running_job)}",
+                        f"عدد المقاطع: {running_job.clip_count}",
+                        f"أولوية عالية: {'نعم' if running_job.settings.high_priority else 'لا'}",
+                    ]
+                )
+            )
+
+        selected_job = self._selected_queue_job()
+        if selected_job is None:
+            self.queue_info_preview_label.setText("لا توجد معلومات إضافية متاحة")
+        else:
+            info_lines = [
+                f"المصدر: {self._queue_source_label(selected_job)}",
+                f"الحالة: {self._queue_status_label(selected_job.status)}",
+                f"عدد المقاطع: {selected_job.clip_count}",
+            ]
+            if selected_job.output_folder:
+                info_lines.append(f"الإخراج: {selected_job.output_folder}")
+            if selected_job.failure_stage:
+                info_lines.append(f"مرحلة الفشل: {selected_job.failure_stage}")
+            if selected_job.failure_message:
+                info_lines.append(f"سبب الفشل: {self._short_queue_text(selected_job.failure_message, 120)}")
+            self.queue_info_preview_label.setText("\n".join(info_lines))
+
+        processing_state = "قيد المعالجة" if self._queue_processing_thread or self._processing_thread else "جاهز"
+        last_result = str(self._last_output_folder) if self._last_output_folder else "لا توجد نتيجة محفوظة بعد"
+        self.system_status_label.setText(
+            "\n".join(
+                [
+                    f"حالة التطبيق: {status_text}",
+                    f"حالة المعالجة: {processing_state}",
+                    f"عدد مهام قائمة الانتظار: {queue_count}",
+                    f"مسار الإخراج: {output_path}",
+                    f"آخر نتيجة: {last_result}",
+                ]
+            )
+        )
+
+        self._refresh_selected_clip_details()
+        self._refresh_import_summary()
+        self._refresh_import_extracted_clips_table()
+        self._refresh_queue_snapshot_table()
+        self._refresh_operations_log_table()
+
+    def _dashboard_output_path(self) -> Path:
+        return self._last_output_folder or self.output_root
+
+    def _current_source_summary(self, *, short: bool) -> str:
+        if self.local_file_radio.isChecked():
+            path = self.local_file_input.text().strip()
+            if short:
+                return "فيديو محلي" if path else "فيديو محلي غير محدد"
+            return path or "لم يتم اختيار ملف فيديو"
+
+        url = self.youtube_input.text().strip()
+        if short:
+            return "رابط يوتيوب" if url else "رابط يوتيوب غير محدد"
+        return self._safe_queue_source_text(url) if url else "لم يتم إدخال رابط"
+
+    def _current_running_queue_job(self) -> VideoJob | None:
+        for job in self.job_queue:
+            if self._queue_job_is_running(job):
+                return job
+        return None
+
+    def _refresh_selected_clip_details(self) -> None:
+        if not hasattr(self, "selected_clip_details_label"):
+            return
+
+        row = self._selected_clip_row()
+        if row is None:
+            self.selected_clip_details_label.setText("لم يتم تحديد مقطع")
+            self.selected_clip_preview_label.setText("المعاينة المتقدمة قريبًا")
+            return
+
+        title = self._cell_text(row, TITLE_COLUMN) or f"مقطع {row + 1}"
+        start = self._cell_text(row, START_COLUMN) or "-"
+        end = self._cell_text(row, END_COLUMN) or "-"
+        exclusions = self._cell_text(row, EXCLUSIONS_COLUMN) or "-"
+        duration = self._clip_duration_text(start, end)
+        self.selected_clip_preview_label.setText(
+            "\n".join(
+                [
+                    "المعاينة المتقدمة قريبًا" if not self._has_previewable_local_source() else "يمكن استخدام أزرار المعاينة الحالية.",
+                    f"{start} - {end}",
+                ]
+            )
+        )
+        self.selected_clip_details_label.setText(
+            "\n".join(
+                [
+                    f"العنوان: {title}",
+                    f"المصدر: {self._current_source_summary(short=False)}",
+                    f"البداية: {start}",
+                    f"النهاية: {end}",
+                    f"المدة: {duration}",
+                    f"الاستثناءات: {exclusions}",
+                    "الحالة: جاهز للمراجعة",
+                ]
+            )
+        )
+
+    def _has_previewable_local_source(self) -> bool:
+        return self.local_file_radio.isChecked() and bool(self.local_file_input.text().strip())
+
+    def _clip_duration_text(self, start: str, end: str) -> str:
+        try:
+            start_seconds = parse_timestamp(start)
+            end_seconds = parse_timestamp(end)
+        except ValueError:
+            return "-"
+        if end_seconds <= start_seconds:
+            return "-"
+        total_seconds = end_seconds - start_seconds
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours:
+            return f"{hours:02}:{minutes:02}:{seconds:02}"
+        return f"{minutes:02}:{seconds:02}"
+
+    def _refresh_import_summary(self) -> None:
+        if not hasattr(self, "import_summary_label"):
+            return
+        has_import_context = bool(
+            self.youtube_input.text().strip()
+            or self.project_name_input.text().strip()
+            or self.clips_table.rowCount()
+            or self.paste_message_input.toPlainText().strip()
+        )
+        if not has_import_context:
+            self.import_summary_label.setText("سيظهر ملخص الاستيراد بعد تحليل النص أو تحميل مصدر.")
+            return
+
+        self.import_summary_label.setText(
+            "\n".join(
+                [
+                    f"الرابط المكتشف: {self._safe_queue_source_text(self.youtube_input.text().strip()) or '-'}",
+                    f"عنوان المشروع: {self.project_name_input.text().strip() or '-'}",
+                    f"عدد المقاطع: {self.clips_table.rowCount()}",
+                    "التحذيرات: تظهر داخل معاينة الاستيراد الذكي عند وجودها",
+                    "الأخطاء: تظهر داخل معاينة الاستيراد الذكي عند وجودها",
+                ]
+            )
+        )
+
+    def _refresh_import_extracted_clips_table(self) -> None:
+        if not hasattr(self, "import_extracted_clips_table"):
+            return
+        self.import_extracted_clips_table.blockSignals(True)
+        try:
+            self.import_extracted_clips_table.setRowCount(0)
+            for source_row in range(self.clips_table.rowCount()):
+                target_row = self.import_extracted_clips_table.rowCount()
+                self.import_extracted_clips_table.insertRow(target_row)
+
+                check_item = QTableWidgetItem("")
+                check_item.setFlags((check_item.flags() | Qt.ItemIsUserCheckable) & ~Qt.ItemIsEditable)
+                check_item.setCheckState(Qt.Checked)
+                check_item.setTextAlignment(Qt.AlignCenter)
+                self.import_extracted_clips_table.setItem(target_row, 0, check_item)
+
+                start = self._cell_text(source_row, START_COLUMN)
+                end = self._cell_text(source_row, END_COLUMN)
+                status = "جاهز" if start and end else "يحتاج مراجعة"
+                values = [
+                    str(source_row + 1),
+                    self._cell_text(source_row, TITLE_COLUMN) or f"مقطع {source_row + 1}",
+                    start,
+                    end,
+                    self._cell_text(source_row, EXCLUSIONS_COLUMN),
+                    status,
+                ]
+                for offset, value in enumerate(values, start=1):
+                    self.import_extracted_clips_table.setItem(
+                        target_row,
+                        offset,
+                        self._readonly_table_item(value),
+                    )
+        finally:
+            self.import_extracted_clips_table.blockSignals(False)
+
+        if hasattr(self, "import_empty_label"):
+            has_rows = self.import_extracted_clips_table.rowCount() > 0
+            self.import_empty_label.setVisible(not has_rows)
+            self.import_extracted_clips_table.setVisible(has_rows)
+
+    def _refresh_queue_snapshot_table(self) -> None:
+        if not hasattr(self, "queue_snapshot_table"):
+            return
+        self.queue_snapshot_table.blockSignals(True)
+        try:
+            self.queue_snapshot_table.setRowCount(0)
+            for index, job in enumerate(self.job_queue, start=1):
+                row = self.queue_snapshot_table.rowCount()
+                self.queue_snapshot_table.insertRow(row)
+                progress = "اكتمل" if job.status == JobStatus.DONE else ("قيد العمل" if self._queue_job_is_running(job) else "-")
+                for column, value in enumerate(
+                    [
+                        str(index),
+                        job.title,
+                        self._queue_status_label(job.status),
+                        progress,
+                    ]
+                ):
+                    self.queue_snapshot_table.setItem(row, column, self._readonly_table_item(value))
+        finally:
+            self.queue_snapshot_table.blockSignals(False)
+
+    def _refresh_operations_log_table(self) -> None:
+        if not hasattr(self, "operations_log_table"):
+            return
+        self.operations_log_table.blockSignals(True)
+        try:
+            self.operations_log_table.setRowCount(0)
+            log_lines: list[str] = []
+            for message in self._global_log_messages[-80:]:
+                log_lines.extend(line for line in message.splitlines() if line.strip())
+            for line in log_lines[-80:]:
+                timestamp = "-"
+                details = line
+                if line.startswith("[") and "]" in line:
+                    timestamp = line[1 : line.index("]")]
+                    details = line[line.index("]") + 1 :].strip()
+                if "فشل" in details or "خطأ" in details:
+                    status = "خطأ"
+                elif "تحذير" in details or "راجع" in details:
+                    status = "تحذير"
+                else:
+                    status = "معلومات"
+                row = self.operations_log_table.rowCount()
+                self.operations_log_table.insertRow(row)
+                for column, value in enumerate(["سجل عام", details, "رسالة", timestamp, status]):
+                    self.operations_log_table.setItem(row, column, self._readonly_table_item(value))
+        finally:
+            self.operations_log_table.blockSignals(False)
+
     def _update_selected_queue_job_details(self) -> None:
         job = self._selected_queue_job()
         if job is None:
             self.queue_job_details_label.setText("لم يتم تحديد مهمة")
             self.queue_job_clips_table.setRowCount(0)
             self.copy_queue_job_details_button.setEnabled(False)
+            self._refresh_dashboard_overview()
             return
 
         self.copy_queue_job_details_button.setEnabled(True)
         self.queue_job_details_label.setText(self._format_queue_job_details(job))
         self._populate_queue_job_clips_preview(job)
+        self._refresh_dashboard_overview()
 
     def _format_queue_job_details(self, job: VideoJob) -> str:
         settings = job.settings
@@ -3153,6 +4043,7 @@ class MainWindow(QMainWindow):
             self._update_selected_queue_job_details()
             if self._active_log_job is job:
                 self._show_selected_queue_job_log()
+        self._refresh_dashboard_overview()
 
     def add_classification_rule(self) -> None:
         self._insert_classification_rule(
@@ -4018,6 +4909,8 @@ class MainWindow(QMainWindow):
     def _render_log(self, header: str, messages: list[str]) -> None:
         self.log_header_label.setText(header)
         self.log_area.setPlainText("\n".join(messages))
+        if hasattr(self, "queue_job_log_area"):
+            self.queue_job_log_area.setPlainText("\n".join(messages))
         self._flush_log_update()
 
     def show_global_log(self) -> None:
@@ -4037,8 +4930,14 @@ class MainWindow(QMainWindow):
     def _flush_log_update(self) -> None:
         scrollbar = self.log_area.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+        if hasattr(self, "queue_job_log_area"):
+            queue_scrollbar = self.queue_job_log_area.verticalScrollBar()
+            queue_scrollbar.setValue(queue_scrollbar.maximum())
         self.log_area.repaint()
+        if hasattr(self, "queue_job_log_area"):
+            self.queue_job_log_area.repaint()
         self.processing_status_label.repaint()
+        self._refresh_dashboard_overview()
         QApplication.processEvents()
 
     def _write_validation_errors(self, errors: list[str]) -> None:
