@@ -239,6 +239,30 @@ build_app_ci.bat
 python scripts\check_release_package.py
 ```
 
+تعليمات تجهيز الحزمة وما يجب إرساله للفريق موجودة هنا:
+
+```text
+docs\RELEASE_PACKAGE_GUIDE.md
+```
+
+وتعليمات الاستخدام العربية التي تُنسخ داخل الحزمة موجودة هنا:
+
+```text
+RELEASE_README_AR.md
+```
+
+إذا كان Inno Setup مثبتًا، يمكن تجهيز مثبت Windows بعد نجاح التحقق:
+
+```bat
+build_installer.bat
+```
+
+سيتم وضع المثبت، عند توفر أداة البناء، داخل:
+
+```text
+release\installer
+```
+
 ولتشغيل الاختبارات وفحص تشغيل التطبيق والبناء وفحص الحزمة دفعة واحدة:
 
 ```bat

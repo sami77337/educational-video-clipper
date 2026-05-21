@@ -8,18 +8,30 @@ from pathlib import Path
 
 
 DEFAULT_PACKAGE_DIR = Path("dist") / "AlmiqsAlBaseet"
-REQUIRED_FILES = ("AlmiqsAlBaseet.exe",)
+REQUIRED_FILES = ("AlmiqsAlBaseet.exe", "README_AR.txt")
 REQUIRED_FOLDERS = ("_internal",)
 FORBIDDEN_ROOT_ENTRIES = {
+    ".git",
+    ".github",
     "app.py",
-    "src",
-    "tests",
-    "requirements.txt",
-    "run_app.bat",
+    "build",
     "build_app.bat",
     "build_app_ci.bat",
+    "build_installer.bat",
+    "docs",
+    "installer",
+    "README.md",
+    "RELEASE_README_AR.md",
+    "requirements-build.txt",
+    "requirements.txt",
+    "run_tests.bat",
+    "run_app.bat",
+    "scripts",
+    "src",
+    "tests",
+    "verify_release.bat",
 }
-FORBIDDEN_ANYWHERE_ENTRIES = {".pytest_cache", "__pycache__"}
+FORBIDDEN_ANYWHERE_ENTRIES = {".git", ".github", ".pytest_cache", "__pycache__", "build", "dist", "src", "tests"}
 FFMPEG_CANDIDATES = (
     "ffmpeg.exe",
     "bin/ffmpeg.exe",
@@ -91,13 +103,6 @@ def audit_release_package(
     else:
         messages.append(f"الملف موجود: {ffprobe_path.relative_to(package_path)}")
 
-    readme_ar_path = package_path / "README_AR.txt"
-    if readme_ar_path.exists() and readme_ar_path.is_file():
-        messages.append("الملف موجود: README_AR.txt")
-    elif expect_readme_ar:
-        errors.append("الملف غير موجود: README_AR.txt")
-        messages.append("الملف غير موجود: README_AR.txt")
-
     _check_forbidden_entries(package_path, errors, messages)
 
     return ReleaseAuditResult(package_path, errors, warnings, _finalize(messages, errors))
@@ -120,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--expect-readme-ar",
         action="store_true",
-        help="Require README_AR.txt in the release folder.",
+        help="Kept for compatibility; README_AR.txt is required by default.",
     )
     args = parser.parse_args(argv)
 
