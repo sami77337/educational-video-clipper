@@ -8,7 +8,7 @@ import re
 import sys
 from urllib.parse import parse_qs, urlsplit
 
-from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
+from PySide6.QtCore import QByteArray, QObject, Qt, QThread, QUrl, Signal, Slot
 from PySide6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -181,7 +181,7 @@ APP_STYLE_SHEET = """
 QMainWindow, QScrollArea, QWidget {
     background: #07111d;
     color: #edf2f7;
-    font-size: 12px;
+    font-size: 11px;
 }
 QScrollArea {
     border: none;
@@ -189,16 +189,16 @@ QScrollArea {
 QFrame#appHeader {
     background: #101c2b;
     border: 1px solid #244157;
-    border-radius: 14px;
+    border-radius: 10px;
 }
 QLabel#appTitle {
     color: #f8fafc;
-    font-size: 24px;
+    font-size: 18px;
     font-weight: 700;
 }
 QLabel#appSubtitle {
     color: #b8c7d8;
-    font-size: 13px;
+    font-size: 11px;
 }
 QLabel#sectionHelpText, QLabel#statusHelperLabel {
     color: #aebdd0;
@@ -206,16 +206,16 @@ QLabel#sectionHelpText, QLabel#statusHelperLabel {
 QGroupBox {
     background: #101d2b;
     border: 1px solid #263f55;
-    border-radius: 12px;
-    margin-top: 20px;
-    padding: 16px 14px 14px 14px;
+    border-radius: 10px;
+    margin-top: 14px;
+    padding: 10px 10px 9px 10px;
     font-weight: 600;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top right;
-    right: 14px;
-    padding: 2px 8px;
+    right: 10px;
+    padding: 1px 7px;
     color: #d7e5f6;
     background: #101d2b;
 }
@@ -235,7 +235,7 @@ QGroupBox#queueCard {
 QGroupBox#nestedSettingsGroup, QGroupBox#jobDetailsCard {
     background: #0c1825;
     border-color: #33506a;
-    margin-top: 16px;
+    margin-top: 12px;
 }
 QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTableWidget {
     background: #08131f;
@@ -246,20 +246,20 @@ QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTableWidget {
     selection-color: #ffffff;
 }
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
-    min-height: 28px;
-    padding: 3px 8px;
+    min-height: 23px;
+    padding: 2px 7px;
 }
 QTextEdit {
-    padding: 8px;
+    padding: 6px;
 }
 QTextEdit#pasteBox {
-    min-height: 92px;
+    min-height: 80px;
 }
 QTextEdit#logArea {
     background: #07111c;
     border-color: #31465b;
     font-family: Consolas, "Courier New", monospace;
-    font-size: 12px;
+    font-size: 10px;
     line-height: 1.35;
 }
 QTextEdit#warningArea {
@@ -267,13 +267,13 @@ QTextEdit#warningArea {
     border-color: #7a6022;
     color: #ffe6a3;
     font-family: Consolas, "Courier New", monospace;
-    font-size: 12px;
+    font-size: 10px;
 }
 QTextEdit#reviewArea {
     background: #07111c;
     border-color: #31465b;
     font-family: Consolas, "Courier New", monospace;
-    font-size: 12px;
+    font-size: 10px;
 }
 QLineEdit:disabled, QTextEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
     background: #172331;
@@ -286,7 +286,7 @@ QTableWidget {
     border-radius: 9px;
 }
 QTableWidget::item {
-    padding: 8px;
+    padding: 5px;
 }
 QTableWidget::item:selected {
     background: #1f5f9f;
@@ -297,16 +297,16 @@ QHeaderView::section {
     color: #e7eef8;
     border: 0;
     border-left: 1px solid #2b4054;
-    padding: 8px 10px;
+    padding: 5px 8px;
     font-weight: 600;
 }
 QPushButton {
     background: #1b2e42;
     border: 1px solid #365a76;
-    border-radius: 9px;
+    border-radius: 8px;
     color: #f2f6fb;
-    padding: 8px 13px;
-    min-height: 32px;
+    padding: 5px 10px;
+    min-height: 25px;
 }
 QPushButton:hover {
     background: #253d56;
@@ -325,9 +325,9 @@ QPushButton#primaryActionButton {
     border-color: #69abff;
     color: #ffffff;
     font-weight: 700;
-    min-height: 42px;
-    padding: 10px 22px;
-    font-size: 14px;
+    min-height: 34px;
+    padding: 7px 18px;
+    font-size: 12px;
 }
 QPushButton#primaryActionButton:hover {
     background: #3a90ff;
@@ -342,9 +342,9 @@ QPushButton#navButton {
     border: 0;
     border-radius: 10px;
     color: #b9c9db;
-    padding: 10px 14px;
+    padding: 7px 11px;
     text-align: right;
-    min-height: 36px;
+    min-height: 29px;
 }
 QPushButton#navButton:checked {
     background: #14345b;
@@ -367,7 +367,7 @@ QLabel#processingStatusLabel, QLabel#logHeaderLabel {
     background: #0a1623;
     border: 1px solid #2b4054;
     border-radius: 999px;
-    padding: 7px 13px;
+    padding: 4px 9px;
     font-weight: 600;
     color: #d9e7f7;
 }
@@ -379,19 +379,19 @@ QLabel#queueSummaryLabel {
     background: #0b1724;
     border: 1px solid #243d54;
     border-radius: 8px;
-    padding: 8px 10px;
+    padding: 6px 8px;
 }
 QLabel#queueDetailsLabel {
     color: #e4edf8;
     background: #08131f;
     border: 1px solid #253f56;
     border-radius: 8px;
-    padding: 10px 12px;
+    padding: 7px 9px;
     line-height: 1.35;
 }
 QLabel#metricValue {
     color: #ffffff;
-    font-size: 22px;
+    font-size: 16px;
     font-weight: 700;
 }
 QLabel#metricCaption {
@@ -402,7 +402,7 @@ QLabel#emptyStateLabel {
     background: #08131f;
     border: 1px dashed #2e4b64;
     border-radius: 10px;
-    padding: 18px;
+    padding: 10px;
 }
 QFrame#dashboardShell, QFrame#sideRail, QFrame#topNav, QFrame#bottomStatusBar {
     background: #07111d;
@@ -974,10 +974,12 @@ class MainWindow(QMainWindow):
         self._queue_auto_continue_after_worker = False
         self._editing_queue_job: VideoJob | None = None
         self._last_output_folder: Path | None = None
+        self._window_state_before_fullscreen: Qt.WindowStates | None = None
+        self._window_geometry_before_fullscreen: QByteArray | None = None
 
         self.setWindowTitle(APP_NAME)
         self.setLayoutDirection(Qt.RightToLeft)
-        self.resize(1100, 820)
+        self.resize(1180, 760)
 
         self.youtube_radio = QRadioButton("رابط يوتيوب")
         self.local_file_radio = QRadioButton("فيديو من الجهاز")
@@ -1138,13 +1140,13 @@ class MainWindow(QMainWindow):
         shell = QFrame()
         shell.setObjectName("dashboardShell")
         layout = QHBoxLayout(shell)
-        layout.setSpacing(14)
-        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+        layout.setContentsMargins(10, 10, 10, 10)
 
         content = QFrame()
         content.setObjectName("mainContent")
         content_layout = QVBoxLayout(content)
-        content_layout.setSpacing(12)
+        content_layout.setSpacing(8)
         content_layout.setContentsMargins(0, 0, 0, 0)
 
         content_layout.addWidget(self._build_top_navigation())
@@ -1178,10 +1180,10 @@ class MainWindow(QMainWindow):
     def _build_side_rail(self) -> QFrame:
         rail = QFrame()
         rail.setObjectName("sideRail")
-        rail.setFixedWidth(210)
+        rail.setFixedWidth(174)
         layout = QVBoxLayout(rail)
-        layout.setSpacing(10)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(7)
+        layout.setContentsMargins(8, 8, 8, 8)
 
         layout.addWidget(self._build_header_section())
         for button in (
@@ -1191,7 +1193,7 @@ class MainWindow(QMainWindow):
             self.nav_logs_button,
         ):
             layout.addWidget(button)
-        layout.addSpacing(12)
+        layout.addSpacing(6)
         future_title = QLabel("ميزات قادمة")
         future_title.setObjectName("sectionHelpText")
         layout.addWidget(future_title)
@@ -1207,7 +1209,7 @@ class MainWindow(QMainWindow):
         frame.setObjectName("topNav")
         layout = QHBoxLayout(frame)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
         layout.addStretch(1)
         self.top_nav_buttons = {}
         for key, button in (
@@ -1227,9 +1229,10 @@ class MainWindow(QMainWindow):
     def _build_bottom_status_bar(self) -> QFrame:
         frame = QFrame()
         frame.setObjectName("bottomStatusBar")
+        frame.setMaximumHeight(28)
         layout = QHBoxLayout(frame)
-        layout.setContentsMargins(10, 6, 10, 6)
-        layout.setSpacing(14)
+        layout.setContentsMargins(8, 2, 8, 2)
+        layout.setSpacing(10)
         layout.addWidget(self.bottom_status_label)
         layout.addStretch(1)
         layout.addWidget(self.bottom_output_label)
@@ -1254,10 +1257,47 @@ class MainWindow(QMainWindow):
             button.setChecked(key == page)
         self._refresh_dashboard_overview()
 
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key_F11:
+            self.toggle_fullscreen()
+            event.accept()
+            return
+        if event.key() == Qt.Key_Escape and self.isFullScreen():
+            self.exit_fullscreen()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def toggle_fullscreen(self) -> None:
+        if self.isFullScreen():
+            self.exit_fullscreen()
+        else:
+            self.enter_fullscreen()
+
+    def enter_fullscreen(self) -> None:
+        if self.isFullScreen():
+            return
+        self._window_state_before_fullscreen = self.windowState()
+        self._window_geometry_before_fullscreen = self.saveGeometry()
+        self.showFullScreen()
+
+    def exit_fullscreen(self) -> None:
+        if not self.isFullScreen():
+            return
+        previous_state = self._window_state_before_fullscreen
+        previous_geometry = self._window_geometry_before_fullscreen
+        self.showNormal()
+        if previous_geometry is not None:
+            self.restoreGeometry(previous_geometry)
+        if previous_state is not None:
+            self.setWindowState(previous_state)
+        self._window_state_before_fullscreen = None
+        self._window_geometry_before_fullscreen = None
+
     def _build_import_page(self) -> QWidget:
         page = QWidget()
         layout = QGridLayout(page)
-        layout.setSpacing(14)
+        layout.setSpacing(10)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._build_paste_section(), 0, 0, 2, 2)
         layout.addWidget(self._build_video_source_section(), 0, 2)
@@ -1268,12 +1308,15 @@ class MainWindow(QMainWindow):
         layout.setColumnStretch(0, 2)
         layout.setColumnStretch(1, 2)
         layout.setColumnStretch(2, 2)
+        layout.setRowStretch(0, 1)
+        layout.setRowStretch(1, 1)
+        layout.setRowStretch(2, 2)
         return page
 
     def _build_clips_page(self) -> QWidget:
         page = QWidget()
         layout = QGridLayout(page)
-        layout.setSpacing(14)
+        layout.setSpacing(10)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._build_clips_toolbar_section(), 0, 0, 1, 2)
         layout.addWidget(self._build_clips_section(), 1, 0, 1, 2)
@@ -1283,12 +1326,15 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_classification_section(), 4, 0, 1, 2)
         layout.setColumnStretch(0, 2)
         layout.setColumnStretch(1, 1)
+        layout.setRowStretch(1, 3)
+        layout.setRowStretch(2, 1)
+        layout.setRowStretch(3, 1)
         return page
 
     def _build_queue_dashboard_page(self) -> QWidget:
         page = QWidget()
         layout = QGridLayout(page)
-        layout.setSpacing(14)
+        layout.setSpacing(10)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._build_queue_controls_card(), 0, 0)
         layout.addWidget(self._build_current_job_card(), 0, 1)
@@ -1298,12 +1344,15 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_queue_job_log_card(), 3, 0, 1, 2)
         layout.setColumnStretch(0, 1)
         layout.setColumnStretch(1, 2)
+        layout.setRowStretch(1, 3)
+        layout.setRowStretch(2, 2)
+        layout.setRowStretch(3, 2)
         return page
 
     def _build_logs_dashboard_page(self) -> QWidget:
         page = QWidget()
         layout = QGridLayout(page)
-        layout.setSpacing(14)
+        layout.setSpacing(10)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._build_dashboard_summary_section(), 0, 0, 1, 3)
         layout.addWidget(self._build_operations_log_section(), 1, 0, 2, 2)
@@ -1313,6 +1362,10 @@ class MainWindow(QMainWindow):
         layout.setColumnStretch(0, 2)
         layout.setColumnStretch(1, 2)
         layout.setColumnStretch(2, 2)
+        layout.setRowStretch(0, 0)
+        layout.setRowStretch(1, 3)
+        layout.setRowStretch(2, 1)
+        layout.setRowStretch(3, 1)
         return page
 
 
@@ -1331,7 +1384,7 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(icon_path)))
 
     def _apply_visual_polish(self) -> None:
-        self.setMinimumSize(980, 720)
+        self.setMinimumSize(980, 640)
 
         self.smart_paste_button.setObjectName("smartImportButton")
         self.global_smart_import_button.setObjectName("smartImportButton")
@@ -1364,13 +1417,13 @@ class MainWindow(QMainWindow):
             button.setObjectName("navButton")
             button.setCheckable(True)
 
-        self.smart_paste_button.setMinimumWidth(140)
-        self.global_smart_import_button.setMinimumWidth(140)
-        self.start_button.setMinimumWidth(165)
-        self.validate_button.setMinimumWidth(140)
-        self.new_work_button.setMinimumWidth(110)
-        self.open_output_button.setMinimumWidth(135)
-        self.processing_status_label.setMinimumWidth(170)
+        self.smart_paste_button.setMinimumWidth(118)
+        self.global_smart_import_button.setMinimumWidth(118)
+        self.start_button.setMinimumWidth(145)
+        self.validate_button.setMinimumWidth(120)
+        self.new_work_button.setMinimumWidth(94)
+        self.open_output_button.setMinimumWidth(118)
+        self.processing_status_label.setMinimumWidth(140)
 
         for table in (
             self.queue_table,
@@ -1415,9 +1468,9 @@ class MainWindow(QMainWindow):
     def _style_card(self, group: QGroupBox, object_name: str = "dashboardCard") -> QGroupBox:
         group.setObjectName(object_name)
         shadow = QGraphicsDropShadowEffect(group)
-        shadow.setBlurRadius(18)
-        shadow.setOffset(0, 4)
-        shadow.setColor(QColor(0, 0, 0, 80))
+        shadow.setBlurRadius(12)
+        shadow.setOffset(0, 2)
+        shadow.setColor(QColor(0, 0, 0, 60))
         group.setGraphicsEffect(shadow)
         return group
 
@@ -1426,7 +1479,8 @@ class MainWindow(QMainWindow):
         frame.setObjectName("appHeader")
         frame.setFrameShape(QFrame.StyledPanel)
         layout = QHBoxLayout(frame)
-        layout.setSpacing(12)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
         logo = QLabel()
         logo.setObjectName("appLogo")
@@ -1435,8 +1489,8 @@ class MainWindow(QMainWindow):
             logo_path = self._asset_path("icon.png")
         if logo_path.exists():
             pixmap = QPixmap(str(logo_path))
-            logo.setPixmap(pixmap.scaled(104, 104, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        logo.setFixedSize(116, 116)
+            logo.setPixmap(pixmap.scaled(58, 58, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo.setFixedSize(64, 64)
         logo.setAlignment(Qt.AlignCenter)
 
         title_layout = QVBoxLayout()
@@ -1488,7 +1542,7 @@ class MainWindow(QMainWindow):
         self.import_extracted_clips_table.verticalHeader().setVisible(False)
         self.import_extracted_clips_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.import_extracted_clips_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.import_extracted_clips_table.setMinimumHeight(180)
+        self.import_extracted_clips_table.setMinimumHeight(130)
         self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
@@ -1691,7 +1745,7 @@ class MainWindow(QMainWindow):
         self.classification_rules_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.classification_rules_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.classification_rules_table.setAlternatingRowColors(True)
-        self.classification_rules_table.setMinimumHeight(110)
+        self.classification_rules_table.setMinimumHeight(90)
         self.classification_rules_table.horizontalHeader().setSectionResizeMode(RULE_NAME_COLUMN, QHeaderView.Stretch)
         self.classification_rules_table.horizontalHeader().setSectionResizeMode(RULE_MIN_COLUMN, QHeaderView.ResizeToContents)
         self.classification_rules_table.horizontalHeader().setSectionResizeMode(RULE_MAX_COLUMN, QHeaderView.ResizeToContents)
@@ -1718,7 +1772,7 @@ class MainWindow(QMainWindow):
         helper.setWordWrap(True)
         layout.addWidget(helper)
         self.paste_message_input.setPlaceholderText("الصق نص المقاطع هنا ...")
-        self.paste_message_input.setMinimumHeight(220)
+        self.paste_message_input.setMinimumHeight(170)
 
         button_row = QHBoxLayout()
         button_row.addStretch(1)
@@ -2020,7 +2074,7 @@ class MainWindow(QMainWindow):
         self.clips_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.clips_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.clips_table.setAlternatingRowColors(True)
-        self.clips_table.setMinimumHeight(180)
+        self.clips_table.setMinimumHeight(210)
         self.clips_table.horizontalHeader().setSectionResizeMode(NUMBER_COLUMN, QHeaderView.ResizeToContents)
         self.clips_table.horizontalHeader().setSectionResizeMode(TITLE_COLUMN, QHeaderView.Stretch)
         self.clips_table.horizontalHeader().setSectionResizeMode(START_COLUMN, QHeaderView.ResizeToContents)
@@ -2042,7 +2096,7 @@ class MainWindow(QMainWindow):
         self._style_card(group)
         layout = QVBoxLayout(group)
         self.selected_clip_preview_label.setAlignment(Qt.AlignCenter)
-        self.selected_clip_preview_label.setMinimumHeight(120)
+        self.selected_clip_preview_label.setMinimumHeight(78)
         layout.addWidget(self.selected_clip_preview_label)
         details_title = QLabel("تفاصيل المقطع المحدد")
         details_title.setObjectName("sectionHelpText")
@@ -2103,7 +2157,7 @@ class MainWindow(QMainWindow):
         self.queue_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.queue_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.queue_table.setAlternatingRowColors(True)
-        self.queue_table.setMinimumHeight(220)
+        self.queue_table.setMinimumHeight(190)
         self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_SOURCE_COLUMN, QHeaderView.ResizeToContents)
         self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_TITLE_COLUMN, QHeaderView.Stretch)
         self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_CLIP_COUNT_COLUMN, QHeaderView.ResizeToContents)
@@ -2160,7 +2214,7 @@ class MainWindow(QMainWindow):
         self.queue_job_clips_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.queue_job_clips_table.setSelectionMode(QAbstractItemView.NoSelection)
         self.queue_job_clips_table.setAlternatingRowColors(True)
-        self.queue_job_clips_table.setMinimumHeight(100)
+        self.queue_job_clips_table.setMinimumHeight(86)
         self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(NUMBER_COLUMN, QHeaderView.ResizeToContents)
         self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(TITLE_COLUMN, QHeaderView.Stretch)
         self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(START_COLUMN, QHeaderView.ResizeToContents)
@@ -2191,6 +2245,7 @@ class MainWindow(QMainWindow):
             filter_row.addWidget(button)
         filter_row.addStretch(1)
         layout.addLayout(filter_row)
+        self.queue_job_log_area.setMinimumHeight(120)
         layout.addWidget(self.queue_job_log_area)
         button_row = QHBoxLayout()
         copy_button = QPushButton("نسخ السجل — قريبًا")
@@ -2207,7 +2262,7 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QGridLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+        layout.setSpacing(8)
         cards = [
             self._build_metric_card("مصدر الفيديو", self.dashboard_source_label, "مصدر العمل الحالي"),
             self._build_metric_card("المقاطع", self.dashboard_clips_label, "إجمالي المقاطع في الجدول"),
@@ -2234,7 +2289,7 @@ class MainWindow(QMainWindow):
         self.operations_log_table.verticalHeader().setVisible(False)
         self.operations_log_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.operations_log_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.operations_log_table.setMinimumHeight(240)
+        self.operations_log_table.setMinimumHeight(150)
         self.operations_log_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.operations_log_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.operations_log_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -2251,7 +2306,7 @@ class MainWindow(QMainWindow):
         self.queue_snapshot_table.setHorizontalHeaderLabels(["#", "العنوان", "الحالة", "التقدم"])
         self.queue_snapshot_table.verticalHeader().setVisible(False)
         self.queue_snapshot_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.queue_snapshot_table.setMinimumHeight(160)
+        self.queue_snapshot_table.setMinimumHeight(120)
         self.queue_snapshot_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.queue_snapshot_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.queue_snapshot_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -2796,6 +2851,7 @@ class MainWindow(QMainWindow):
             return
 
         output_path = self._dashboard_output_path()
+        short_output_path = self._short_path_text(output_path, limit=62)
         status_text = self.processing_status_label.text().replace("الحالة:", "").strip() or "جاهز"
         source_summary = self._current_source_summary(short=True)
         clip_count = self.clips_table.rowCount()
@@ -2805,9 +2861,11 @@ class MainWindow(QMainWindow):
         self.dashboard_clips_label.setText(str(clip_count))
         self.dashboard_queue_label.setText(str(queue_count))
         self.dashboard_status_label.setText(status_text)
-        self.dashboard_output_label.setText(str(output_path))
+        self.dashboard_output_label.setText(short_output_path)
+        self.dashboard_output_label.setToolTip(str(output_path))
         self.bottom_status_label.setText(status_text)
-        self.bottom_output_label.setText(f"مجلد النتائج: {output_path}")
+        self.bottom_output_label.setText(f"مجلد النتائج: {self._short_path_text(output_path, limit=82)}")
+        self.bottom_output_label.setToolTip(str(output_path))
 
         project_title = self.project_name_input.text().strip() or "عمل بلا عنوان"
         self.current_work_label.setText(
@@ -2876,6 +2934,20 @@ class MainWindow(QMainWindow):
 
     def _dashboard_output_path(self) -> Path:
         return self._last_output_folder or self.output_root
+
+    def _short_path_text(self, path: Path | str, limit: int = 70) -> str:
+        text = str(path)
+        if len(text) <= limit:
+            return text
+        normalized = text.replace("/", "\\")
+        parts = [part for part in normalized.split("\\") if part]
+        if len(parts) >= 4:
+            prefix = parts[0]
+            tail = "\\".join(parts[-3:])
+            compact = f"{prefix}\\…\\{tail}"
+            if len(compact) <= limit:
+                return compact
+        return f"…{text[-max(10, limit - 1):]}"
 
     def _current_source_summary(self, *, short: bool) -> str:
         if self.local_file_radio.isChecked():

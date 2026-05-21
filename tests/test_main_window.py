@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import QEvent, Qt, QThread
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication, QDialog, QGroupBox, QLabel, QPushButton, QScrollArea
 
 from src.main_window import (
@@ -375,6 +376,50 @@ def test_dashboard_pages_contain_required_sections_and_controls() -> None:
     assert window.queue_snapshot_table.columnCount() == 4
     assert not window.future_reports_button.isEnabled()
     assert "قريبًا" in window.future_reports_button.text()
+
+    window.close()
+    app.processEvents()
+
+
+def test_f11_toggles_true_fullscreen_and_escape_exits() -> None:
+    app = _app()
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    assert not window.isFullScreen()
+    window.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key_F11, Qt.NoModifier))
+    app.processEvents()
+
+    assert window.isFullScreen()
+    assert window._window_geometry_before_fullscreen is not None
+    assert window._window_state_before_fullscreen is not None
+
+    window.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key_Escape, Qt.NoModifier))
+    app.processEvents()
+
+    assert not window.isFullScreen()
+    assert window._window_geometry_before_fullscreen is None
+    assert window._window_state_before_fullscreen is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_dashboard_visual_proportions_are_compact_for_preview() -> None:
+    app = _app()
+    window = MainWindow()
+
+    style = window.styleSheet()
+    assert "font-size: 11px" in style
+    assert "min-height: 25px" in style
+    assert "QPushButton#primaryActionButton" in style
+    assert "min-height: 34px" in style
+    assert window.minimumHeight() <= 640
+    assert window.centralWidget().horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff
+    assert window.bottom_status_label.parent().maximumHeight() <= 28
+    assert window.paste_message_input.minimumHeight() <= 170
+    assert window.operations_log_table.minimumHeight() <= 150
 
     window.close()
     app.processEvents()
