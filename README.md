@@ -1,12 +1,12 @@
 # المقص البسيط
 
-**المقص البسيط** تطبيق Windows عربي-friendly لقص المقاطع التعليمية من فيديو محلي أو من رابط YouTube، مع دعم تحويل الرسائل النصية إلى جدول، واستيراد Excel/CSV، والتصنيف حسب المدة، والاستثناءات من وسط المقطع، وحفظ النتائج في مجلدات واضحة مع تقرير نهائي.
+**المقص البسيط** تطبيق Windows بواجهة عربية لقص المقاطع التعليمية من فيديو محلي أو من رابط YouTube، مع دعم الاستيراد الذكي من الرسائل، واستيراد Excel/CSV، والتصنيف حسب المدة، والاستثناءات من وسط المقطع، وحفظ النتائج في مجلدات واضحة مع تقرير نهائي.
 
 ## الميزات الأساسية
 
 - اختيار فيديو من الجهاز أو تنزيل فيديو من رابط YouTube.
 - جدول مقاطع يدعم العناوين العربية.
-- تحويل رسائل واتساب/تلغرام إلى جدول مقاطع.
+- استيراد ذكي لرسائل واتساب/تلغرام وتحويلها إلى مقاطع قابلة للمراجعة.
 - استيراد المقاطع من Excel أو CSV.
 - دعم أوقات مرنة مثل `4:15` و `00:04:15` و `٤:١٥`.
 - دعم الاستثناءات داخل المقطع، مثل حذف جزء من الوسط.
@@ -136,8 +136,7 @@ If Windows says `python` is not recognized:
 The app supports Arabic project names and clip titles. If Arabic filenames look incorrect:
 
 - Keep the project inside a normal Windows user folder such as Documents
-- Avoid very old ZIP tools that do not support Unicode filenames
-- Use Windows Explorer or modern ZIP tools to view results
+- افتح مجلد النتائج من داخل التطبيق أو من Windows Explorer
 
 ### Windows Permissions
 

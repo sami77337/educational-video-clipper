@@ -231,7 +231,7 @@ class SmartPasteImportDialog(QDialog):
         self.message_input.setPlaceholderText("الصق الرسالة كاملة هنا، بما في ذلك رابط الفيديو والمقاطع.")
         self.message_input.setMinimumHeight(120)
 
-        self.summary_label = QLabel("الصق الرسالة ثم اضغط فحص الرسالة.")
+        self.summary_label = QLabel("الصق الرسالة ثم اضغط فحص الرسالة لعرض المعاينة.")
         self.summary_label.setWordWrap(True)
         self.review_status_label = QLabel("")
         self.review_status_label.setWordWrap(True)
@@ -267,7 +267,7 @@ class SmartPasteImportDialog(QDialog):
         self.analysis_details_area.setMaximumHeight(130)
 
         self.parse_button = QPushButton("فحص الرسالة")
-        self.apply_button = QPushButton("تطبيق النتائج")
+        self.apply_button = QPushButton("اختيار طريقة الاستيراد")
         self.copy_debug_button = QPushButton("نسخ تقرير التحليل")
         self.cancel_button = QPushButton("إلغاء")
         self.apply_button.setEnabled(False)
@@ -713,14 +713,14 @@ class MainWindow(QMainWindow):
         self.save_queue_job_edits_button = QPushButton("حفظ التعديلات على المهمة")
         self.cancel_queue_job_edit_button = QPushButton("إلغاء تعديل المهمة")
         self.save_queue_state_button = QPushButton("حفظ قائمة الانتظار")
-        self.load_queue_state_button = QPushButton("تحميل قائمة انتظار")
+        self.load_queue_state_button = QPushButton("تحميل قائمة الانتظار")
         self.add_and_run_queue_job_button = QPushButton("إضافة وتشغيل في قائمة الانتظار")
         self.start_queue_processing_button = QPushButton("بدء معالجة قائمة الانتظار")
         self.stop_queue_after_current_button = QPushButton("إيقاف بعد المهمة الحالية")
         self.run_selected_queue_job_button = QPushButton("تشغيل المهمة المحددة")
-        self.run_all_queue_simulation_button = QPushButton("فحص/محاكاة القائمة فقط")
-        self.validate_queue_job_button = QPushButton("إعادة فحص المحدد")
-        self.validate_all_queue_jobs_button = QPushButton("فحص كل قائمة الانتظار")
+        self.run_all_queue_simulation_button = QPushButton("اختبار القائمة بدون قص")
+        self.validate_queue_job_button = QPushButton("إعادة فحص المهمة المحددة")
+        self.validate_all_queue_jobs_button = QPushButton("فحص قائمة الانتظار بالكامل")
         self.delete_queue_job_button = QPushButton("إزالة المهمة المحددة")
         self.clear_queue_button = QPushButton("مسح القائمة")
         self.queue_selected_job_details_label = QLabel("اختر مهمة من قائمة الانتظار لعرض تفاصيلها.")
@@ -1354,7 +1354,7 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_action_section(self) -> QGroupBox:
-        group = QGroupBox("أزرار التشغيل")
+        group = QGroupBox("التشغيل والنتائج")
         layout = QHBoxLayout(group)
 
         layout.addWidget(self.start_button)
@@ -1718,7 +1718,7 @@ class MainWindow(QMainWindow):
         labels = {
             QueueVideoSourceType.LOCAL: "فيديو محلي",
             QueueVideoSourceType.YOUTUBE: "رابط يوتيوب",
-            QueueVideoSourceType.FACEBOOK: "رابط Facebook",
+            QueueVideoSourceType.FACEBOOK: "رابط فيسبوك",
         }
         return labels[job.source_type]
 
@@ -1732,8 +1732,8 @@ class MainWindow(QMainWindow):
             JobStatus.DOWNLOADING: "جاري التحميل",
             JobStatus.CUTTING: "جاري القص",
             JobStatus.VERIFYING: "جاري التحقق",
-            JobStatus.DONE: "مكتمل",
-            JobStatus.FAILED: "فشل",
+            JobStatus.DONE: "مكتملة",
+            JobStatus.FAILED: "فاشلة",
             JobStatus.SKIPPED: "تم تجاوزه",
             JobStatus.CANCELLED: "ملغى",
         }
@@ -1973,7 +1973,7 @@ class MainWindow(QMainWindow):
 
             result = validate_queue_job(job)
             apply_queue_validation_result(job, result)
-            self._record_queue_validation_log(job, result, "تم فحص كل قائمة الانتظار")
+            self._record_queue_validation_log(job, result, "تم فحص قائمة الانتظار بالكامل")
             self._refresh_queue_job_row(row)
             if result.status == JobStatus.READY:
                 ready_count += 1
@@ -2015,7 +2015,7 @@ class MainWindow(QMainWindow):
         error_jobs: list[str],
     ) -> str:
         lines = [
-            "تم فحص كل قائمة الانتظار",
+            "تم فحص قائمة الانتظار بالكامل",
             f"عدد المهام: {total}",
             f"المهام الجاهزة: {ready}",
             f"المهام التي فيها تحذيرات: {warnings}",
@@ -2452,7 +2452,7 @@ class MainWindow(QMainWindow):
 
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "تحميل قائمة انتظار",
+            "تحميل قائمة الانتظار",
             "",
             "JSON Files (*.json);;All Files (*.*)",
         )
@@ -2486,7 +2486,7 @@ class MainWindow(QMainWindow):
 
     def _ask_replace_queue_state_confirmation(self) -> bool:
         dialog = QMessageBox(self)
-        dialog.setWindowTitle("تحميل قائمة انتظار")
+        dialog.setWindowTitle("تحميل قائمة الانتظار")
         dialog.setText("توجد قائمة انتظار حالية. هل تريد استبدالها؟")
         replace_button = dialog.addButton("استبدال", QMessageBox.AcceptRole)
         dialog.addButton("إلغاء", QMessageBox.RejectRole)
@@ -3474,7 +3474,7 @@ class MainWindow(QMainWindow):
             self.youtube_input.setText(preview.video_urls[0])
             applied_messages.append("تم تطبيق رابط الفيديو المكتشف.")
         if len(preview.video_urls) > 1:
-            applied_messages.append("تم اكتشاف أكثر من رابط فيديو. تم تطبيق أول رابط فقط في هذه النسخة.")
+            applied_messages.append("تم العثور على أكثر من رابط فيديو. تم استخدام الرابط الأول في هذه النسخة.")
 
         regular_clips = [clip for clip in preview.clips if not clip.multi_part]
         multi_part_clips = [clip for clip in preview.clips if clip.multi_part]
@@ -3561,7 +3561,7 @@ class MainWindow(QMainWindow):
                 self._write_log("الرابط غير مدعوم حاليًا")
                 return None
             if len(preview.video_urls) > 1:
-                self._append_log("تم اكتشاف أكثر من رابط فيديو. سيتم استخدام أول رابط فقط في هذه النسخة.")
+                self._append_log("تم العثور على أكثر من رابط فيديو. سيتم استخدام الرابط الأول في هذه النسخة.")
             return source_type, source, title or source
 
         current_source = self._current_work_queue_source()

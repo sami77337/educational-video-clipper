@@ -1003,14 +1003,14 @@ def _post_parse_warnings(video_urls: list[str], url_line_numbers: list[int], cli
         warnings.append(
             SmartPasteWarning(
                 line_number,
-                "تم العثور على أكثر من رابط، سيتم استيراد أول رابط فقط في هذه النسخة",
+                "تم العثور على أكثر من رابط، سيتم استخدام الرابط الأول في هذه النسخة",
                 video_urls[1] if len(video_urls) > 1 else "",
             )
         )
         warnings.append(
             SmartPasteWarning(
                 line_number,
-                "تم العثور على أكثر من رابط، راجع توزيع المقاطع على الروابط",
+                "تم العثور على أكثر من رابط، راجع توزيع المقاطع على الروابط قبل الاستيراد",
                 video_urls[1] if len(video_urls) > 1 else "",
             )
         )

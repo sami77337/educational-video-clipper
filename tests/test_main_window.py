@@ -192,15 +192,15 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.save_queue_job_edits_button.text() == "حفظ التعديلات على المهمة"
     assert window.cancel_queue_job_edit_button.text() == "إلغاء تعديل المهمة"
     assert window.save_queue_state_button.text() == "حفظ قائمة الانتظار"
-    assert window.load_queue_state_button.text() == "تحميل قائمة انتظار"
+    assert window.load_queue_state_button.text() == "تحميل قائمة الانتظار"
     assert window.add_and_run_queue_job_button.text() == "إضافة وتشغيل في قائمة الانتظار"
     assert window.start_queue_processing_button.text() == "بدء معالجة قائمة الانتظار"
     assert window.stop_queue_after_current_button.text() == "إيقاف بعد المهمة الحالية"
     assert not window.stop_queue_after_current_button.isEnabled()
     assert window.run_selected_queue_job_button.text() == "تشغيل المهمة المحددة"
-    assert window.run_all_queue_simulation_button.text() == "فحص/محاكاة القائمة فقط"
-    assert window.validate_queue_job_button.text() == "إعادة فحص المحدد"
-    assert window.validate_all_queue_jobs_button.text() == "فحص كل قائمة الانتظار"
+    assert window.run_all_queue_simulation_button.text() == "اختبار القائمة بدون قص"
+    assert window.validate_queue_job_button.text() == "إعادة فحص المهمة المحددة"
+    assert window.validate_all_queue_jobs_button.text() == "فحص قائمة الانتظار بالكامل"
     assert window.delete_queue_job_button.text() == "إزالة المهمة المحددة"
     assert window.clear_queue_button.text() == "مسح القائمة"
     for button in (
@@ -209,7 +209,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
         window.validate_button,
         window.open_output_button,
     ):
-        assert "أزرار التشغيل" in _ancestor_group_titles(button)
+        assert "التشغيل والنتائج" in _ancestor_group_titles(button)
     assert not window.add_and_run_queue_job_button.isVisible()
     assert "إدارة قائمة الانتظار المتقدمة" in _ancestor_group_titles(window.direct_cut_button)
     assert window.queue_advanced_group.title() == "إدارة قائمة الانتظار المتقدمة"
@@ -872,7 +872,7 @@ def test_queue_add_current_facebook_url_work() -> None:
 
     assert len(window.job_queue) == 1
     assert window.job_queue[0].source_type == QueueVideoSourceType.FACEBOOK
-    assert window.queue_table.item(0, QUEUE_SOURCE_COLUMN).text() == "رابط Facebook"
+    assert window.queue_table.item(0, QUEUE_SOURCE_COLUMN).text() == "رابط فيسبوك"
     assert window._processing_thread is None
     assert window._processing_worker is None
 
@@ -1013,7 +1013,7 @@ def test_queue_facebook_url_is_created_as_facebook_job() -> None:
     job = window._add_queue_url_job("https://facebook.com/watch/example", title="درس")
 
     assert job.source_type == QueueVideoSourceType.FACEBOOK
-    assert window.queue_table.item(0, QUEUE_SOURCE_COLUMN).text() == "رابط Facebook"
+    assert window.queue_table.item(0, QUEUE_SOURCE_COLUMN).text() == "رابط فيسبوك"
     assert window._processing_thread is None
 
     window.close()
@@ -1874,7 +1874,7 @@ def test_queue_validate_all_one_valid_local_job(tmp_path) -> None:
 
     assert job.status == JobStatus.READY
     assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "جاهز"
-    assert "تم فحص كل قائمة الانتظار" in window.log_area.toPlainText()
+    assert "تم فحص قائمة الانتظار بالكامل" in window.log_area.toPlainText()
     assert "عدد المهام: 1" in window.log_area.toPlainText()
     assert "المهام الجاهزة: 1" in window.log_area.toPlainText()
     assert "المهام التي فيها تحذيرات: 0" in window.log_area.toPlainText()
@@ -1994,7 +1994,7 @@ def test_queue_run_selected_only_is_passive() -> None:
     assert "المهام التي تمت محاكاتها: 1" in window.log_area.toPlainText()
     assert "المهام التي تم تخطيها: 0" in window.log_area.toPlainText()
     assert "الأخطاء إن وجدت: 0" in window.log_area.toPlainText()
-    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مكتمل"
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مكتملة"
     assert window._processing_thread is None
     assert window._processing_worker is None
 
@@ -2015,7 +2015,7 @@ def test_queue_run_selected_ready_job_simulates_only(tmp_path) -> None:
     window.run_selected_queue_job()
 
     assert job.status == JobStatus.DONE
-    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مكتمل"
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مكتملة"
     assert "تم تشغيل المحاكاة فقط" in window.log_area.toPlainText()
     assert "لم يتم تنزيل أي فيديو" in window.log_area.toPlainText()
     assert "لم يتم قص أي مقطع" in window.log_area.toPlainText()
@@ -2090,7 +2090,7 @@ def test_queue_run_all_simulation_one_ready_job(tmp_path) -> None:
     window.run_all_queue_simulation()
 
     assert job.status == JobStatus.DONE
-    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مكتمل"
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مكتملة"
     assert "تم تشغيل المحاكاة فقط" in window.log_area.toPlainText()
     assert "لم يتم تنزيل أي فيديو" in window.log_area.toPlainText()
     assert "لم يتم قص أي مقطع" in window.log_area.toPlainText()
@@ -2125,8 +2125,8 @@ def test_queue_run_all_simulation_multiple_jobs_with_warning_and_error(tmp_path)
         JobStatus.DONE,
         JobStatus.SKIPPED,
     ]
-    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مكتمل"
-    assert window.queue_table.item(1, QUEUE_STATUS_COLUMN).text() == "مكتمل"
+    assert window.queue_table.item(0, QUEUE_STATUS_COLUMN).text() == "مكتملة"
+    assert window.queue_table.item(1, QUEUE_STATUS_COLUMN).text() == "مكتملة"
     assert window.queue_table.item(2, QUEUE_STATUS_COLUMN).text() == "تم تجاوزه"
     assert "تم تشغيل المحاكاة فقط" in window.log_area.toPlainText()
     assert "لم يتم تنزيل أي فيديو" in window.log_area.toPlainText()
@@ -3015,6 +3015,10 @@ def test_combined_validation_button_runs_table_and_smart_validation(monkeypatch)
 def test_smart_paste_preview_dialog_generates_summary_and_clip_table() -> None:
     app = _app()
     dialog = SmartPasteImportDialog()
+    assert dialog.summary_label.text() == "الصق الرسالة ثم اضغط فحص الرسالة لعرض المعاينة."
+    assert dialog.parse_button.text() == "فحص الرسالة"
+    assert dialog.apply_button.text() == "اختيار طريقة الاستيراد"
+    assert dialog.copy_debug_button.text() == "نسخ تقرير التحليل"
     dialog.message_input.setPlainText(
         "https://youtu.be/abc123\n"
         "01:41 - 03:12 : اسم الله الوهاب\n"
