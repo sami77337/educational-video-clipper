@@ -49,13 +49,24 @@ from src.video_speed import (
     normalize_video_speed,
     speed_adjusted_duration,
 )
+from src.video_fade import (
+    AR_FADE_DURATION_CLAMPED,
+    ClipFade,
+    VideoFadeError,
+    normalize_clip_fade,
+    resolve_fade_durations,
+)
 from src.video_volume import (
     AR_VOLUME_APPLIED,
     DEFAULT_VOLUME_PERCENT,
     VideoVolumeError,
     normalize_volume_percent,
 )
-from src.video.ffmpeg_commands import build_ffmpeg_command, build_ffmpeg_concat_command
+from src.video.ffmpeg_commands import (
+    build_ffmpeg_command,
+    build_ffmpeg_concat_command,
+    build_ffmpeg_video_fade_command,
+)
 from src.video import ffmpeg_runner as _ffmpeg_runner
 from src.video import youtube_downloader as _youtube_downloader
 from src.video.ffmpeg_runner import (
@@ -115,6 +126,7 @@ AR_CONCAT_FAILED = "فشل دمج أجزاء المقطع رقم"
 AR_PROJECT_NAME_CLEANED = "تم تنظيف اسم المشروع ليكون مناسبًا للمجلدات"
 AR_CLIP_PADDING_APPLIED = "تم تطبيق وقت إضافي قبل/بعد القص"
 AR_MULTIPLE_EXCLUSIONS_APPLIED = "تم تطبيق أكثر من استثناء داخل المقطع"
+AR_BLACK_FADE_APPLIED = "بداية ونهاية سوداء تدريجية"
 TEMP_SEGMENTS_FOLDER_NAME = "_temp_segments"
 ProgressCallback = Callable[[str], None]
 SubprocessRunner = Callable[..., subprocess.CompletedProcess[str]]
@@ -321,6 +333,7 @@ class VideoProcessor:
         video_duration_seconds: float | None = None,
         video_speed: int | float = DEFAULT_VIDEO_SPEED,
         volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
+        clip_fade: ClipFade | None = None,
     ) -> list[CutClipResult]:
         """Cut all clips from the prepared input video and sort them automatically."""
 
@@ -335,6 +348,7 @@ class VideoProcessor:
             video_duration_seconds,
             video_speed,
             volume_percent,
+            clip_fade,
         )
 
     def process_project(
@@ -348,6 +362,7 @@ class VideoProcessor:
         clip_padding: ClipPadding | None = None,
         video_speed: int | float = DEFAULT_VIDEO_SPEED,
         volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
+        clip_fade: ClipFade | None = None,
     ) -> ProcessingResult:
         """Prepare, cut, sort, and report one project."""
 
@@ -361,6 +376,10 @@ class VideoProcessor:
         try:
             active_volume = normalize_volume_percent(volume_percent)
         except VideoVolumeError as error:
+            raise VideoProcessingError(str(error)) from error
+        try:
+            active_fade = _normalize_clip_fade(clip_fade)
+        except VideoFadeError as error:
             raise VideoProcessingError(str(error)) from error
         clips = self.build_clip_definitions(clip_rows)
         exclusion_errors = validate_exclusions_for_clips(clips, active_padding)
@@ -384,6 +403,7 @@ class VideoProcessor:
             video_duration_seconds,
             active_speed,
             active_volume,
+            active_fade,
         )
         export_artifacts = self.export_results(
             project_output_folder=prepared_video.project_output_folder,
@@ -397,6 +417,7 @@ class VideoProcessor:
             clip_padding=active_padding,
             video_speed=active_speed,
             volume_percent=active_volume,
+            clip_fade=active_fade,
         )
         _emit(progress_callback, AR_PROCESSING_SUCCESS)
 
@@ -420,6 +441,7 @@ class VideoProcessor:
         clip_padding: ClipPadding | None = None,
         video_speed: int | float = DEFAULT_VIDEO_SPEED,
         volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
+        clip_fade: ClipFade | None = None,
     ) -> ExportArtifacts:
         """Create result folders and a final report after successful clipping."""
 
@@ -428,6 +450,7 @@ class VideoProcessor:
         active_padding = clip_padding or ClipPadding()
         active_speed = normalize_video_speed(video_speed)
         active_volume = normalize_volume_percent(volume_percent)
+        active_fade = _normalize_clip_fade(clip_fade)
         folder_names = classification_folder_names(active_rules)
         output_folders = list(ensure_result_folders(project_folder, folder_names))
         zip_files: list[Path] = []
@@ -450,6 +473,9 @@ class VideoProcessor:
             post_padding_seconds=active_padding.post_seconds,
             video_speed=active_speed,
             volume_percent=active_volume,
+            fade_enabled=active_fade.enabled,
+            fade_in_seconds=active_fade.fade_in_seconds,
+            fade_out_seconds=active_fade.fade_out_seconds,
         )
         report_path = write_processing_report(project_folder, report_data)
         _emit(progress_callback, AR_REPORT_CREATED)
@@ -755,6 +781,7 @@ def cut_clip(
     runner: SubprocessRunner = subprocess.run,
     video_speed: int | float = DEFAULT_VIDEO_SPEED,
     volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
+    clip_fade: ClipFade | None = None,
 ) -> Path:
     """Cut one clip using ffmpeg."""
 
@@ -766,6 +793,7 @@ def cut_clip(
     ensure_directory(output_path.parent)
     normalized_speed = normalize_video_speed(video_speed)
     normalized_volume = normalize_volume_percent(volume_percent)
+    normalized_fade = _normalize_clip_fade(clip_fade)
     command = build_ffmpeg_command(
         input_path,
         output_path,
@@ -773,6 +801,7 @@ def cut_clip(
         duration_seconds,
         normalized_speed,
         normalized_volume,
+        normalized_fade,
     )
 
     try:
@@ -796,6 +825,7 @@ def cut_clip_with_exclusions(
     effective_end_seconds: int | float | None = None,
     video_speed: int | float = DEFAULT_VIDEO_SPEED,
     volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
+    clip_fade: ClipFade | None = None,
 ) -> Path:
     """Cut kept segments for a clip with exclusions and merge them into one mp4."""
 
@@ -803,6 +833,7 @@ def cut_clip_with_exclusions(
     output_path = Path(output_video_path)
     normalized_speed = normalize_video_speed(video_speed)
     normalized_volume = normalize_volume_percent(volume_percent)
+    normalized_fade = _normalize_clip_fade(clip_fade)
     try:
         kept_segments = calculate_kept_segment_seconds(
             effective_start_seconds if effective_start_seconds is not None else clip.start_seconds,
@@ -821,6 +852,7 @@ def cut_clip_with_exclusions(
                     runner,
                     normalized_speed,
                     normalized_volume,
+                    ClipFade(),
                 )
             )
 
@@ -834,10 +866,13 @@ def cut_clip_with_exclusions(
             for segment_start, segment_end in kept_segments
         )
         file_list_path = write_concat_file_list(segment_paths, temp_folder / "segments.txt")
+        concat_output_path = temp_folder / "merged_unfaded.mp4" if normalized_fade.enabled else output_path
         try:
-            concat_clip_segments(file_list_path, output_path, runner, expected_duration)
+            concat_clip_segments(file_list_path, concat_output_path, runner, expected_duration)
         except ClipCutError as error:
             raise ClipCutError(f"{AR_CONCAT_FAILED} {clip.number}: {error}") from error
+        if normalized_fade.enabled:
+            apply_final_video_fade(concat_output_path, output_path, normalized_fade, expected_duration, runner)
         _emit(progress_callback, f"{AR_MERGED_CLIP_PARTS} {clip.number:02d}")
         return output_path
     except FfmpegNotFoundError:
@@ -868,6 +903,31 @@ def concat_clip_segments(
         _run_ffmpeg_command(command, output_path, runner)
         if expected_duration_seconds is not None and _should_validate_media_duration(runner):
             verify_output_duration(output_path, expected_duration_seconds)
+    except FileNotFoundError as error:
+        raise FfmpegNotFoundError(AR_FFMPEG_NOT_FOUND) from error
+
+    return output_path
+
+
+def apply_final_video_fade(
+    input_video_path: str | Path,
+    output_video_path: str | Path,
+    clip_fade: ClipFade,
+    duration_seconds: int | float,
+    runner: SubprocessRunner = subprocess.run,
+) -> Path:
+    """Apply black video fade to an already-created clip without audio filters."""
+
+    input_path = Path(input_video_path)
+    output_path = Path(output_video_path)
+    ensure_directory(output_path.parent)
+    normalized_fade = _normalize_clip_fade(clip_fade)
+    command = build_ffmpeg_video_fade_command(input_path, output_path, duration_seconds, normalized_fade)
+
+    try:
+        _run_ffmpeg_command(command, output_path, runner)
+        if _should_validate_media_duration(runner):
+            verify_output_duration(output_path, duration_seconds)
     except FileNotFoundError as error:
         raise FfmpegNotFoundError(AR_FFMPEG_NOT_FOUND) from error
 
@@ -950,6 +1010,7 @@ def cut_clips(
     video_duration_seconds: float | None = None,
     video_speed: int | float = DEFAULT_VIDEO_SPEED,
     volume_percent: int | float = DEFAULT_VOLUME_PERCENT,
+    clip_fade: ClipFade | None = None,
 ) -> list[CutClipResult]:
     """Cut and sort all requested clips."""
 
@@ -959,6 +1020,7 @@ def cut_clips(
     active_padding = clip_padding or ClipPadding()
     normalized_speed = normalize_video_speed(video_speed)
     normalized_volume = normalize_volume_percent(volume_percent)
+    normalized_fade = _normalize_clip_fade(clip_fade)
     exclusion_errors = validate_exclusions_for_clips(clips, active_padding, video_duration_seconds)
     if exclusion_errors:
         raise VideoProcessingError(f"{AR_EXCLUSIONS_INVALID}:\n" + "\n".join(exclusion_errors))
@@ -970,6 +1032,8 @@ def cut_clips(
         _emit(progress_callback, AR_VIDEO_SPEED_APPLIED)
     if normalized_volume != DEFAULT_VOLUME_PERCENT:
         _emit(progress_callback, AR_VOLUME_APPLIED)
+    if normalized_fade.enabled:
+        _emit(progress_callback, AR_BLACK_FADE_APPLIED)
 
     results: list[CutClipResult] = []
     for clip in clips:
@@ -995,6 +1059,14 @@ def cut_clips(
         )
 
         try:
+            expected_output_duration = _expected_output_duration_for_clip(
+                clip,
+                effective_range.start_seconds,
+                effective_range.end_seconds,
+                normalized_speed,
+            )
+            if normalized_fade.enabled and resolve_fade_durations(normalized_fade, expected_output_duration).clamped:
+                _emit(progress_callback, AR_FADE_DURATION_CLAMPED)
             if clip.exclusions.strip():
                 _emit(progress_callback, f"{AR_CUTTING_EXCLUDED_PARTS} {clip.number:02d}")
                 if len(format_exclusions(clip.exclusions).split(", ")) > 1:
@@ -1010,6 +1082,7 @@ def cut_clips(
                     effective_range.end_seconds,
                     normalized_speed,
                     normalized_volume,
+                    normalized_fade,
                 )
             else:
                 _emit(progress_callback, f"{AR_NO_EXCLUSIONS_FOR_CLIP} {clip.number:02d}")
@@ -1021,6 +1094,7 @@ def cut_clips(
                     runner,
                     normalized_speed,
                     normalized_volume,
+                    normalized_fade,
                 )
                 _emit(progress_callback, AR_CUT_WITHOUT_EXCLUSIONS)
         except FfmpegNotFoundError:
@@ -1042,6 +1116,31 @@ def cut_clips(
 
     _emit(progress_callback, AR_CUTTING_COMPLETE)
     return results
+
+
+def _expected_output_duration_for_clip(
+    clip: ClipDefinition,
+    effective_start_seconds: float,
+    effective_end_seconds: float,
+    video_speed: float,
+) -> float:
+    if clip.exclusions.strip():
+        kept_segments = calculate_kept_segment_seconds(
+            effective_start_seconds,
+            effective_end_seconds,
+            clip.exclusions,
+        )
+        return sum(
+            speed_adjusted_duration(segment_end - segment_start, video_speed)
+            for segment_start, segment_end in kept_segments
+        )
+    return speed_adjusted_duration(effective_end_seconds - effective_start_seconds, video_speed)
+
+
+def _normalize_clip_fade(clip_fade: ClipFade | None) -> ClipFade:
+    if clip_fade is None:
+        return normalize_clip_fade(False)
+    return normalize_clip_fade(clip_fade.enabled, clip_fade.fade_in_seconds, clip_fade.fade_out_seconds)
 
 
 def _probe_video_duration_if_needed(input_video_path: Path, clip_padding: ClipPadding) -> float | None:

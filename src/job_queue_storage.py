@@ -15,6 +15,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from src.job_queue import ClipJob, JobSettings, JobStatus, VideoJob, VideoSourceType
 from src.video_speed import DEFAULT_VIDEO_SPEED, VideoSpeedError, normalize_video_speed
 from src.video_volume import DEFAULT_VOLUME_PERCENT, VideoVolumeError, normalize_volume_percent
+from src.video_fade import DEFAULT_FADE_IN_SECONDS, DEFAULT_FADE_OUT_SECONDS, VideoFadeError, normalize_fade_duration
 
 
 QUEUE_STATE_VERSION = 1
@@ -172,6 +173,9 @@ def _settings_to_data(settings: JobSettings) -> dict[str, Any]:
         "speed": settings.speed,
         "volume_adjustment_enabled": settings.volume_adjustment_enabled,
         "volume_percent": settings.volume_percent,
+        "fade_enabled": settings.fade_enabled,
+        "fade_in_seconds": settings.fade_in_seconds,
+        "fade_out_seconds": settings.fade_out_seconds,
         "use_browser_login": settings.use_browser_login,
         "browser_name": settings.browser_name,
         "watermark_enabled": settings.watermark_enabled,
@@ -193,6 +197,17 @@ def _settings_from_data(data: Any, *, high_priority: Any = None) -> JobSettings:
         if volume_enabled
         else DEFAULT_VOLUME_PERCENT
     )
+    fade_enabled = bool(data.get("fade_enabled", False))
+    fade_in = (
+        _fade_duration_or_default(data.get("fade_in_seconds"), DEFAULT_FADE_IN_SECONDS)
+        if fade_enabled
+        else DEFAULT_FADE_IN_SECONDS
+    )
+    fade_out = (
+        _fade_duration_or_default(data.get("fade_out_seconds"), DEFAULT_FADE_OUT_SECONDS)
+        if fade_enabled
+        else DEFAULT_FADE_OUT_SECONDS
+    )
     return JobSettings(
         pre_roll_seconds=_float_or_default(data.get("pre_roll_seconds"), 0.0),
         post_roll_seconds=_float_or_default(data.get("post_roll_seconds"), 0.0),
@@ -201,6 +216,9 @@ def _settings_from_data(data: Any, *, high_priority: Any = None) -> JobSettings:
         speed=speed_value,
         volume_adjustment_enabled=volume_enabled,
         volume_percent=volume_value,
+        fade_enabled=fade_enabled,
+        fade_in_seconds=fade_in,
+        fade_out_seconds=fade_out,
         use_browser_login=bool(data.get("use_browser_login", False)),
         browser_name=str(data.get("browser_name") or "chrome"),
         watermark_enabled=bool(data.get("watermark_enabled", False)),
@@ -280,4 +298,11 @@ def _speed_or_default(value: Any, default: float) -> float:
     try:
         return normalize_video_speed(value)
     except VideoSpeedError:
+        return default
+
+
+def _fade_duration_or_default(value: Any, default: float) -> float:
+    try:
+        return normalize_fade_duration(value)
+    except VideoFadeError:
         return default

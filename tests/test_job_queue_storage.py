@@ -77,6 +77,9 @@ def test_safe_default_settings_after_load_when_missing() -> None:
     assert settings.speed == 1.0
     assert settings.volume_adjustment_enabled is False
     assert settings.volume_percent == 100
+    assert settings.fade_enabled is False
+    assert settings.fade_in_seconds == 0.5
+    assert settings.fade_out_seconds == 0.5
     assert settings.watermark_enabled is False
     assert settings.silence_reduction_enabled is False
 
@@ -138,6 +141,30 @@ def test_volume_is_preserved_independently_per_queue_job() -> None:
     assert loaded[1].settings.volume_adjustment_enabled is True
 
 
+def test_fade_settings_are_preserved_independently_per_queue_job() -> None:
+    first = VideoJob(
+        source_type=VideoSourceType.LOCAL,
+        source="C:/videos/first.mp4",
+        title="الأول",
+        settings=JobSettings(fade_enabled=True, fade_in_seconds=1.0, fade_out_seconds=1.5),
+    )
+    second = VideoJob(
+        source_type=VideoSourceType.YOUTUBE,
+        source="https://youtu.be/second",
+        title="الثاني",
+        settings=JobSettings(fade_enabled=True, fade_in_seconds=0.25, fade_out_seconds=2.0),
+    )
+
+    loaded = queue_jobs_from_data(json.loads(queue_jobs_to_json([first, second])))
+
+    assert loaded[0].settings.fade_enabled is True
+    assert loaded[0].settings.fade_in_seconds == 1.0
+    assert loaded[0].settings.fade_out_seconds == 1.5
+    assert loaded[1].settings.fade_enabled is True
+    assert loaded[1].settings.fade_in_seconds == 0.25
+    assert loaded[1].settings.fade_out_seconds == 2.0
+
+
 def test_missing_speed_and_volume_enabled_flags_default_to_safe_values() -> None:
     loaded = queue_jobs_from_data(
         {
@@ -159,6 +186,9 @@ def test_missing_speed_and_volume_enabled_flags_default_to_safe_values() -> None
     assert settings.speed == 1.0
     assert settings.volume_adjustment_enabled is False
     assert settings.volume_percent == 100
+    assert settings.fade_enabled is False
+    assert settings.fade_in_seconds == 0.5
+    assert settings.fade_out_seconds == 0.5
 
 
 def test_browser_login_settings_are_preserved_without_cookie_data() -> None:
@@ -220,6 +250,30 @@ def test_invalid_saved_enabled_speed_and_volume_default_safely() -> None:
     assert loaded[0].settings.speed == 1.0
     assert loaded[0].settings.volume_adjustment_enabled is True
     assert loaded[0].settings.volume_percent == 100
+
+
+def test_invalid_saved_enabled_fade_defaults_safely() -> None:
+    loaded = queue_jobs_from_data(
+        {
+            "schema_version": 1,
+            "jobs": [
+                {
+                    "source_type": "local",
+                    "source": "C:/videos/lesson.mp4",
+                    "title": "درس",
+                    "settings": {
+                        "fade_enabled": True,
+                        "fade_in_seconds": 0.75,
+                        "fade_out_seconds": -1,
+                    },
+                }
+            ],
+        }
+    )
+
+    assert loaded[0].settings.fade_enabled is True
+    assert loaded[0].settings.fade_in_seconds == 0.5
+    assert loaded[0].settings.fade_out_seconds == 0.5
 
 
 def test_cookies_and_tokens_are_not_saved() -> None:

@@ -7,7 +7,9 @@ from src.classification import ClassificationRule
 from src.clip_padding import ClipPadding
 from src.video_speed import AR_INVALID_VIDEO_SPEED
 from src.video_volume import AR_INVALID_VOLUME_PERCENT, AR_VOLUME_APPLIED
+from src.video_fade import AR_FADE_DURATION_CLAMPED, ClipFade
 from src.video_processor import (
+    AR_BLACK_FADE_APPLIED,
     AR_CLIP_PADDING_APPLIED,
     AR_FFMPEG_NOT_FOUND,
     AR_MULTIPLE_EXCLUSIONS_APPLIED,
@@ -310,6 +312,31 @@ def test_cut_clips_speed_one_preserves_existing_ffmpeg_command(tmp_path) -> None
     assert commands[0][commands[0].index("-t") + 1] == "20"
 
 
+def test_cut_clips_disabled_fade_preserves_existing_ffmpeg_command(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(number=1, title="clip", start_seconds=5, end_seconds=25)
+    default_commands: list[list[str]] = []
+    fade_disabled_commands: list[list[str]] = []
+
+    cut_clips(prepared_video, [clip], runner=lambda command, **kwargs: default_commands.append(command))
+    cut_clips(
+        prepared_video,
+        [clip],
+        runner=lambda command, **kwargs: fade_disabled_commands.append(command),
+        clip_fade=ClipFade(enabled=False, fade_in_seconds=2.0, fade_out_seconds=2.0),
+    )
+
+    assert fade_disabled_commands == default_commands
+    assert "-filter:v" not in fade_disabled_commands[0]
+
+
 @pytest.mark.parametrize(
     ("speed", "formatted_speed"),
     [
@@ -409,6 +436,105 @@ def test_cut_clips_applies_speed_and_volume_together(tmp_path) -> None:
     assert commands[0][commands[0].index("-filter:a") + 1] == "atempo=1.1,volume=1.5"
     assert AR_VIDEO_SPEED_APPLIED in messages
     assert AR_VOLUME_APPLIED in messages
+
+
+def test_cut_clips_applies_black_fade_to_ffmpeg_command(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(number=1, title="clip", start_seconds=5, end_seconds=25)
+    commands: list[list[str]] = []
+    messages: list[str] = []
+
+    cut_clips(
+        prepared_video,
+        [clip],
+        messages.append,
+        lambda command, **kwargs: commands.append(command),
+        clip_fade=ClipFade(enabled=True, fade_in_seconds=0.5, fade_out_seconds=0.5),
+    )
+
+    assert commands[0][commands[0].index("-filter:v") + 1] == (
+        "fade=t=in:st=0:d=0.5,fade=t=out:st=19.5:d=0.5"
+    )
+    assert "-filter:a" not in commands[0]
+    assert AR_BLACK_FADE_APPLIED in messages
+
+
+def test_cut_clips_clamps_black_fade_for_short_clip(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(number=1, title="clip", start_seconds=5, end_seconds=6)
+    commands: list[list[str]] = []
+    messages: list[str] = []
+
+    cut_clips(
+        prepared_video,
+        [clip],
+        messages.append,
+        lambda command, **kwargs: commands.append(command),
+        clip_fade=ClipFade(enabled=True, fade_in_seconds=1.0, fade_out_seconds=1.0),
+    )
+
+    assert commands[0][commands[0].index("-filter:v") + 1] == (
+        "fade=t=in:st=0:d=0.5,fade=t=out:st=0.5:d=0.5"
+    )
+    assert AR_FADE_DURATION_CLAMPED in messages
+
+
+def test_cut_clips_composes_fade_with_speed_volume_padding_and_exclusions(tmp_path) -> None:
+    input_path = tmp_path / "project" / INPUT_VIDEO_NAME
+    input_path.parent.mkdir()
+    input_path.write_bytes(b"video")
+    prepared_video = PreparedVideoSource(
+        source_type=VideoSourceType.LOCAL_FILE,
+        project_output_folder=input_path.parent,
+        input_video_path=input_path,
+    )
+    clip = ClipDefinition(
+        number=1,
+        title="clip",
+        start_seconds=10,
+        end_seconds=20,
+        exclusions="00:00:14-00:00:15",
+    )
+    commands: list[list[str]] = []
+    messages: list[str] = []
+
+    cut_clips(
+        prepared_video,
+        [clip],
+        messages.append,
+        lambda command, **kwargs: commands.append(command),
+        clip_padding=ClipPadding(pre_seconds=1, post_seconds=1),
+        video_speed=1.25,
+        volume_percent=150,
+        clip_fade=ClipFade(enabled=True, fade_in_seconds=0.5, fade_out_seconds=0.5),
+    )
+
+    segment_commands = [command for command in commands if "segment_" in str(command[-1])]
+    final_fade_command = commands[-1]
+    assert len(segment_commands) == 2
+    assert segment_commands[0][segment_commands[0].index("-filter:v") + 1] == "setpts=PTS/1.25"
+    assert segment_commands[0][segment_commands[0].index("-filter:a") + 1] == "atempo=1.25,volume=1.5"
+    assert final_fade_command[final_fade_command.index("-filter:v") + 1].startswith("fade=t=in")
+    assert "-filter:a" not in final_fade_command
+    assert final_fade_command[final_fade_command.index("-c:a") + 1] == "copy"
+    assert AR_CLIP_PADDING_APPLIED in messages
+    assert AR_VIDEO_SPEED_APPLIED in messages
+    assert AR_VOLUME_APPLIED in messages
+    assert AR_BLACK_FADE_APPLIED in messages
 
 
 def test_process_project_rejects_invalid_video_speed_before_preparing_source(tmp_path, monkeypatch) -> None:

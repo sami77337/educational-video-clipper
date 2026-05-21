@@ -18,6 +18,7 @@ from src.classification import (
 from src.file_utils import ensure_directory
 from src.video_speed import DEFAULT_VIDEO_SPEED, format_video_speed, normalize_video_speed
 from src.video_volume import DEFAULT_VOLUME_PERCENT, format_volume_percent, normalize_volume_percent
+from src.video_fade import DEFAULT_FADE_IN_SECONDS, DEFAULT_FADE_OUT_SECONDS, normalize_clip_fade
 
 
 REELS_FOLDER_NAME = "ريلز"
@@ -74,6 +75,9 @@ class ProcessingReportData:
     post_padding_seconds: float = 0.0
     video_speed: float = DEFAULT_VIDEO_SPEED
     volume_percent: int = DEFAULT_VOLUME_PERCENT
+    fade_enabled: bool = False
+    fade_in_seconds: float = DEFAULT_FADE_IN_SECONDS
+    fade_out_seconds: float = DEFAULT_FADE_OUT_SECONDS
 
 
 @dataclass(frozen=True)
@@ -174,6 +178,15 @@ def build_processing_report(data: ProcessingReportData) -> str:
         lines.append(f"سرعة الفيديو: {format_video_speed(data.video_speed)}")
     if _has_volume(data):
         lines.append(f"مستوى الصوت: {format_volume_percent(data.volume_percent)}")
+    if _has_fade(data):
+        fade = normalize_clip_fade(True, data.fade_in_seconds, data.fade_out_seconds)
+        lines.extend(
+            [
+                "بداية ونهاية سوداء تدريجية",
+                f"مدة التدرج في البداية: {_format_seconds_value(fade.fade_in_seconds)} ثانية",
+                f"مدة التدرج في النهاية: {_format_seconds_value(fade.fade_out_seconds)} ثانية",
+            ]
+        )
     lines.append("Classification rules:")
     lines.extend(_format_classification_rule(rule) for rule in classification_rules)
     lines.append("Clip counts by folder:")
@@ -291,6 +304,10 @@ def _has_video_speed(data: ProcessingReportData) -> bool:
 
 def _has_volume(data: ProcessingReportData) -> bool:
     return normalize_volume_percent(data.volume_percent) != DEFAULT_VOLUME_PERCENT
+
+
+def _has_fade(data: ProcessingReportData) -> bool:
+    return normalize_clip_fade(data.fade_enabled, data.fade_in_seconds, data.fade_out_seconds).enabled
 
 
 def _format_seconds_value(value: float) -> str:
