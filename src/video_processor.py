@@ -11,6 +11,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
+from src.app_paths import AR_OUTPUT_FOLDER_USED, OutputPathError, default_output_root, resolve_output_root
 from src.classification import (
     ClassificationRule,
     ClassificationRuleError,
@@ -244,14 +245,27 @@ class VideoProcessor:
         youtube_dl_factory: YoutubeDlFactory = YoutubeDL,
         classification_rules: Sequence[ClassificationRule] | None = None,
     ) -> None:
-        self.output_root = Path(output_root) if output_root is not None else Path.cwd() / "output"
+        self._configured_output_root = Path(output_root) if output_root is not None else None
+        self.output_root = self._configured_output_root or default_output_root()
         self._youtube_dl_factory = youtube_dl_factory
         self.classification_rules = None if classification_rules is None else list(classification_rules)
 
-    def get_project_output_folder(self, project_name: str) -> Path:
+    def _resolve_output_root(self, progress_callback: ProgressCallback | None = None) -> Path:
+        resolved = resolve_output_root(self._configured_output_root)
+        self.output_root = resolved.path
+        if resolved.warning:
+            _emit(progress_callback, resolved.warning)
+        return resolved.path
+
+    def get_project_output_folder(
+        self,
+        project_name: str,
+        progress_callback: ProgressCallback | None = None,
+    ) -> Path:
         """Create and return the sanitized output folder for a project."""
 
-        return create_project_output_folder(project_name, self.output_root)
+        output_root = self._resolve_output_root(progress_callback)
+        return create_project_output_folder(project_name, output_root)
 
     def prepare_source(
         self,
@@ -288,7 +302,11 @@ class VideoProcessor:
 
         clean_url = validate_youtube_url(url)
         _emit_project_name_cleanup(project_name, progress_callback)
-        project_output_folder = self.get_project_output_folder(project_name)
+        try:
+            project_output_folder = self.get_project_output_folder(project_name, progress_callback)
+        except OutputPathError as error:
+            raise VideoSourceError(str(error)) from error
+        _emit(progress_callback, f"{AR_OUTPUT_FOLDER_USED}: {project_output_folder}")
         input_video_path = project_output_folder / INPUT_VIDEO_NAME
 
         _emit(progress_callback, AR_DOWNLOADING_YOUTUBE)
@@ -318,7 +336,11 @@ class VideoProcessor:
 
         source_path = validate_local_video_file(file_path)
         _emit_project_name_cleanup(project_name, progress_callback)
-        project_output_folder = self.get_project_output_folder(project_name)
+        try:
+            project_output_folder = self.get_project_output_folder(project_name, progress_callback)
+        except OutputPathError as error:
+            raise VideoSourceError(str(error)) from error
+        _emit(progress_callback, f"{AR_OUTPUT_FOLDER_USED}: {project_output_folder}")
         input_video_path = project_output_folder / INPUT_VIDEO_NAME
 
         if source_path.resolve() != input_video_path.resolve():

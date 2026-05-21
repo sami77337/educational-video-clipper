@@ -11,6 +11,7 @@ from src.video_black_flash import AR_BLACK_FLASH_APPLIED, ClipBlackFlash
 from src.video_export_quality import AR_EXPORT_QUALITY_APPLIED, ExportQualitySettings
 from src.video_fade import AR_FADE_DURATION_CLAMPED, ClipFade
 from src.video_processor import (
+    AR_OUTPUT_FOLDER_USED,
     AR_BLACK_FADE_APPLIED,
     AR_CLIP_PADDING_APPLIED,
     AR_FFMPEG_NOT_FOUND,
@@ -119,6 +120,47 @@ def test_project_output_folder_logs_when_project_name_is_cleaned(tmp_path) -> No
 
     assert AR_PROJECT_NAME_CLEANED in messages
     assert prepared_video.project_output_folder.name == "مشروع جديد"
+
+
+def test_local_prepare_uses_actual_resolved_output_folder_and_logs_it(tmp_path) -> None:
+    video_path = tmp_path / "lesson.mp4"
+    video_path.write_bytes(b"video")
+    output_root = tmp_path / "app" / "output"
+    messages: list[str] = []
+
+    processor = VideoProcessor(output_root=output_root)
+    prepared_video = processor.prepare_local_video(str(video_path), "Lesson", messages.append)
+
+    assert prepared_video.project_output_folder == output_root.resolve() / "Lesson"
+    assert prepared_video.input_video_path == output_root.resolve() / "Lesson" / INPUT_VIDEO_NAME
+    assert any(message.startswith(AR_OUTPUT_FOLDER_USED) for message in messages)
+
+
+def test_youtube_prepare_uses_actual_resolved_output_folder(tmp_path) -> None:
+    output_root = tmp_path / "app" / "output"
+    captured_options: dict = {}
+
+    class FakeYoutubeDL:
+        def __init__(self, options):
+            captured_options.update(options)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def download(self, urls):
+            Path(captured_options["outtmpl"]).write_bytes(b"video")
+
+    messages: list[str] = []
+    processor = VideoProcessor(output_root=output_root, youtube_dl_factory=FakeYoutubeDL)
+
+    prepared_video = processor.prepare_youtube_video("https://youtu.be/example", "YouTube Lesson", messages.append)
+
+    assert prepared_video.project_output_folder == output_root.resolve() / "YouTube Lesson"
+    assert Path(captured_options["outtmpl"]) == output_root.resolve() / "YouTube Lesson" / INPUT_VIDEO_NAME
+    assert any(message.startswith(AR_OUTPUT_FOLDER_USED) for message in messages)
 
 
 @pytest.mark.parametrize("suffix", [".mp4", ".mov", ".mkv", ".webm", ".MP4"])

@@ -34,9 +34,11 @@ from src.main_window import (
 )
 from src.job_queue import ClipJob, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
 from src.job_queue_processor import AR_QUEUE_NEXT_JOB_STARTED, AR_URL_QUEUE_PROCESSING_LATER
+from src.app_paths import AR_OUTPUT_CREATE_FAILED
 from src.readiness import STATUS_READY, ReadinessCheckItem, ReadinessReport
 from src.video_black_flash import AR_BLACK_FLASH_APPLIED
 from src.video_export_quality import AR_EXPORT_QUALITY_APPLIED
+from src.video_processor import VideoSourceError
 from src.smart_paste_parser import (
     SmartPasteClip,
     SmartPasteExclusion,
@@ -87,6 +89,22 @@ def test_main_window_uses_scroll_area_for_tall_ui() -> None:
 
     assert isinstance(window.centralWidget(), QScrollArea)
     assert window.centralWidget().widgetResizable()
+
+    window.close()
+    app.processEvents()
+
+
+def test_main_window_default_output_root_is_not_current_directory(tmp_path, monkeypatch) -> None:
+    app = _app()
+    fake_system32 = tmp_path / "WINDOWS" / "System32"
+    fake_system32.mkdir(parents=True)
+    monkeypatch.chdir(fake_system32)
+
+    window = MainWindow()
+
+    assert window.output_root.name == "output"
+    assert window.output_root != fake_system32 / "output"
+    assert "System32" not in str(window.output_root)
 
     window.close()
     app.processEvents()
@@ -2773,6 +2791,48 @@ def test_queue_processing_worker_marks_failed_job_without_running_next() -> None
     assert "فشل قص المقاطع" in first.errors[0]
     assert first.failure_stage == "cutting"
     assert second.status == JobStatus.QUEUED
+
+
+def test_queue_processing_worker_marks_output_folder_permission_failure() -> None:
+    job = VideoJob(
+        source_type=QueueVideoSourceType.LOCAL,
+        source="C:/videos/lesson.mp4",
+        title="output failure",
+        clips=[ClipJob(title="clip", start="00:01:00", end="00:02:00")],
+        status=JobStatus.QUEUED,
+    )
+
+    class FailingVideoProcessor:
+        def process_project(self, *args, **kwargs):
+            raise VideoSourceError(AR_OUTPUT_CREATE_FAILED)
+
+    worker = QueueProcessingWorker([job], FailingVideoProcessor(), [])
+    worker.run()
+
+    assert job.status == JobStatus.FAILED
+    assert job.failure_stage == "output"
+    assert job.failure_message == AR_OUTPUT_CREATE_FAILED
+
+
+def test_selected_job_details_show_actual_output_folder() -> None:
+    app = _app()
+    window = MainWindow()
+    job = window._add_queue_job(
+        QueueVideoSourceType.LOCAL,
+        "C:/videos/lesson.mp4",
+        "lesson",
+        clips=[ClipJob(title="clip", start="00:01:00", end="00:02:00")],
+        status=JobStatus.DONE,
+    )
+    job.output_folder = "C:/safe/output/lesson"
+
+    window.queue_table.setCurrentCell(0, QUEUE_SOURCE_COLUMN)
+    window._update_selected_queue_job_details()
+
+    assert "مجلد النتائج الفعلي: C:/safe/output/lesson" in window.queue_job_details_label.text()
+
+    window.close()
+    app.processEvents()
 
 
 def test_queue_validate_selected_local_job_updates_status_without_processing(tmp_path) -> None:
