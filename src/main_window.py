@@ -96,6 +96,12 @@ from src.video_volume import (
     VideoVolumeError,
     normalize_volume_percent,
 )
+from src.video_fade import (
+    ClipFade,
+    DEFAULT_FADE_IN_SECONDS,
+    DEFAULT_FADE_OUT_SECONDS,
+    normalize_fade_duration,
+)
 from src.video_processor import (
     INPUT_VIDEO_NAME,
     TEMP_SEGMENTS_FOLDER_NAME,
@@ -424,6 +430,7 @@ class ProcessingWorker(QObject):
         clip_padding: ClipPadding,
         video_speed: float = DEFAULT_VIDEO_SPEED,
         volume_percent: int = DEFAULT_VOLUME_PERCENT,
+        clip_fade: ClipFade | None = None,
     ) -> None:
         super().__init__()
         self.video_processor = video_processor
@@ -434,6 +441,7 @@ class ProcessingWorker(QObject):
         self.clip_padding = clip_padding
         self.video_speed = video_speed
         self.volume_percent = volume_percent
+        self.clip_fade = clip_fade or ClipFade()
 
     @Slot()
     def run(self) -> None:
@@ -447,6 +455,7 @@ class ProcessingWorker(QObject):
                 clip_padding=self.clip_padding,
                 video_speed=self.video_speed,
                 volume_percent=self.volume_percent,
+                clip_fade=self.clip_fade,
             )
         except (VideoSourceError, VideoProcessingError, ExportError) as error:
             self.failed.emit(str(error))
@@ -517,6 +526,7 @@ class QueueProcessingWorker(QObject):
                 ),
                 video_speed=self._effective_job_video_speed(job),
                 volume_percent=self._effective_job_volume_percent(job),
+                clip_fade=self._effective_job_clip_fade(job),
             )
         except Exception as error:
             stage = job.failure_stage or ("download" if job.source_type == QueueVideoSourceType.YOUTUBE else "cutting")
@@ -544,6 +554,15 @@ class QueueProcessingWorker(QObject):
 
     def _effective_job_volume_percent(self, job: VideoJob) -> int:
         return job.settings.volume_percent if job.settings.volume_adjustment_enabled else DEFAULT_VOLUME_PERCENT
+
+    def _effective_job_clip_fade(self, job: VideoJob) -> ClipFade:
+        if not job.settings.fade_enabled:
+            return ClipFade()
+        return ClipFade(
+            enabled=True,
+            fade_in_seconds=job.settings.fade_in_seconds,
+            fade_out_seconds=job.settings.fade_out_seconds,
+        )
 
     def _source_request_from_job(self, job: VideoJob) -> VideoSourceRequest:
         if job.source_type == QueueVideoSourceType.LOCAL:
@@ -690,6 +709,10 @@ class MainWindow(QMainWindow):
         self.volume_input = IntentionalSpinBox()
         self.reset_volume_button = QPushButton("إعادة الصوت إلى 100%")
         self.volume_status_label = QLabel("الإعدادات الافتراضية آمنة")
+        self.black_fade_enabled_checkbox = QCheckBox("إضافة بداية ونهاية سوداء تدريجية")
+        self.fade_in_duration_combo = QComboBox()
+        self.fade_out_duration_combo = QComboBox()
+        self.black_fade_status_label = QLabel("الإعدادات الافتراضية آمنة")
         self.readiness_button = QPushButton("فحص جاهزية البرنامج")
         self.smart_validation_button = QPushButton("فحص ذكي قبل القص")
         self.validate_button = QPushButton("فحص ذكي قبل القص")
@@ -1003,6 +1026,8 @@ class MainWindow(QMainWindow):
         self._configure_padding_input(self.post_padding_input)
         self._configure_video_speed_input(self.video_speed_input)
         self._configure_volume_input(self.volume_input)
+        self._configure_fade_duration_input(self.fade_in_duration_combo)
+        self._configure_fade_duration_input(self.fade_out_duration_combo)
 
         layout.addWidget(QLabel("وقت قبل بداية المقطع"), 0, 0)
         layout.addWidget(self.pre_padding_input, 0, 1)
@@ -1018,9 +1043,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.volume_input, 2, 2)
         layout.addWidget(self.reset_volume_button, 2, 3)
         layout.addWidget(self.volume_status_label, 2, 4)
+        layout.addWidget(self.black_fade_enabled_checkbox, 3, 0)
+        layout.addWidget(QLabel("مدة التدرج في البداية"), 3, 1)
+        layout.addWidget(self.fade_in_duration_combo, 3, 2)
+        layout.addWidget(QLabel("مدة التدرج في النهاية"), 4, 1)
+        layout.addWidget(self.fade_out_duration_combo, 4, 2)
+        layout.addWidget(self.black_fade_status_label, 3, 3, 2, 2)
         layout.setColumnStretch(4, 1)
         self.video_speed_status_label.setWordWrap(True)
         self.volume_status_label.setWordWrap(True)
+        self.black_fade_status_label.setWordWrap(True)
 
         return group
 
@@ -1049,6 +1081,13 @@ class MainWindow(QMainWindow):
         widget.setToolTip("الصوت الافتراضي: 100%")
         widget.setFocusPolicy(Qt.StrongFocus)
 
+    def _configure_fade_duration_input(self, widget: QComboBox) -> None:
+        if widget.count() == 0:
+            for duration in (0.25, 0.50, 1.00, 1.50, 2.00):
+                widget.addItem(f"{duration:.2f} ثانية", duration)
+        self._set_fade_duration_value(widget, DEFAULT_FADE_IN_SECONDS)
+        widget.setToolTip("الافتراضي عند التفعيل: 0.50 ثانية")
+
     def reset_video_speed(self) -> None:
         self.video_speed_input.setValue(DEFAULT_VIDEO_SPEED)
         self._update_speed_volume_controls()
@@ -1056,6 +1095,23 @@ class MainWindow(QMainWindow):
     def reset_volume(self) -> None:
         self.volume_input.setValue(DEFAULT_VOLUME_PERCENT)
         self._update_speed_volume_controls()
+
+    def _fade_duration_value(self, widget: QComboBox) -> float:
+        data = widget.currentData()
+        try:
+            return normalize_fade_duration(data)
+        except Exception:
+            return DEFAULT_FADE_IN_SECONDS
+
+    def _set_fade_duration_value(self, widget: QComboBox, value: float) -> None:
+        try:
+            normalized = normalize_fade_duration(value)
+        except Exception:
+            normalized = DEFAULT_FADE_IN_SECONDS
+        for index in range(widget.count()):
+            if abs(float(widget.itemData(index)) - normalized) < 1e-9:
+                widget.setCurrentIndex(index)
+                return
 
     def _update_speed_volume_controls(self, *_args) -> None:
         speed_enabled = self.video_speed_enabled_checkbox.isChecked()
@@ -1079,6 +1135,13 @@ class MainWindow(QMainWindow):
             self.volume_status_label.setText("رفع الصوت قد يسبب تشويشًا إذا كان الصوت الأصلي عاليًا")
         else:
             self.volume_status_label.setText("الصوت الافتراضي")
+
+        fade_enabled = self.black_fade_enabled_checkbox.isChecked()
+        self.fade_in_duration_combo.setEnabled(fade_enabled)
+        self.fade_out_duration_combo.setEnabled(fade_enabled)
+        self.black_fade_status_label.setText(
+            "بداية ونهاية سوداء تدريجية" if fade_enabled else "الإعدادات الافتراضية آمنة"
+        )
 
     def _build_clips_section(self) -> QGroupBox:
         group = QGroupBox("جدول المقاطع")
@@ -1165,6 +1228,9 @@ class MainWindow(QMainWindow):
         self.volume_enabled_checkbox.toggled.connect(self._update_speed_volume_controls)
         self.volume_input.valueChanged.connect(self._update_speed_volume_controls)
         self.reset_volume_button.clicked.connect(self.reset_volume)
+        self.black_fade_enabled_checkbox.toggled.connect(self._update_speed_volume_controls)
+        self.fade_in_duration_combo.currentIndexChanged.connect(self._update_speed_volume_controls)
+        self.fade_out_duration_combo.currentIndexChanged.connect(self._update_speed_volume_controls)
         self.add_current_work_to_queue_button.clicked.connect(self.add_current_work_to_queue)
         self.add_queue_local_video_button.clicked.connect(self.add_local_video_to_queue)
         self.add_queue_url_button.clicked.connect(self.add_url_to_queue)
@@ -1501,9 +1567,11 @@ class MainWindow(QMainWindow):
         speed_value = job.settings.speed if job.settings.speed_adjustment_enabled else DEFAULT_VIDEO_SPEED
         volume_state = "مفعّل" if job.settings.volume_adjustment_enabled else "غير مفعّل"
         volume_value = job.settings.volume_percent if job.settings.volume_adjustment_enabled else DEFAULT_VOLUME_PERCENT
+        fade_state = "مفعّلة" if job.settings.fade_enabled else "غير مفعّلة"
         return (
             f"السرعة: {speed_state} ({speed_value:.2f}x) | "
-            f"الصوت: {volume_state} ({volume_value}%)"
+            f"الصوت: {volume_state} ({volume_value}%) | "
+            f"التدرج: {fade_state}"
         )
 
     def _short_queue_text(self, text: str, limit: int = 90) -> str:
@@ -1589,6 +1657,7 @@ class MainWindow(QMainWindow):
         settings = job.settings
         speed_enabled = "نعم" if settings.speed_adjustment_enabled else "لا"
         volume_enabled = "نعم" if settings.volume_adjustment_enabled else "لا"
+        fade_enabled = "نعم" if settings.fade_enabled else "لا"
         cookies_state = "مفعّلة" if settings.use_browser_login else "غير مفعّلة"
         browser_name = settings.browser_name or "chrome"
 
@@ -1616,6 +1685,9 @@ class MainWindow(QMainWindow):
             f"سرعة الفيديو: {settings.speed if settings.speed_adjustment_enabled else DEFAULT_VIDEO_SPEED:.2f}x",
             f"هل تعديل مستوى الصوت مفعّل؟ {volume_enabled}",
             f"مستوى الصوت: {settings.volume_percent if settings.volume_adjustment_enabled else DEFAULT_VOLUME_PERCENT}%",
+            f"هل البداية والنهاية السوداء مفعّلة؟ {fade_enabled}",
+            f"مدة التدرج في البداية: {settings.fade_in_seconds if settings.fade_enabled else DEFAULT_FADE_IN_SECONDS:.2f} ثانية",
+            f"مدة التدرج في النهاية: {settings.fade_out_seconds if settings.fade_enabled else DEFAULT_FADE_OUT_SECONDS:.2f} ثانية",
             f"إعدادات المتصفح/الكوكيز: {cookies_state}، المتصفح: {browser_name}",
         ]
         if job.failure_stage:
@@ -1811,6 +1883,9 @@ class MainWindow(QMainWindow):
             speed=self._collect_video_speed(),
             volume_adjustment_enabled=self.volume_enabled_checkbox.isChecked(),
             volume_percent=self._collect_volume_percent(),
+            fade_enabled=self.black_fade_enabled_checkbox.isChecked(),
+            fade_in_seconds=self._fade_duration_value(self.fade_in_duration_combo),
+            fade_out_seconds=self._fade_duration_value(self.fade_out_duration_combo),
             use_browser_login=self.use_browser_cookies_checkbox.isChecked(),
             browser_name=self._selected_browser_identifier(),
         )
@@ -1996,6 +2071,7 @@ class MainWindow(QMainWindow):
                 self.video_speed_input.value() != DEFAULT_VIDEO_SPEED,
                 self.volume_enabled_checkbox.isChecked(),
                 self.volume_input.value() != DEFAULT_VOLUME_PERCENT,
+                self.black_fade_enabled_checkbox.isChecked(),
             ]
         )
 
@@ -2012,6 +2088,9 @@ class MainWindow(QMainWindow):
         self.video_speed_input.setValue(DEFAULT_VIDEO_SPEED)
         self.volume_enabled_checkbox.setChecked(False)
         self.volume_input.setValue(DEFAULT_VOLUME_PERCENT)
+        self.black_fade_enabled_checkbox.setChecked(False)
+        self._set_fade_duration_value(self.fade_in_duration_combo, DEFAULT_FADE_IN_SECONDS)
+        self._set_fade_duration_value(self.fade_out_duration_combo, DEFAULT_FADE_OUT_SECONDS)
         self.use_browser_cookies_checkbox.setChecked(False)
         self._set_browser_combo_from_identifier("chrome")
         self._update_speed_volume_controls()
@@ -2087,6 +2166,15 @@ class MainWindow(QMainWindow):
         self.volume_enabled_checkbox.setChecked(settings.volume_adjustment_enabled)
         self.volume_input.setValue(
             settings.volume_percent if settings.volume_adjustment_enabled else DEFAULT_VOLUME_PERCENT
+        )
+        self.black_fade_enabled_checkbox.setChecked(settings.fade_enabled)
+        self._set_fade_duration_value(
+            self.fade_in_duration_combo,
+            settings.fade_in_seconds if settings.fade_enabled else DEFAULT_FADE_IN_SECONDS,
+        )
+        self._set_fade_duration_value(
+            self.fade_out_duration_combo,
+            settings.fade_out_seconds if settings.fade_enabled else DEFAULT_FADE_OUT_SECONDS,
         )
         self._update_speed_volume_controls()
         self._update_source_inputs()
@@ -2715,6 +2803,7 @@ class MainWindow(QMainWindow):
         clip_padding = self._collect_clip_padding()
         video_speed = self._collect_video_speed()
         volume_percent = self._collect_volume_percent()
+        clip_fade = self._collect_clip_fade()
 
         try:
             project_name = validate_required_text(self.project_name_input.text(), "Project name")
@@ -2746,6 +2835,7 @@ class MainWindow(QMainWindow):
             clip_padding=clip_padding,
             video_speed=video_speed,
             volume_percent=volume_percent,
+            clip_fade=clip_fade,
         )
 
     def start_direct_processing_with_confirmation(self) -> None:
@@ -2940,6 +3030,15 @@ class MainWindow(QMainWindow):
             return DEFAULT_VOLUME_PERCENT
         return normalize_volume_percent(self.volume_input.value())
 
+    def _collect_clip_fade(self) -> ClipFade:
+        if not self.black_fade_enabled_checkbox.isChecked():
+            return ClipFade()
+        return ClipFade(
+            enabled=True,
+            fade_in_seconds=self._fade_duration_value(self.fade_in_duration_combo),
+            fade_out_seconds=self._fade_duration_value(self.fade_out_duration_combo),
+        )
+
     def _collect_validation_errors(self) -> list[str]:
         errors = self._collect_base_validation_errors()
         clip_rows = self._collect_clip_rows()
@@ -2968,6 +3067,8 @@ class MainWindow(QMainWindow):
             self._collect_volume_percent()
         except VideoVolumeError:
             errors.append(AR_INVALID_VOLUME_PERCENT)
+
+        self._collect_clip_fade()
 
         try:
             if self.youtube_radio.isChecked():
@@ -3353,6 +3454,7 @@ class MainWindow(QMainWindow):
         clip_padding: ClipPadding,
         video_speed: float = DEFAULT_VIDEO_SPEED,
         volume_percent: int = DEFAULT_VOLUME_PERCENT,
+        clip_fade: ClipFade | None = None,
     ) -> None:
         thread = QThread(self)
         worker = ProcessingWorker(
@@ -3364,6 +3466,7 @@ class MainWindow(QMainWindow):
             clip_padding=clip_padding,
             video_speed=video_speed,
             volume_percent=volume_percent,
+            clip_fade=clip_fade,
         )
         worker.moveToThread(thread)
 
@@ -3468,6 +3571,10 @@ class MainWindow(QMainWindow):
             self.volume_input,
             self.reset_volume_button,
             self.volume_status_label,
+            self.black_fade_enabled_checkbox,
+            self.fade_in_duration_combo,
+            self.fade_out_duration_combo,
+            self.black_fade_status_label,
             self.readiness_button,
             self.smart_validation_button,
             self.validate_button,

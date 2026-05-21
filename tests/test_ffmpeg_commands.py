@@ -1,6 +1,7 @@
 import pytest
 
 from src.video.ffmpeg_commands import build_ffmpeg_command, build_ffmpeg_concat_command
+from src.video_fade import ClipFade
 
 
 def test_build_ffmpeg_command_preserves_current_single_cut_arguments(tmp_path) -> None:
@@ -66,6 +67,23 @@ def test_build_ffmpeg_command_volume_one_hundred_preserves_old_behavior(tmp_path
     assert volume_default_command == default_command
     assert "-filter:v" not in volume_default_command
     assert "-filter:a" not in volume_default_command
+
+
+def test_build_ffmpeg_command_disabled_fade_preserves_old_behavior(tmp_path) -> None:
+    input_path = tmp_path / "input.mp4"
+    output_path = tmp_path / "output.mp4"
+
+    default_command = build_ffmpeg_command(input_path, output_path, start_seconds=10, duration_seconds=30)
+    disabled_fade_command = build_ffmpeg_command(
+        input_path,
+        output_path,
+        start_seconds=10,
+        duration_seconds=30,
+        clip_fade=ClipFade(enabled=False, fade_in_seconds=2.0, fade_out_seconds=2.0),
+    )
+
+    assert disabled_fade_command == default_command
+    assert "-filter:v" not in disabled_fade_command
 
 
 def test_build_ffmpeg_command_volume_one_hundred_preserves_speed_behavior(tmp_path) -> None:
@@ -151,6 +169,34 @@ def test_build_ffmpeg_command_combines_speed_and_volume_audio_filters(tmp_path) 
 
     assert command[command.index("-filter:v") + 1] == "setpts=PTS/1.1"
     assert command[command.index("-filter:a") + 1] == "atempo=1.1,volume=1.5"
+
+
+def test_build_ffmpeg_command_applies_black_fade_filters(tmp_path) -> None:
+    command = build_ffmpeg_command(
+        tmp_path / "input.mp4",
+        tmp_path / "output.mp4",
+        10,
+        30,
+        clip_fade=ClipFade(enabled=True, fade_in_seconds=0.5, fade_out_seconds=1.0),
+    )
+
+    assert command[command.index("-filter:v") + 1] == "fade=t=in:st=0:d=0.5,fade=t=out:st=29:d=1"
+    assert "-filter:a" not in command
+
+
+def test_build_ffmpeg_command_combines_speed_and_black_fade_filters(tmp_path) -> None:
+    command = build_ffmpeg_command(
+        tmp_path / "input.mp4",
+        tmp_path / "output.mp4",
+        10,
+        30,
+        video_speed=1.10,
+        clip_fade=ClipFade(enabled=True, fade_in_seconds=0.5, fade_out_seconds=0.5),
+    )
+
+    video_filter = command[command.index("-filter:v") + 1]
+    assert video_filter.startswith("setpts=PTS/1.1,fade=t=in:st=0:d=0.5,fade=t=out:st=")
+    assert command[command.index("-filter:a") + 1] == "atempo=1.1"
 
 
 def test_build_ffmpeg_concat_command_preserves_current_concat_arguments(tmp_path) -> None:

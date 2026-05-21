@@ -48,6 +48,9 @@ class JobSettings:
     speed: float = 1.0
     volume_adjustment_enabled: bool = False
     volume_percent: int = 100
+    fade_enabled: bool = False
+    fade_in_seconds: float = 0.5
+    fade_out_seconds: float = 0.5
     use_browser_login: bool = False
     browser_name: str = "chrome"
     watermark_enabled: bool = False

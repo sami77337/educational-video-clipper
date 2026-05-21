@@ -66,6 +66,9 @@ def test_default_settings_are_safe() -> None:
     assert settings.speed == 1.0
     assert settings.volume_adjustment_enabled is False
     assert settings.volume_percent == 100
+    assert settings.fade_enabled is False
+    assert settings.fade_in_seconds == 0.5
+    assert settings.fade_out_seconds == 0.5
     assert settings.use_browser_login is False
     assert settings.browser_name == "chrome"
     assert settings.watermark_enabled is False
