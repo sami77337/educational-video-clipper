@@ -101,9 +101,16 @@ def test_main_window_applies_visual_polish_without_hiding_workflow_controls() ->
 
     assert "QPushButton#primaryActionButton" in window.styleSheet()
     assert "QGroupBox#nestedSettingsGroup" in window.styleSheet()
+    assert "QGroupBox#mainActionsCard" in window.styleSheet()
+    assert "QTextEdit#warningArea" in window.styleSheet()
     assert window.start_button.objectName() == "primaryActionButton"
     assert window.smart_paste_button.objectName() == "smartImportButton"
+    assert window.new_work_button.objectName() == "newWorkButton"
+    assert window.validate_button.objectName() == "validateActionButton"
+    assert window.open_output_button.objectName() == "openOutputButton"
     assert window.queue_advanced_toggle_button.objectName() == "advancedToggleButton"
+    assert window.queue_selected_job_details_label.objectName() == "queueSummaryLabel"
+    assert window.queue_job_details_label.objectName() == "queueDetailsLabel"
     assert window.log_area.objectName() == "logArea"
     assert window.paste_message_input.objectName() == "pasteBox"
     assert window.minimumWidth() >= 980
@@ -117,6 +124,10 @@ def test_main_window_applies_visual_polish_without_hiding_workflow_controls() ->
     assert not window.queue_table.isHidden()
     assert not window.queue_job_details_label.isHidden()
     assert not window.log_area.isHidden()
+    assert window.start_button.parent().objectName() == "mainActionsCard"
+    assert window.clips_table.parent().objectName() == "clipsCard"
+    assert window.queue_table.parent().objectName() == "queueCard"
+    assert window.start_button.parent().graphicsEffect() is not None
 
     window.close()
     app.processEvents()
@@ -3123,6 +3134,12 @@ def test_combined_validation_button_runs_table_and_smart_validation(monkeypatch)
 def test_smart_paste_preview_dialog_generates_summary_and_clip_table() -> None:
     app = _app()
     dialog = SmartPasteImportDialog()
+    assert dialog.message_input.objectName() == "pasteBox"
+    assert dialog.parse_button.objectName() == "smartImportButton"
+    assert dialog.apply_button.objectName() == "primaryActionButton"
+    assert dialog.warnings_area.objectName() == "warningArea"
+    assert dialog.unparsed_area.objectName() == "reviewArea"
+    assert dialog.analysis_details_area.objectName() == "reviewArea"
     dialog.message_input.setPlainText(
         "https://youtu.be/abc123\n"
         "01:41 - 03:12 : اسم الله الوهاب\n"
