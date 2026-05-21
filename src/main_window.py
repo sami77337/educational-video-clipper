@@ -189,11 +189,11 @@ QScrollArea {
 QFrame#appHeader {
     background: #101c2b;
     border: 1px solid #244157;
-    border-radius: 10px;
+    border-radius: 14px;
 }
 QLabel#appTitle {
     color: #f8fafc;
-    font-size: 18px;
+    font-size: 17px;
     font-weight: 700;
 }
 QLabel#appSubtitle {
@@ -206,18 +206,20 @@ QLabel#sectionHelpText, QLabel#statusHelperLabel {
 QGroupBox {
     background: #101d2b;
     border: 1px solid #263f55;
-    border-radius: 10px;
-    margin-top: 14px;
-    padding: 10px 10px 9px 10px;
+    border-radius: 12px;
+    margin-top: 16px;
+    padding: 12px 12px 10px 12px;
     font-weight: 600;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top right;
-    right: 10px;
-    padding: 1px 7px;
+    right: 12px;
+    padding: 3px 11px;
     color: #d7e5f6;
-    background: #101d2b;
+    background: #0c1825;
+    border: 1px solid #263f55;
+    border-radius: 8px;
 }
 QGroupBox#dashboardCard {
     background: #101d2b;
@@ -235,31 +237,32 @@ QGroupBox#queueCard {
 QGroupBox#nestedSettingsGroup, QGroupBox#jobDetailsCard {
     background: #0c1825;
     border-color: #33506a;
+    border-radius: 12px;
     margin-top: 12px;
 }
 QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTableWidget {
     background: #08131f;
     border: 1px solid #2b4054;
-    border-radius: 8px;
+    border-radius: 11px;
     color: #f4f7fb;
     selection-background-color: #2d6cdf;
     selection-color: #ffffff;
 }
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
-    min-height: 23px;
-    padding: 2px 7px;
+    min-height: 24px;
+    padding: 3px 8px;
 }
 QTextEdit {
-    padding: 6px;
+    padding: 8px;
 }
 QTextEdit#pasteBox {
-    min-height: 80px;
+    min-height: 82px;
 }
 QTextEdit#logArea {
     background: #07111c;
     border-color: #31465b;
     font-family: Consolas, "Courier New", monospace;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.35;
 }
 QTextEdit#warningArea {
@@ -267,13 +270,13 @@ QTextEdit#warningArea {
     border-color: #7a6022;
     color: #ffe6a3;
     font-family: Consolas, "Courier New", monospace;
-    font-size: 10px;
+    font-size: 11px;
 }
 QTextEdit#reviewArea {
     background: #07111c;
     border-color: #31465b;
     font-family: Consolas, "Courier New", monospace;
-    font-size: 10px;
+    font-size: 11px;
 }
 QLineEdit:disabled, QTextEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
     background: #172331;
@@ -283,10 +286,10 @@ QLineEdit:disabled, QTextEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabl
 QTableWidget {
     gridline-color: #26394b;
     alternate-background-color: #0d1b29;
-    border-radius: 9px;
+    border-radius: 12px;
 }
 QTableWidget::item {
-    padding: 5px;
+    padding: 6px;
 }
 QTableWidget::item:selected {
     background: #1f5f9f;
@@ -297,13 +300,13 @@ QHeaderView::section {
     color: #e7eef8;
     border: 0;
     border-left: 1px solid #2b4054;
-    padding: 5px 8px;
+    padding: 6px 9px;
     font-weight: 600;
 }
 QPushButton {
     background: #1b2e42;
     border: 1px solid #365a76;
-    border-radius: 8px;
+    border-radius: 11px;
     color: #f2f6fb;
     padding: 5px 10px;
     min-height: 25px;
@@ -314,6 +317,9 @@ QPushButton:hover {
 }
 QPushButton:pressed {
     background: #132638;
+    border-color: #7aa7ca;
+    padding-top: 6px;
+    padding-bottom: 4px;
 }
 QPushButton:disabled {
     background: #121f2e;
@@ -332,15 +338,23 @@ QPushButton#primaryActionButton {
 QPushButton#primaryActionButton:hover {
     background: #3a90ff;
 }
+QPushButton#primaryActionButton:pressed {
+    background: #155fb8;
+    border-color: #b8d9ff;
+}
 QPushButton#smartImportButton {
     background: #1c6f67;
     border-color: #39a99a;
     font-weight: 700;
 }
+QPushButton#smartImportButton:pressed {
+    background: #10534d;
+    border-color: #7de0d1;
+}
 QPushButton#navButton {
     background: transparent;
     border: 0;
-    border-radius: 10px;
+    border-radius: 12px;
     color: #b9c9db;
     padding: 7px 11px;
     text-align: right;
@@ -367,7 +381,7 @@ QLabel#processingStatusLabel, QLabel#logHeaderLabel {
     background: #0a1623;
     border: 1px solid #2b4054;
     border-radius: 999px;
-    padding: 4px 9px;
+    padding: 5px 11px;
     font-weight: 600;
     color: #d9e7f7;
 }
@@ -378,15 +392,15 @@ QLabel#queueSummaryLabel {
     color: #d7e5f6;
     background: #0b1724;
     border: 1px solid #243d54;
-    border-radius: 8px;
-    padding: 6px 8px;
+    border-radius: 12px;
+    padding: 8px 10px;
 }
 QLabel#queueDetailsLabel {
     color: #e4edf8;
     background: #08131f;
     border: 1px solid #253f56;
-    border-radius: 8px;
-    padding: 7px 9px;
+    border-radius: 12px;
+    padding: 9px 11px;
     line-height: 1.35;
 }
 QLabel#metricValue {
@@ -401,8 +415,8 @@ QLabel#emptyStateLabel {
     color: #aebdd0;
     background: #08131f;
     border: 1px dashed #2e4b64;
-    border-radius: 10px;
-    padding: 10px;
+    border-radius: 13px;
+    padding: 14px;
 }
 QFrame#dashboardShell, QFrame#sideRail, QFrame#topNav, QFrame#bottomStatusBar {
     background: #07111d;
@@ -419,6 +433,48 @@ QCheckBox, QRadioButton {
 QCheckBox::indicator, QRadioButton::indicator {
     width: 15px;
     height: 15px;
+}
+QScrollBar:vertical {
+    background: #07111d;
+    width: 10px;
+    margin: 2px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical {
+    background: #355169;
+    min-height: 28px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #4d6f8b;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
+    background: transparent;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+QScrollBar:horizontal {
+    background: #07111d;
+    height: 10px;
+    margin: 2px;
+    border-radius: 5px;
+}
+QScrollBar::handle:horizontal {
+    background: #355169;
+    min-width: 28px;
+    border-radius: 5px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #4d6f8b;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0;
+    background: transparent;
+}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: transparent;
 }
 """
 
@@ -1441,6 +1497,7 @@ class MainWindow(QMainWindow):
         self.import_summary_label.setWordWrap(True)
         self.selected_clip_details_label.setWordWrap(True)
         self.selected_clip_preview_label.setWordWrap(True)
+        self.selected_clip_preview_label.setAlignment(Qt.AlignCenter)
         self.current_work_label.setWordWrap(True)
         self.system_status_label.setWordWrap(True)
         self.queue_current_job_label.setWordWrap(True)
@@ -1478,9 +1535,9 @@ class MainWindow(QMainWindow):
         frame = QFrame()
         frame.setObjectName("appHeader")
         frame.setFrameShape(QFrame.StyledPanel)
-        layout = QHBoxLayout(frame)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(9, 9, 9, 9)
+        layout.setSpacing(4)
 
         logo = QLabel()
         logo.setObjectName("appLogo")
@@ -1489,24 +1546,26 @@ class MainWindow(QMainWindow):
             logo_path = self._asset_path("icon.png")
         if logo_path.exists():
             pixmap = QPixmap(str(logo_path))
-            logo.setPixmap(pixmap.scaled(58, 58, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        logo.setFixedSize(64, 64)
+            logo.setPixmap(pixmap.scaled(50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo.setFixedSize(54, 54)
         logo.setAlignment(Qt.AlignCenter)
 
-        title_layout = QVBoxLayout()
         title = QLabel(APP_NAME)
         title.setObjectName("appTitle")
+        title.setAlignment(Qt.AlignCenter)
         english_name = QLabel("AlmiqsAlBaseet")
         english_name.setObjectName("metricCaption")
-        subtitle = QLabel(APP_SUBTITLE)
+        english_name.setAlignment(Qt.AlignCenter)
+        subtitle = QLabel("قص المقاطع التعليمية")
         subtitle.setObjectName("appSubtitle")
-        subtitle.setWordWrap(True)
-        title_layout.addWidget(title)
-        title_layout.addWidget(english_name)
-        title_layout.addWidget(subtitle)
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setToolTip(APP_SUBTITLE)
+        subtitle.setWordWrap(False)
 
-        layout.addWidget(logo)
-        layout.addLayout(title_layout, stretch=1)
+        layout.addWidget(logo, alignment=Qt.AlignCenter)
+        layout.addWidget(title)
+        layout.addWidget(english_name)
+        layout.addWidget(subtitle)
 
         return frame
 
@@ -1514,12 +1573,16 @@ class MainWindow(QMainWindow):
         group = QGroupBox(title)
         self._style_card(group)
         layout = QVBoxLayout(group)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(4)
         value_label.setObjectName("metricValue")
+        value_label.setAlignment(Qt.AlignCenter)
         value_label.setWordWrap(True)
         layout.addWidget(value_label)
         if caption:
             caption_label = QLabel(caption)
             caption_label.setObjectName("metricCaption")
+            caption_label.setAlignment(Qt.AlignCenter)
             caption_label.setWordWrap(True)
             layout.addWidget(caption_label)
         return group

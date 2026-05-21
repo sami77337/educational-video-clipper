@@ -415,6 +415,9 @@ def test_dashboard_visual_proportions_are_compact_for_preview() -> None:
     assert "min-height: 25px" in style
     assert "QPushButton#primaryActionButton" in style
     assert "min-height: 34px" in style
+    assert "border-radius: 12px" in style
+    assert "QScrollBar::handle:vertical" in style
+    assert "QPushButton#primaryActionButton:pressed" in style
     assert window.minimumHeight() <= 640
     assert window.centralWidget().horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff
     assert window.bottom_status_label.parent().maximumHeight() <= 28
