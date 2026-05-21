@@ -320,6 +320,42 @@ def test_build_processing_report_includes_black_flash_only_when_enabled() -> Non
     assert "مدة الوميض الأسود: 0.2 ثانية" in report
 
 
+def test_build_processing_report_includes_export_quality_only_when_enabled() -> None:
+    timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
+    default_data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+    )
+    quality_data = ProcessingReportData(
+        project_name="Project",
+        source_type="local file",
+        total_clips_count=1,
+        reels_count=1,
+        benefits_count=0,
+        output_folders=[],
+        zip_files=[],
+        started_at=timestamp,
+        ended_at=timestamp,
+        skipped_or_failed_items=[],
+        export_quality_enabled=True,
+        quality_preset="high",
+        resolution_limit="720p",
+    )
+
+    assert "جودة التصدير" not in build_processing_report(default_data)
+    report = build_processing_report(quality_data)
+    assert "جودة التصدير: جودة عالية" in report
+    assert "حد الدقة: 720p" in report
+
+
 def test_build_processing_report_preserves_speed_padding_and_exclusion_details() -> None:
     timestamp = datetime(2026, 5, 13, 10, 0, tzinfo=timezone.utc)
     data = ProcessingReportData(

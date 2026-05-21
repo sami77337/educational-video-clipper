@@ -43,7 +43,9 @@ class JobSettings:
 
     pre_roll_seconds: float = 0.0
     post_roll_seconds: float = 0.0
+    export_quality_enabled: bool = False
     quality_preset: str = "default"
+    resolution_limit: str = "original"
     speed_adjustment_enabled: bool = False
     speed: float = 1.0
     volume_adjustment_enabled: bool = False

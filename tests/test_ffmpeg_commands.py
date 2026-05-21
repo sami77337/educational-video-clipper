@@ -6,6 +6,7 @@ from src.video.ffmpeg_commands import (
     build_ffmpeg_video_effects_command,
 )
 from src.video_black_flash import ClipBlackFlash
+from src.video_export_quality import ExportQualitySettings
 from src.video_fade import ClipFade
 
 
@@ -89,6 +90,80 @@ def test_build_ffmpeg_command_disabled_fade_preserves_old_behavior(tmp_path) -> 
 
     assert disabled_fade_command == default_command
     assert "-filter:v" not in disabled_fade_command
+
+
+def test_disabled_export_quality_preserves_old_behavior(tmp_path) -> None:
+    input_path = tmp_path / "input.mp4"
+    output_path = tmp_path / "output.mp4"
+
+    default_command = build_ffmpeg_command(input_path, output_path, start_seconds=10, duration_seconds=30)
+    disabled_quality_command = build_ffmpeg_command(
+        input_path,
+        output_path,
+        start_seconds=10,
+        duration_seconds=30,
+        export_quality=ExportQualitySettings(enabled=False, quality_preset="high", resolution_limit="720p"),
+    )
+
+    assert disabled_quality_command == default_command
+    assert "-filter:v" not in disabled_quality_command
+    assert disabled_quality_command[disabled_quality_command.index("-preset") + 1] == "veryfast"
+    assert disabled_quality_command[disabled_quality_command.index("-crf") + 1] == "20"
+
+
+@pytest.mark.parametrize(
+    ("quality_preset", "ffmpeg_preset", "crf"),
+    [
+        ("high", "slow", "18"),
+        ("balanced", "medium", "22"),
+        ("small", "veryfast", "26"),
+    ],
+)
+def test_enabled_export_quality_applies_selected_encoding_preset(
+    tmp_path,
+    quality_preset: str,
+    ffmpeg_preset: str,
+    crf: str,
+) -> None:
+    command = build_ffmpeg_command(
+        tmp_path / "input.mp4",
+        tmp_path / "output.mp4",
+        10,
+        30,
+        export_quality=ExportQualitySettings(enabled=True, quality_preset=quality_preset),
+    )
+
+    assert command[command.index("-preset") + 1] == ffmpeg_preset
+    assert command[command.index("-crf") + 1] == crf
+
+
+def test_original_resolution_limit_applies_no_scale_filter(tmp_path) -> None:
+    command = build_ffmpeg_command(
+        tmp_path / "input.mp4",
+        tmp_path / "output.mp4",
+        10,
+        30,
+        export_quality=ExportQualitySettings(enabled=True, quality_preset="balanced", resolution_limit="original"),
+    )
+
+    assert "-filter:v" not in command
+
+
+@pytest.mark.parametrize("resolution_limit", ["1080p", "720p"])
+def test_resolution_limit_adds_downscale_only_filter(tmp_path, resolution_limit: str) -> None:
+    command = build_ffmpeg_command(
+        tmp_path / "input.mp4",
+        tmp_path / "output.mp4",
+        10,
+        30,
+        export_quality=ExportQualitySettings(enabled=True, quality_preset="balanced", resolution_limit=resolution_limit),
+    )
+
+    limit = resolution_limit.removesuffix("p")
+    video_filter = command[command.index("-filter:v") + 1]
+    assert "scale=" in video_filter
+    assert f"gt(ih,{limit})" in video_filter
+    assert f",{limit},ih" in video_filter
 
 
 def test_build_ffmpeg_command_volume_one_hundred_preserves_speed_behavior(tmp_path) -> None:
@@ -234,6 +309,22 @@ def test_build_ffmpeg_video_effects_command_combines_black_flash_and_fade(tmp_pa
     assert video_filter.startswith("drawbox=")
     assert "between(t,8,8.1)" in video_filter
     assert video_filter.endswith("fade=t=in:st=0:d=0.5,fade=t=out:st=19.5:d=0.5")
+
+
+def test_video_effects_command_uses_custom_quality_and_resolution_when_enabled(tmp_path) -> None:
+    command = build_ffmpeg_video_effects_command(
+        tmp_path / "merged.mp4",
+        tmp_path / "output.mp4",
+        duration_seconds=20,
+        clip_fade=ClipFade(enabled=True, fade_in_seconds=0.5, fade_out_seconds=0.5),
+        export_quality=ExportQualitySettings(enabled=True, quality_preset="high", resolution_limit="720p"),
+    )
+
+    video_filter = command[command.index("-filter:v") + 1]
+    assert video_filter.endswith("h='if(gt(ih,720),720,ih)'")
+    assert command[command.index("-preset") + 1] == "slow"
+    assert command[command.index("-crf") + 1] == "18"
+    assert command[command.index("-c:a") + 1] == "copy"
 
 
 def test_build_ffmpeg_concat_command_preserves_current_concat_arguments(tmp_path) -> None:

@@ -21,6 +21,14 @@ from src.video_black_flash import (
     normalize_black_flash_duration,
 )
 from src.video_fade import DEFAULT_FADE_IN_SECONDS, DEFAULT_FADE_OUT_SECONDS, VideoFadeError, normalize_fade_duration
+from src.video_export_quality import (
+    DEFAULT_ENABLED_QUALITY_PRESET,
+    DEFAULT_EXPORT_QUALITY_PRESET,
+    DEFAULT_RESOLUTION_LIMIT,
+    ExportQualityError,
+    normalize_quality_preset,
+    normalize_resolution_limit,
+)
 
 
 QUEUE_STATE_VERSION = 1
@@ -173,7 +181,9 @@ def _settings_to_data(settings: JobSettings) -> dict[str, Any]:
     return {
         "pre_roll_seconds": settings.pre_roll_seconds,
         "post_roll_seconds": settings.post_roll_seconds,
+        "export_quality_enabled": settings.export_quality_enabled,
         "quality_preset": settings.quality_preset,
+        "resolution_limit": settings.resolution_limit,
         "speed_adjustment_enabled": settings.speed_adjustment_enabled,
         "speed": settings.speed,
         "volume_adjustment_enabled": settings.volume_adjustment_enabled,
@@ -221,10 +231,23 @@ def _settings_from_data(data: Any, *, high_priority: Any = None) -> JobSettings:
         if black_flash_enabled
         else DEFAULT_BLACK_FLASH_SECONDS
     )
+    export_quality_enabled = bool(data.get("export_quality_enabled", False))
+    quality_preset = (
+        _quality_preset_or_default(data.get("quality_preset"), DEFAULT_ENABLED_QUALITY_PRESET)
+        if export_quality_enabled
+        else DEFAULT_EXPORT_QUALITY_PRESET
+    )
+    resolution_limit = (
+        _resolution_limit_or_default(data.get("resolution_limit"), DEFAULT_RESOLUTION_LIMIT)
+        if export_quality_enabled
+        else DEFAULT_RESOLUTION_LIMIT
+    )
     return JobSettings(
         pre_roll_seconds=_float_or_default(data.get("pre_roll_seconds"), 0.0),
         post_roll_seconds=_float_or_default(data.get("post_roll_seconds"), 0.0),
-        quality_preset=str(data.get("quality_preset") or "default"),
+        export_quality_enabled=export_quality_enabled,
+        quality_preset=quality_preset,
+        resolution_limit=resolution_limit,
         speed_adjustment_enabled=speed_enabled,
         speed=speed_value,
         volume_adjustment_enabled=volume_enabled,
@@ -327,4 +350,18 @@ def _black_flash_duration_or_default(value: Any, default: float) -> float:
     try:
         return normalize_black_flash_duration(value)
     except VideoBlackFlashError:
+        return default
+
+
+def _quality_preset_or_default(value: Any, default: str) -> str:
+    try:
+        return normalize_quality_preset(str(value))
+    except ExportQualityError:
+        return default
+
+
+def _resolution_limit_or_default(value: Any, default: str) -> str:
+    try:
+        return normalize_resolution_limit(str(value))
+    except ExportQualityError:
         return default

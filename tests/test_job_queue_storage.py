@@ -73,6 +73,9 @@ def test_safe_default_settings_after_load_when_missing() -> None:
     settings = loaded[0].settings
 
     assert settings.high_priority is False
+    assert settings.export_quality_enabled is False
+    assert settings.quality_preset == "default"
+    assert settings.resolution_limit == "original"
     assert settings.speed_adjustment_enabled is False
     assert settings.speed == 1.0
     assert settings.volume_adjustment_enabled is False
@@ -189,6 +192,30 @@ def test_black_flash_settings_are_preserved_independently_per_queue_job() -> Non
     assert loaded[1].settings.black_flash_duration_seconds == 0.5
 
 
+def test_export_quality_settings_are_preserved_independently_per_queue_job() -> None:
+    first = VideoJob(
+        source_type=VideoSourceType.LOCAL,
+        source="C:/videos/first.mp4",
+        title="الأول",
+        settings=JobSettings(export_quality_enabled=True, quality_preset="high", resolution_limit="1080p"),
+    )
+    second = VideoJob(
+        source_type=VideoSourceType.YOUTUBE,
+        source="https://youtu.be/second",
+        title="الثاني",
+        settings=JobSettings(export_quality_enabled=True, quality_preset="small", resolution_limit="720p"),
+    )
+
+    loaded = queue_jobs_from_data(json.loads(queue_jobs_to_json([first, second])))
+
+    assert loaded[0].settings.export_quality_enabled is True
+    assert loaded[0].settings.quality_preset == "high"
+    assert loaded[0].settings.resolution_limit == "1080p"
+    assert loaded[1].settings.export_quality_enabled is True
+    assert loaded[1].settings.quality_preset == "small"
+    assert loaded[1].settings.resolution_limit == "720p"
+
+
 def test_missing_speed_and_volume_enabled_flags_default_to_safe_values() -> None:
     loaded = queue_jobs_from_data(
         {
@@ -215,6 +242,31 @@ def test_missing_speed_and_volume_enabled_flags_default_to_safe_values() -> None
     assert settings.fade_out_seconds == 0.5
     assert settings.black_flash_enabled is False
     assert settings.black_flash_duration_seconds == 0.2
+    assert settings.export_quality_enabled is False
+    assert settings.quality_preset == "default"
+    assert settings.resolution_limit == "original"
+
+
+def test_missing_export_quality_enabled_flag_defaults_to_safe_values() -> None:
+    loaded = queue_jobs_from_data(
+        {
+            "schema_version": 1,
+            "jobs": [
+                {
+                    "source_type": "local",
+                    "source": "C:/videos/lesson.mp4",
+                    "title": "درس",
+                    "settings": {"quality_preset": "high", "resolution_limit": "720p"},
+                }
+            ],
+        }
+    )
+
+    settings = loaded[0].settings
+
+    assert settings.export_quality_enabled is False
+    assert settings.quality_preset == "default"
+    assert settings.resolution_limit == "original"
 
 
 def test_browser_login_settings_are_preserved_without_cookie_data() -> None:
@@ -322,6 +374,30 @@ def test_invalid_saved_enabled_black_flash_defaults_safely() -> None:
 
     assert loaded[0].settings.black_flash_enabled is True
     assert loaded[0].settings.black_flash_duration_seconds == 0.2
+
+
+def test_invalid_saved_enabled_export_quality_defaults_safely() -> None:
+    loaded = queue_jobs_from_data(
+        {
+            "schema_version": 1,
+            "jobs": [
+                {
+                    "source_type": "local",
+                    "source": "C:/videos/lesson.mp4",
+                    "title": "درس",
+                    "settings": {
+                        "export_quality_enabled": True,
+                        "quality_preset": "lossless",
+                        "resolution_limit": "4k",
+                    },
+                }
+            ],
+        }
+    )
+
+    assert loaded[0].settings.export_quality_enabled is True
+    assert loaded[0].settings.quality_preset == "balanced"
+    assert loaded[0].settings.resolution_limit == "original"
 
 
 def test_cookies_and_tokens_are_not_saved() -> None:
