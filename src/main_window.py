@@ -8,8 +8,8 @@ import re
 import sys
 from urllib.parse import parse_qs, urlsplit
 
-from PySide6.QtCore import QByteArray, QObject, Qt, QThread, QUrl, Signal, Slot
-from PySide6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QPixmap
+from PySide6.QtCore import QByteArray, QObject, QRectF, QSize, Qt, QThread, QUrl, Signal, Slot
+from PySide6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -187,27 +187,27 @@ QScrollArea {
     border: none;
 }
 QFrame#appHeader {
-    background: #0a1725;
-    border: 1px solid #203a52;
-    border-radius: 20px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #10243a, stop:1 #081625);
+    border: 1px solid #254760;
+    border-radius: 22px;
 }
 QLabel#appTitle {
     color: #f8fafc;
-    font-size: 17px;
-    font-weight: 700;
+    font-size: 19px;
+    font-weight: 800;
 }
 QLabel#appSubtitle {
-    color: #b8c7d8;
-    font-size: 10px;
+    color: #c4d0dd;
+    font-size: 11px;
 }
 QLabel#appVersion {
-    color: #8294a8;
-    font-size: 10px;
+    color: #8da2b7;
+    font-size: 10.5px;
 }
 QLabel#appLogo {
     background: #06121e;
-    border: 1px solid #24506e;
-    border-radius: 18px;
+    border: 1px solid #2b5d82;
+    border-radius: 20px;
 }
 QLabel#sectionHelpText, QLabel#statusHelperLabel {
     color: #aebdd0;
@@ -413,34 +413,38 @@ QPushButton#smartImportButton:pressed {
 QPushButton#navButton {
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 15px;
-    color: #b9c9db;
-    padding: 8px 16px;
+    border-radius: 17px;
+    color: #c3d1df;
+    padding: 8px 15px;
     text-align: right;
-    min-height: 36px;
+    min-height: 37px;
+    font-size: 12px;
+    font-weight: 650;
+    icon-size: 18px;
 }
 QPushButton#navButton:checked {
-    background: #123d6d;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #18518a, stop:1 #123a68);
     color: #ffffff;
-    border: 1px solid #2f88ef;
+    border: 1px solid #3b97ff;
 }
 QPushButton#navButton:hover {
-    background: #0e253c;
+    background: #102c45;
     color: #ffffff;
 }
 QPushButton#futureNavButton {
-    background: #0a1623;
-    border: 1px solid #1b3145;
-    border-radius: 14px;
-    color: #7d8fa3;
+    background: #0b1928;
+    border: 1px solid #20374d;
+    border-radius: 15px;
+    color: #8799ad;
     padding: 7px 11px;
     text-align: right;
-    min-height: 28px;
+    min-height: 29px;
+    font-size: 11.5px;
 }
 QPushButton#futureNavButton:disabled {
-    background: #0a1623;
-    border-color: #1b3145;
-    color: #66778a;
+    background: #0b1928;
+    border-color: #20374d;
+    color: #728498;
 }
 QPushButton#topNavButton {
     background: transparent;
@@ -513,69 +517,80 @@ QFrame#dashboardShell, QFrame#sideRail, QFrame#topNav, QFrame#topNavStrip, QFram
     background: #07111d;
 }
 QFrame#sideRail {
-    background: #061320;
+    background: #06111e;
     border-left: 1px solid #183148;
     border-radius: 0;
 }
 QFrame#sidebarNavGroup {
-    background: #081827;
-    border: 1px solid #193149;
-    border-radius: 20px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0d2033, stop:1 #081725);
+    border: 1px solid #1f3e58;
+    border-radius: 22px;
 }
 QFrame#sidebarCard {
-    background: #0a1725;
-    border: 1px solid #20384f;
-    border-radius: 20px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0d2033, stop:1 #091724);
+    border: 1px solid #223e57;
+    border-radius: 22px;
 }
 QFrame#sidebarReadyFooter {
-    background: #071522;
-    border: 1px solid #1d354b;
-    border-radius: 16px;
+    background: #0a1928;
+    border: 1px solid #213b53;
+    border-radius: 17px;
 }
 QLabel#sidebarCardTitle {
     color: #f3f7fb;
-    font-size: 12px;
+    font-size: 12.5px;
     font-weight: 700;
 }
 QLabel#sidebarStatusLabel, QLabel#sidebarThemeLabel, QLabel#sidebarStatusValue {
-    color: #b9c9db;
+    color: #c0cfdd;
     background: transparent;
     line-height: 1.35;
+    font-size: 11.5px;
 }
 QLabel#sidebarStatusValue {
     color: #f0f6fd;
     font-weight: 650;
 }
 QFrame#sidebarStatusRow {
-    background: #07131f;
-    border: 1px solid #183047;
-    border-radius: 12px;
+    background: #071522;
+    border: 1px solid #1c354e;
+    border-radius: 14px;
 }
 QLabel#sidebarGreenDot {
-    background: #32d36b;
+    background: #36d976;
     border-radius: 4px;
     min-width: 8px;
     min-height: 8px;
     max-width: 8px;
     max-height: 8px;
 }
-QFrame#themeSegment {
-    background: #07131f;
-    border: 1px solid #1c3850;
-    border-radius: 14px;
+QFrame#appearancePanel {
+    background: #071522;
+    border: 1px solid #1d3a55;
+    border-radius: 16px;
 }
-QLabel#themeSegmentOption, QLabel#themeSegmentOptionActive {
-    color: #8799ad;
-    border-radius: 11px;
-    padding: 6px 10px;
-}
-QLabel#themeSegmentOptionActive {
-    color: #ffffff;
+QLabel#appearanceIndicator {
     background: #123d6d;
-    border: 1px solid #2f88ef;
+    border: 1px solid #3b97ff;
+    border-radius: 14px;
+    color: #ffffff;
+    font-size: 15px;
+    min-width: 28px;
+    min-height: 28px;
+    max-width: 28px;
+    max-height: 28px;
+}
+QLabel#appearanceText {
+    color: #e7f0fb;
+    font-size: 12px;
+    font-weight: 650;
+}
+QLabel#appearanceHint {
+    color: #91a4b8;
+    font-size: 10.5px;
 }
 QLabel#readyIndicator {
-    background: #32d36b;
+    background: #36d976;
     border-radius: 5px;
     min-width: 10px;
     min-height: 10px;
@@ -1430,10 +1445,10 @@ class MainWindow(QMainWindow):
     def _build_side_rail(self) -> QFrame:
         rail = QFrame()
         rail.setObjectName("sideRail")
-        rail.setFixedWidth(242)
+        rail.setFixedWidth(248)
         layout = QVBoxLayout(rail)
-        layout.setSpacing(9)
-        layout.setContentsMargins(12, 12, 12, 9)
+        layout.setSpacing(8)
+        layout.setContentsMargins(12, 11, 12, 9)
 
         layout.addWidget(self._build_header_section())
         nav_group = QFrame()
@@ -1460,7 +1475,7 @@ class MainWindow(QMainWindow):
         frame = QFrame()
         frame.setObjectName("sidebarCard")
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(10, 9, 10, 10)
+        layout.setContentsMargins(11, 10, 11, 10)
         layout.setSpacing(5)
         title = QLabel("ميزات قادمة")
         title.setObjectName("sidebarCardTitle")
@@ -1475,7 +1490,7 @@ class MainWindow(QMainWindow):
         frame = QFrame()
         frame.setObjectName("sidebarCard")
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(10, 9, 10, 10)
+        layout.setContentsMargins(11, 10, 11, 10)
         layout.setSpacing(6)
         title = QLabel("الحالة العامة")
         title.setObjectName("sidebarCardTitle")
@@ -1512,33 +1527,41 @@ class MainWindow(QMainWindow):
         frame = QFrame()
         frame.setObjectName("sidebarCard")
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(10, 9, 10, 10)
+        layout.setContentsMargins(11, 10, 11, 10)
         layout.setSpacing(7)
-        title = QLabel("السمة")
+        title = QLabel("المظهر")
         title.setObjectName("sidebarCardTitle")
         title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        segment = QFrame()
-        segment.setObjectName("themeSegment")
-        segment_layout = QHBoxLayout(segment)
-        segment_layout.setContentsMargins(4, 4, 4, 4)
-        segment_layout.setSpacing(4)
-        light_label = QLabel("فاتح")
-        light_label.setObjectName("themeSegmentOption")
-        light_label.setAlignment(Qt.AlignCenter)
-        dark_label = QLabel("داكن")
-        dark_label.setObjectName("themeSegmentOptionActive")
-        dark_label.setAlignment(Qt.AlignCenter)
-        segment_layout.addWidget(light_label)
-        segment_layout.addWidget(dark_label)
+        appearance = QFrame()
+        appearance.setObjectName("appearancePanel")
+        appearance_layout = QHBoxLayout(appearance)
+        appearance_layout.setContentsMargins(8, 7, 8, 7)
+        appearance_layout.setSpacing(8)
+        moon = QLabel("◐")
+        moon.setObjectName("appearanceIndicator")
+        moon.setAlignment(Qt.AlignCenter)
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(1)
+        mode = QLabel("الوضع الحالي: داكن")
+        mode.setObjectName("appearanceText")
+        mode.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        hint = QLabel("مفعّل")
+        hint.setObjectName("appearanceHint")
+        hint.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        text_layout.addWidget(mode)
+        text_layout.addWidget(hint)
         layout.addWidget(title)
-        layout.addWidget(segment)
+        appearance_layout.addLayout(text_layout, stretch=1)
+        appearance_layout.addWidget(moon)
+        layout.addWidget(appearance)
         return frame
 
     def _build_sidebar_ready_footer(self) -> QFrame:
         frame = QFrame()
         frame.setObjectName("sidebarReadyFooter")
         layout = QHBoxLayout(frame)
-        layout.setContentsMargins(10, 7, 10, 7)
+        layout.setContentsMargins(11, 7, 11, 7)
         layout.setSpacing(8)
         layout.addWidget(self.sidebar_bottom_status_label)
         layout.addStretch(1)
@@ -1767,6 +1790,40 @@ class MainWindow(QMainWindow):
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 
+    def _make_sidebar_icon(self, kind: str) -> QIcon:
+        pixmap = QPixmap(32, 32)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(QColor("#d7e8f9"), 2.2)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+
+        if kind == "import":
+            painter.drawLine(16, 6, 16, 18)
+            painter.drawLine(10, 13, 16, 19)
+            painter.drawLine(22, 13, 16, 19)
+            painter.drawRoundedRect(QRectF(8, 22, 16, 4), 2, 2)
+        elif kind == "clips":
+            painter.drawRoundedRect(QRectF(7, 8, 18, 16), 3, 3)
+            painter.drawLine(12, 8, 12, 24)
+            painter.drawLine(20, 8, 20, 24)
+            painter.drawLine(7, 13, 25, 13)
+            painter.drawLine(7, 19, 25, 19)
+        elif kind == "queue":
+            for y in (8, 14, 20):
+                painter.drawRoundedRect(QRectF(8, y, 16, 3.8), 1.8, 1.8)
+        elif kind == "logs":
+            painter.drawRoundedRect(QRectF(9, 6, 14, 20), 2.5, 2.5)
+            painter.drawLine(12, 12, 20, 12)
+            painter.drawLine(12, 17, 20, 17)
+            painter.drawLine(12, 22, 17, 22)
+
+        painter.end()
+        return QIcon(pixmap)
+
     def _apply_visual_polish(self) -> None:
         self.setMinimumSize(980, 640)
 
@@ -1801,7 +1858,15 @@ class MainWindow(QMainWindow):
         ):
             button.setObjectName("navButton")
             button.setCheckable(True)
-            button.setIcon(QIcon())
+            button.setIconSize(QSize(18, 18))
+        nav_icons = (
+            (self.nav_import_button, "import"),
+            (self.nav_clips_button, "clips"),
+            (self.nav_queue_button, "queue"),
+            (self.nav_logs_button, "logs"),
+        )
+        for button, icon_kind in nav_icons:
+            button.setIcon(self._make_sidebar_icon(icon_kind))
         for button in (
             self.future_reports_button,
             self.future_schedule_button,
