@@ -273,6 +273,11 @@ QGroupBox#importSideCard {
     background: #101b29;
     border-color: #29455d;
 }
+QGroupBox#importSummaryCard {
+    background: #101b29;
+    border-color: #29455d;
+    padding-top: 42px;
+}
 QGroupBox#nestedSettingsGroup, QGroupBox#jobDetailsCard {
     background: #0c1825;
     border-color: #33506a;
@@ -411,6 +416,25 @@ QPushButton#navButton:hover {
     background: #14263a;
     color: #ffffff;
 }
+QPushButton#topNavButton {
+    background: #0d1a28;
+    border: 1px solid #1f3549;
+    border-radius: 12px;
+    color: #b9c9db;
+    padding: 8px 18px;
+    min-height: 32px;
+    min-width: 126px;
+}
+QPushButton#topNavButton:checked {
+    background: #152a42;
+    color: #ffffff;
+    border-color: #2d87f0;
+    border-bottom: 2px solid #2d87f0;
+}
+QPushButton#topNavButton:hover {
+    background: #14263a;
+    color: #ffffff;
+}
 QPushButton#newWorkButton, QPushButton#validateActionButton, QPushButton#openOutputButton {
     background: #1a334b;
     border-color: #416886;
@@ -478,9 +502,30 @@ QFrame#bottomStatusBar {
 QCheckBox, QRadioButton {
     spacing: 8px;
 }
-QCheckBox::indicator, QRadioButton::indicator {
+QRadioButton {
+    background: #0b1724;
+    border: 1px solid #243d54;
+    border-radius: 11px;
+    color: #d9e7f7;
+    padding: 7px 12px;
+    min-height: 28px;
+}
+QRadioButton:hover {
+    border-color: #4d7fa7;
+    background: #102237;
+}
+QRadioButton:checked {
+    background: #173f73;
+    border-color: #2d87f0;
+    color: #ffffff;
+}
+QCheckBox::indicator {
     width: 15px;
     height: 15px;
+}
+QRadioButton::indicator {
+    width: 0;
+    height: 0;
 }
 QScrollBar:vertical {
     background: #07111d;
@@ -1324,7 +1369,7 @@ class MainWindow(QMainWindow):
             ("import", self.nav_import_button),
         ):
             top_button = QPushButton(button.text())
-            top_button.setObjectName("navButton")
+            top_button.setObjectName("topNavButton")
             top_button.setCheckable(True)
             top_button.clicked.connect(lambda _checked=False, page=key: self.switch_dashboard_page(page))
             self.top_nav_buttons[key] = top_button
@@ -1415,18 +1460,16 @@ class MainWindow(QMainWindow):
             1,
             3,
         )
-        layout.addWidget(self._build_paste_section(), 1, 1, 2, 2)
+        layout.addWidget(self._build_paste_section(), 1, 1, 1, 2)
         layout.addWidget(self._build_video_source_section(), 1, 0)
-        layout.addWidget(self._build_project_section(), 2, 0)
-        layout.addWidget(self._build_import_summary_section(), 3, 0)
-        layout.addWidget(self._build_import_extracted_clips_section(), 3, 1, 1, 2)
-        layout.addWidget(self._build_import_apply_section(), 4, 0, 1, 3)
+        layout.addWidget(self._build_import_summary_section(), 2, 0)
+        layout.addWidget(self._build_import_extracted_clips_section(), 2, 1, 1, 2)
+        layout.addWidget(self._build_import_apply_section(), 3, 0, 1, 3)
         layout.setColumnStretch(0, 1)
         layout.setColumnStretch(1, 2)
         layout.setColumnStretch(2, 2)
-        layout.setRowStretch(1, 2)
-        layout.setRowStretch(2, 1)
-        layout.setRowStretch(3, 2)
+        layout.setRowStretch(1, 3)
+        layout.setRowStretch(2, 2)
         return page
 
     def _build_clips_page(self) -> QWidget:
@@ -1615,9 +1658,9 @@ class MainWindow(QMainWindow):
         frame = QFrame()
         frame.setObjectName("appHeader")
         frame.setFrameShape(QFrame.StyledPanel)
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(9, 9, 9, 9)
-        layout.setSpacing(4)
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(4, 6, 4, 10)
+        layout.setSpacing(10)
 
         logo = QLabel()
         logo.setObjectName("appLogo")
@@ -1626,19 +1669,22 @@ class MainWindow(QMainWindow):
             logo_path = self._asset_path("icon.png")
         if logo_path.exists():
             pixmap = QPixmap(str(logo_path))
-            logo.setPixmap(pixmap.scaled(50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        logo.setFixedSize(54, 54)
+            logo.setPixmap(pixmap.scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo.setFixedSize(44, 44)
         logo.setAlignment(Qt.AlignCenter)
 
+        text_layout = QVBoxLayout()
+        text_layout.setSpacing(0)
         title = QLabel(APP_NAME)
         title.setObjectName("appTitle")
-        title.setAlignment(Qt.AlignCenter)
+        title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         english_name = QLabel("AlmiqsAlBaseet")
         english_name.setObjectName("metricCaption")
-        english_name.setAlignment(Qt.AlignCenter)
-        layout.addWidget(logo, alignment=Qt.AlignCenter)
-        layout.addWidget(title)
-        layout.addWidget(english_name)
+        english_name.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        text_layout.addWidget(title)
+        text_layout.addWidget(english_name)
+        layout.addLayout(text_layout, stretch=1)
+        layout.addWidget(logo, alignment=Qt.AlignVCenter)
 
         return frame
 
@@ -1680,7 +1726,7 @@ class MainWindow(QMainWindow):
 
     def _build_import_summary_section(self) -> QGroupBox:
         group = QGroupBox("ملخص الاستيراد")
-        self._style_card(group, "importSideCard")
+        self._style_card(group, "importSummaryCard")
         layout = QVBoxLayout(group)
         self.import_summary_label.setWordWrap(True)
         layout.addWidget(self.import_summary_label)
@@ -1725,7 +1771,8 @@ class MainWindow(QMainWindow):
     def _build_video_source_section(self) -> QGroupBox:
         group = QGroupBox("مصدر الاستيراد")
         self._style_card(group, "importSideCard")
-        layout = QGridLayout(group)
+        layout = QVBoxLayout(group)
+        layout.setSpacing(10)
 
         source_group = QButtonGroup(self)
         source_group.addButton(self.youtube_radio)
@@ -1744,17 +1791,44 @@ class MainWindow(QMainWindow):
         )
         self.browser_cookies_help_label.setWordWrap(True)
 
-        layout.addWidget(self.youtube_radio, 0, 0)
-        layout.addWidget(self.youtube_input, 0, 1, 1, 2)
-        layout.addWidget(self.local_file_radio, 1, 0)
-        layout.addWidget(self.local_file_input, 1, 1)
-        layout.addWidget(self.browse_button, 1, 2)
-        layout.addWidget(self.source_status_label, 2, 0, 1, 3)
-        layout.addWidget(self.use_browser_cookies_checkbox, 3, 0)
-        layout.addWidget(QLabel("المتصفح"), 3, 1)
-        layout.addWidget(self.browser_combo, 3, 2)
-        layout.addWidget(self.browser_cookies_help_label, 4, 0, 1, 3)
-        layout.setColumnStretch(1, 1)
+        source_tabs = QHBoxLayout()
+        source_tabs.setSpacing(8)
+        source_tabs.addWidget(self.local_file_radio)
+        source_tabs.addWidget(self.youtube_radio)
+        layout.addLayout(source_tabs)
+
+        youtube_label = QLabel("رابط يوتيوب")
+        youtube_label.setObjectName("sectionHelpText")
+        layout.addWidget(youtube_label)
+        youtube_row = QHBoxLayout()
+        youtube_row.setSpacing(8)
+        youtube_row.addWidget(self.youtube_input, stretch=1)
+        layout.addLayout(youtube_row)
+
+        local_label = QLabel("ملف فيديو من الجهاز")
+        local_label.setObjectName("sectionHelpText")
+        layout.addWidget(local_label)
+        local_row = QHBoxLayout()
+        local_row.setSpacing(8)
+        local_row.addWidget(self.local_file_input, stretch=1)
+        local_row.addWidget(self.browse_button)
+        layout.addLayout(local_row)
+
+        project_label = QLabel("اسم المشروع")
+        project_label.setObjectName("sectionHelpText")
+        self.project_name_input.setPlaceholderText("مثال: درس الجبر - الوحدة الأولى")
+        layout.addWidget(project_label)
+        layout.addWidget(self.project_name_input)
+
+        browser_row = QHBoxLayout()
+        browser_row.setSpacing(8)
+        browser_row.addWidget(QLabel("المتصفح"))
+        browser_row.addWidget(self.browser_combo, stretch=1)
+        layout.addLayout(browser_row)
+        layout.addWidget(self.use_browser_cookies_checkbox)
+        layout.addWidget(self.source_status_label)
+        layout.addWidget(self.browser_cookies_help_label)
+        layout.addStretch(1)
 
         return group
 
