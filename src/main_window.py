@@ -198,16 +198,22 @@ QFrame#logoHalo {
     border-radius: 31px;
 }
 QLabel#appTitle {
+    background: transparent;
+    border: none;
     color: #f8fafc;
     font-size: 22px;
     font-weight: 800;
 }
 QLabel#appSubtitle {
+    background: transparent;
+    border: none;
     color: #d5e2ef;
     font-size: 12.5px;
     font-weight: 650;
 }
 QLabel#appVersion {
+    background: transparent;
+    border: none;
     color: #aabdd0;
     font-size: 11.5px;
     font-weight: 600;
@@ -559,6 +565,8 @@ QFrame#sidebarReadyFooter {
     border-radius: 23px;
 }
 QLabel#sidebarCardTitle {
+    background: transparent;
+    border: none;
     color: #f6fbff;
     font-size: 14px;
     font-weight: 800;
@@ -574,7 +582,7 @@ QLabel#sidebarStatusValue {
     font-weight: 750;
 }
 QFrame#sidebarStatusRow {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #102b45, stop:0.55 #0a2035, stop:1 #061725);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #132d47, stop:0.55 #0d2237, stop:1 #091a2b);
     border: 1px solid #2a506d;
     border-radius: 20px;
 }
@@ -605,17 +613,21 @@ QLabel#appearanceIndicator {
     max-height: 40px;
 }
 QLabel#appearanceText {
+    background: transparent;
+    border: none;
     color: #f3f8ff;
     font-size: 13px;
     font-weight: 750;
 }
 QLabel#appearanceHint {
+    background: transparent;
+    border: none;
     color: #a9bdd1;
     font-size: 11.5px;
     font-weight: 600;
 }
 QLabel#appearanceModePill {
-    background: #153f67;
+    background: #17466f;
     border: 1px solid #5da6dc;
     border-radius: 14px;
     color: #dceeff;
