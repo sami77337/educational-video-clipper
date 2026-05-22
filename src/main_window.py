@@ -188,37 +188,26 @@ QScrollArea {
     border: none;
 }
 QFrame#appHeader {
-    background: qradialgradient(cx:0.5, cy:0.15, radius:1.05, fx:0.5, fy:0.15, stop:0 #1a3d61, stop:0.42 #0d2741, stop:1 #061522);
-    border: 1px solid #356987;
-    border-radius: 30px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #173553, stop:0.42 #0d243c, stop:1 #061522);
+    border: 1px solid #315f7f;
+    border-radius: 28px;
 }
 QFrame#logoHalo {
-    background: qradialgradient(cx:0.5, cy:0.35, radius:0.86, fx:0.48, fy:0.28, stop:0 #235f93, stop:0.4 #123c62, stop:1 #071827);
-    border: 1px solid #4b91bd;
-    border-radius: 32px;
-}
-QFrame#identityTextPanel {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #102a43, stop:0.56 #0b2035, stop:1 #071827);
-    border: 1px solid #2d5572;
-    border-radius: 18px;
+    background: qradialgradient(cx:0.5, cy:0.42, radius:0.72, fx:0.45, fy:0.34, stop:0 #1d5d93, stop:0.45 #12375d, stop:1 #071725);
+    border: 1px solid #3f80a9;
+    border-radius: 31px;
 }
 QLabel#appTitle {
-    background: transparent;
-    border: none;
     color: #f8fafc;
     font-size: 22px;
     font-weight: 800;
 }
 QLabel#appSubtitle {
-    background: transparent;
-    border: none;
     color: #d5e2ef;
     font-size: 12.5px;
     font-weight: 650;
 }
 QLabel#appVersion {
-    background: transparent;
-    border: none;
     color: #aabdd0;
     font-size: 11.5px;
     font-weight: 600;
@@ -226,7 +215,7 @@ QLabel#appVersion {
 QLabel#appLogo {
     background: transparent;
     border: none;
-    border-radius: 26px;
+    border-radius: 24px;
 }
 QLabel#sectionHelpText, QLabel#statusHelperLabel {
     color: #aebdd0;
@@ -2022,33 +2011,25 @@ class MainWindow(QMainWindow):
         frame.setMaximumHeight(190)
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(9)
+        layout.setSpacing(5)
 
         logo = QLabel()
         logo.setObjectName("appLogo")
-        logo_path = self._asset_path("icon.svg")
+        logo_path = self._asset_path("logo.png")
         if not logo_path.exists():
             logo_path = self._asset_path("icon.png")
         if logo_path.exists():
-            icon = QIcon(str(logo_path))
-            pixmap = icon.pixmap(QSize(68, 68))
-            if pixmap.isNull():
-                pixmap = QPixmap(str(logo_path)).scaled(68, 68, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            logo.setPixmap(pixmap)
-        logo.setFixedSize(72, 72)
+            pixmap = QPixmap(str(logo_path))
+            logo.setPixmap(pixmap.scaled(72, 72, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo.setFixedSize(80, 80)
         logo.setAlignment(Qt.AlignCenter)
         logo_halo = QFrame()
         logo_halo.setObjectName("logoHalo")
-        logo_halo.setFixedSize(98, 98)
+        logo_halo.setFixedSize(96, 96)
         logo_layout = QVBoxLayout(logo_halo)
-        logo_layout.setContentsMargins(13, 13, 13, 13)
+        logo_layout.setContentsMargins(8, 8, 8, 8)
         logo_layout.addWidget(logo, alignment=Qt.AlignCenter)
 
-        text_panel = QFrame()
-        text_panel.setObjectName("identityTextPanel")
-        text_panel_layout = QVBoxLayout(text_panel)
-        text_panel_layout.setContentsMargins(10, 8, 10, 8)
-        text_panel_layout.setSpacing(2)
         title = QLabel(APP_NAME)
         title.setObjectName("appTitle")
         title.setAlignment(Qt.AlignCenter)
@@ -2060,11 +2041,10 @@ class MainWindow(QMainWindow):
         version = QLabel(f"v{APP_VERSION}")
         version.setObjectName("appVersion")
         version.setAlignment(Qt.AlignCenter)
-        text_panel_layout.addWidget(title)
-        text_panel_layout.addWidget(english_name)
-        text_panel_layout.addWidget(version)
         layout.addWidget(logo_halo, alignment=Qt.AlignCenter)
-        layout.addWidget(text_panel)
+        layout.addWidget(title)
+        layout.addWidget(english_name)
+        layout.addWidget(version)
 
         return frame
 
