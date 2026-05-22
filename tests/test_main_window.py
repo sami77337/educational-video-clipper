@@ -421,7 +421,7 @@ def test_dashboard_visual_proportions_are_compact_for_preview() -> None:
     assert window.minimumHeight() <= 640
     assert window.centralWidget().horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff
     assert window.bottom_status_label.parent().maximumHeight() <= 28
-    assert window.paste_message_input.minimumHeight() <= 170
+    assert window.paste_message_input.minimumHeight() >= 200
     assert window.operations_log_table.minimumHeight() <= 150
 
     window.close()
