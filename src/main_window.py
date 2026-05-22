@@ -8,7 +8,7 @@ import re
 import sys
 from urllib.parse import parse_qs, urlsplit
 
-from PySide6.QtCore import QByteArray, QObject, QSize, Qt, QThread, QUrl, Signal, Slot
+from PySide6.QtCore import QByteArray, QObject, Qt, QThread, QUrl, Signal, Slot
 from PySide6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -35,7 +35,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QStackedWidget,
-    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -96,7 +95,7 @@ from src.smart_paste_parser import (
 )
 from src.smart_validation import format_smart_validation_report_ar, validate_clips_before_cutting
 from src.time_utils import normalize_timestamp_text, parse_timestamp
-from src.version import APP_NAME, APP_SUBTITLE
+from src.version import APP_NAME, APP_VERSION
 from src.validation import ClipRowInput, normalize_clip_exclusions, validate_clip_rows, validate_required_text
 from src.video_speed import AR_INVALID_VIDEO_SPEED, DEFAULT_VIDEO_SPEED, VideoSpeedError, normalize_video_speed
 from src.video_volume import (
@@ -188,23 +187,27 @@ QScrollArea {
     border: none;
 }
 QFrame#appHeader {
-    background: #0b1826;
-    border: 1px solid #1d354b;
-    border-radius: 18px;
+    background: #0a1725;
+    border: 1px solid #203a52;
+    border-radius: 20px;
 }
 QLabel#appTitle {
     color: #f8fafc;
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 700;
 }
 QLabel#appSubtitle {
     color: #b8c7d8;
     font-size: 10px;
 }
+QLabel#appVersion {
+    color: #8294a8;
+    font-size: 10px;
+}
 QLabel#appLogo {
-    background: #07131f;
-    border: 1px solid #1e3b54;
-    border-radius: 12px;
+    background: #06121e;
+    border: 1px solid #24506e;
+    border-radius: 18px;
 }
 QLabel#sectionHelpText, QLabel#statusHelperLabel {
     color: #aebdd0;
@@ -410,34 +413,33 @@ QPushButton#smartImportButton:pressed {
 QPushButton#navButton {
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 14px;
+    border-radius: 15px;
     color: #b9c9db;
-    padding: 8px 12px;
+    padding: 8px 16px;
     text-align: right;
-    min-height: 34px;
-    icon-size: 16px;
+    min-height: 36px;
 }
 QPushButton#navButton:checked {
-    background: #123a66;
+    background: #123d6d;
     color: #ffffff;
-    border: 1px solid #2d87f0;
+    border: 1px solid #2f88ef;
 }
 QPushButton#navButton:hover {
-    background: #0f2539;
+    background: #0e253c;
     color: #ffffff;
 }
 QPushButton#futureNavButton {
-    background: #091522;
-    border: 1px solid #192d40;
+    background: #0a1623;
+    border: 1px solid #1b3145;
     border-radius: 14px;
     color: #7d8fa3;
-    padding: 7px 12px;
+    padding: 7px 11px;
     text-align: right;
-    min-height: 29px;
+    min-height: 28px;
 }
 QPushButton#futureNavButton:disabled {
-    background: #091522;
-    border-color: #192d40;
+    background: #0a1623;
+    border-color: #1b3145;
     color: #66778a;
 }
 QPushButton#topNavButton {
@@ -511,34 +513,66 @@ QFrame#dashboardShell, QFrame#sideRail, QFrame#topNav, QFrame#topNavStrip, QFram
     background: #07111d;
 }
 QFrame#sideRail {
-    background: #071522;
-    border-left: 1px solid #1b3145;
+    background: #061320;
+    border-left: 1px solid #183148;
     border-radius: 0;
 }
 QFrame#sidebarNavGroup {
-    background: #081625;
-    border: 1px solid #152b40;
-    border-radius: 18px;
+    background: #081827;
+    border: 1px solid #193149;
+    border-radius: 20px;
 }
 QFrame#sidebarCard {
-    background: #0b1826;
-    border: 1px solid #1d354b;
-    border-radius: 18px;
+    background: #0a1725;
+    border: 1px solid #20384f;
+    border-radius: 20px;
 }
 QFrame#sidebarReadyFooter {
-    background: #081625;
+    background: #071522;
     border: 1px solid #1d354b;
-    border-radius: 14px;
+    border-radius: 16px;
 }
 QLabel#sidebarCardTitle {
     color: #f3f7fb;
     font-size: 12px;
     font-weight: 700;
 }
-QLabel#sidebarStatusLabel, QLabel#sidebarThemeLabel {
+QLabel#sidebarStatusLabel, QLabel#sidebarThemeLabel, QLabel#sidebarStatusValue {
     color: #b9c9db;
     background: transparent;
     line-height: 1.35;
+}
+QLabel#sidebarStatusValue {
+    color: #f0f6fd;
+    font-weight: 650;
+}
+QFrame#sidebarStatusRow {
+    background: #07131f;
+    border: 1px solid #183047;
+    border-radius: 12px;
+}
+QLabel#sidebarGreenDot {
+    background: #32d36b;
+    border-radius: 4px;
+    min-width: 8px;
+    min-height: 8px;
+    max-width: 8px;
+    max-height: 8px;
+}
+QFrame#themeSegment {
+    background: #07131f;
+    border: 1px solid #1c3850;
+    border-radius: 14px;
+}
+QLabel#themeSegmentOption, QLabel#themeSegmentOptionActive {
+    color: #8799ad;
+    border-radius: 11px;
+    padding: 6px 10px;
+}
+QLabel#themeSegmentOptionActive {
+    color: #ffffff;
+    background: #123d6d;
+    border: 1px solid #2f88ef;
 }
 QLabel#readyIndicator {
     background: #32d36b;
@@ -1317,8 +1351,10 @@ class MainWindow(QMainWindow):
         self.future_reports_button = QPushButton("تقارير متقدمة — قريبًا")
         self.future_schedule_button = QPushButton("الجدولة — قريبًا")
         self.future_templates_button = QPushButton("مشاركة القوالب — قريبًا")
-        self.sidebar_status_summary_label = QLabel()
-        self.sidebar_theme_label = QLabel("السمة الحالية: داكن")
+        self.sidebar_engine_status_label = QLabel("جاهز")
+        self.sidebar_smart_status_label = QLabel("جاهز")
+        self.sidebar_last_job_label = QLabel("لا توجد")
+        self.sidebar_queue_count_label = QLabel("0")
         self.sidebar_bottom_status_label = QLabel("جاهز")
         self.bottom_status_label = QLabel("جاهز")
         self.bottom_output_label = QLabel(str(self.output_root))
@@ -1394,17 +1430,17 @@ class MainWindow(QMainWindow):
     def _build_side_rail(self) -> QFrame:
         rail = QFrame()
         rail.setObjectName("sideRail")
-        rail.setFixedWidth(236)
+        rail.setFixedWidth(242)
         layout = QVBoxLayout(rail)
-        layout.setSpacing(10)
-        layout.setContentsMargins(12, 12, 12, 10)
+        layout.setSpacing(9)
+        layout.setContentsMargins(12, 12, 12, 9)
 
         layout.addWidget(self._build_header_section())
         nav_group = QFrame()
         nav_group.setObjectName("sidebarNavGroup")
         nav_layout = QVBoxLayout(nav_group)
-        nav_layout.setContentsMargins(6, 6, 6, 6)
-        nav_layout.setSpacing(5)
+        nav_layout.setContentsMargins(7, 7, 7, 7)
+        nav_layout.setSpacing(4)
         for button in (
             self.nav_import_button,
             self.nav_clips_button,
@@ -1424,8 +1460,8 @@ class MainWindow(QMainWindow):
         frame = QFrame()
         frame.setObjectName("sidebarCard")
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
+        layout.setContentsMargins(10, 9, 10, 10)
+        layout.setSpacing(5)
         title = QLabel("ميزات قادمة")
         title.setObjectName("sidebarCardTitle")
         title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -1439,31 +1475,63 @@ class MainWindow(QMainWindow):
         frame = QFrame()
         frame.setObjectName("sidebarCard")
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(7)
+        layout.setContentsMargins(10, 9, 10, 10)
+        layout.setSpacing(6)
         title = QLabel("الحالة العامة")
         title.setObjectName("sidebarCardTitle")
         title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.sidebar_status_summary_label.setObjectName("sidebarStatusLabel")
-        self.sidebar_status_summary_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.sidebar_status_summary_label.setWordWrap(True)
         layout.addWidget(title)
-        layout.addWidget(self.sidebar_status_summary_label)
+        layout.addWidget(self._build_sidebar_status_row("المحرك", self.sidebar_engine_status_label, show_dot=True))
+        layout.addWidget(self._build_sidebar_status_row("الفحص الذكي", self.sidebar_smart_status_label, show_dot=True))
+        layout.addWidget(self._build_sidebar_status_row("آخر مهمة", self.sidebar_last_job_label))
+        layout.addWidget(self._build_sidebar_status_row("في قائمة الانتظار", self.sidebar_queue_count_label))
         return frame
+
+    def _build_sidebar_status_row(self, label_text: str, value_label: QLabel, show_dot: bool = False) -> QFrame:
+        row = QFrame()
+        row.setObjectName("sidebarStatusRow")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(8, 5, 8, 5)
+        layout.setSpacing(6)
+        label = QLabel(label_text)
+        label.setObjectName("sidebarStatusLabel")
+        label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        value_label.setObjectName("sidebarStatusValue")
+        value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        layout.addWidget(value_label)
+        layout.addStretch(1)
+        layout.addWidget(label)
+        if show_dot:
+            dot = QLabel()
+            dot.setObjectName("sidebarGreenDot")
+            dot.setFixedSize(8, 8)
+            layout.addWidget(dot)
+        return row
 
     def _build_sidebar_theme_card(self) -> QFrame:
         frame = QFrame()
         frame.setObjectName("sidebarCard")
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(10, 9, 10, 10)
         layout.setSpacing(7)
         title = QLabel("السمة")
         title.setObjectName("sidebarCardTitle")
         title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.sidebar_theme_label.setObjectName("sidebarThemeLabel")
-        self.sidebar_theme_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        segment = QFrame()
+        segment.setObjectName("themeSegment")
+        segment_layout = QHBoxLayout(segment)
+        segment_layout.setContentsMargins(4, 4, 4, 4)
+        segment_layout.setSpacing(4)
+        light_label = QLabel("فاتح")
+        light_label.setObjectName("themeSegmentOption")
+        light_label.setAlignment(Qt.AlignCenter)
+        dark_label = QLabel("داكن")
+        dark_label.setObjectName("themeSegmentOptionActive")
+        dark_label.setAlignment(Qt.AlignCenter)
+        segment_layout.addWidget(light_label)
+        segment_layout.addWidget(dark_label)
         layout.addWidget(title)
-        layout.addWidget(self.sidebar_theme_label)
+        layout.addWidget(segment)
         return frame
 
     def _build_sidebar_ready_footer(self) -> QFrame:
@@ -1733,23 +1801,14 @@ class MainWindow(QMainWindow):
         ):
             button.setObjectName("navButton")
             button.setCheckable(True)
-            button.setIconSize(QSize(16, 16))
-        style = self.style()
-        nav_icons = (
-            (self.nav_import_button, QStyle.StandardPixmap.SP_DialogOpenButton),
-            (self.nav_clips_button, QStyle.StandardPixmap.SP_FileDialogDetailedView),
-            (self.nav_queue_button, QStyle.StandardPixmap.SP_FileDialogListView),
-            (self.nav_logs_button, QStyle.StandardPixmap.SP_FileDialogInfoView),
-        )
-        for button, icon_id in nav_icons:
-            button.setIcon(style.standardIcon(icon_id))
+            button.setIcon(QIcon())
         for button in (
             self.future_reports_button,
             self.future_schedule_button,
             self.future_templates_button,
         ):
             button.setObjectName("futureNavButton")
-            button.setIconSize(QSize(14, 14))
+            button.setIcon(QIcon())
 
         self.smart_paste_button.setMinimumWidth(118)
         self.global_smart_import_button.setMinimumWidth(118)
@@ -1813,9 +1872,9 @@ class MainWindow(QMainWindow):
         frame = QFrame()
         frame.setObjectName("appHeader")
         frame.setFrameShape(QFrame.StyledPanel)
-        layout = QHBoxLayout(frame)
-        layout.setContentsMargins(9, 9, 9, 9)
-        layout.setSpacing(9)
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(4)
 
         logo = QLabel()
         logo.setObjectName("appLogo")
@@ -1824,24 +1883,25 @@ class MainWindow(QMainWindow):
             logo_path = self._asset_path("icon.png")
         if logo_path.exists():
             pixmap = QPixmap(str(logo_path))
-            logo.setPixmap(pixmap.scaled(38, 38, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        logo.setFixedSize(42, 42)
+            logo.setPixmap(pixmap.scaled(66, 66, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        logo.setFixedSize(72, 72)
         logo.setAlignment(Qt.AlignCenter)
 
-        text_layout = QVBoxLayout()
-        text_layout.setSpacing(0)
         title = QLabel(APP_NAME)
         title.setObjectName("appTitle")
-        title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        title.setAlignment(Qt.AlignCenter)
         title.setWordWrap(False)
         english_name = QLabel("AlmiqsAlBaseet")
         english_name.setObjectName("metricCaption")
-        english_name.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        english_name.setAlignment(Qt.AlignCenter)
         english_name.setWordWrap(False)
-        text_layout.addWidget(title)
-        text_layout.addWidget(english_name)
-        layout.addLayout(text_layout, stretch=1)
-        layout.addWidget(logo, alignment=Qt.AlignVCenter)
+        version = QLabel(f"v{APP_VERSION}")
+        version.setObjectName("appVersion")
+        version.setAlignment(Qt.AlignCenter)
+        layout.addWidget(logo, alignment=Qt.AlignCenter)
+        layout.addWidget(title)
+        layout.addWidget(english_name)
+        layout.addWidget(version)
 
         return frame
 
@@ -3269,15 +3329,10 @@ class MainWindow(QMainWindow):
         if self.job_queue:
             last_job = self.job_queue[-1]
             last_job_summary = self._queue_status_label(last_job.status)
-        self.sidebar_status_summary_label.setText(
-            "\n".join(
-                [
-                    f"الحالة: {status_text}",
-                    f"في قائمة الانتظار: {queue_count}",
-                    f"آخر مهمة: {last_job_summary}",
-                ]
-            )
-        )
+        self.sidebar_engine_status_label.setText(status_text or "جاهز")
+        self.sidebar_smart_status_label.setText("جاهز")
+        self.sidebar_last_job_label.setText(last_job_summary)
+        self.sidebar_queue_count_label.setText(str(queue_count))
         self.sidebar_bottom_status_label.setText(status_text)
 
         project_title = self.project_name_input.text().strip() or "عمل بلا عنوان"

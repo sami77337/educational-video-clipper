@@ -376,8 +376,15 @@ def test_dashboard_pages_contain_required_sections_and_controls() -> None:
     assert window.operations_log_table.columnCount() == 5
     assert window.queue_snapshot_table.columnCount() == 4
     assert {"الحالة العامة", "السمة"}.issubset(label_texts)
-    assert window.sidebar_status_summary_label.objectName() == "sidebarStatusLabel"
-    assert window.sidebar_theme_label.text() == "السمة الحالية: داكن"
+    assert window.sidebar_engine_status_label.objectName() == "sidebarStatusValue"
+    assert window.sidebar_smart_status_label.text() == "جاهز"
+    assert window.sidebar_queue_count_label.text() == "0"
+    assert all(button.icon().isNull() for button in (
+        window.nav_import_button,
+        window.nav_clips_button,
+        window.nav_queue_button,
+        window.nav_logs_button,
+    ))
     assert not window.future_reports_button.isEnabled()
     assert "قريبًا" in window.future_reports_button.text()
 
@@ -427,6 +434,8 @@ def test_dashboard_visual_proportions_are_compact_for_preview() -> None:
     assert "QFrame#sidebarCard" in style
     assert "QPushButton#futureNavButton" in style
     assert "QLabel#readyIndicator" in style
+    assert "QFrame#themeSegment" in style
+    assert "QLabel#sidebarGreenDot" in style
     assert window.minimumHeight() <= 640
     assert window.centralWidget().horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff
     assert window.bottom_status_label.parent().maximumHeight() <= 28
