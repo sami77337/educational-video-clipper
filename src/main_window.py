@@ -8,7 +8,7 @@ import re
 import sys
 from urllib.parse import parse_qs, urlsplit
 
-from PySide6.QtCore import QByteArray, QObject, Qt, QThread, QUrl, Signal, Slot
+from PySide6.QtCore import QByteArray, QObject, QSize, Qt, QThread, QUrl, Signal, Slot
 from PySide6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QStackedWidget,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -187,18 +188,23 @@ QScrollArea {
     border: none;
 }
 QFrame#appHeader {
-    background: transparent;
-    border: none;
-    border-radius: 14px;
+    background: #0b1826;
+    border: 1px solid #1d354b;
+    border-radius: 18px;
 }
 QLabel#appTitle {
     color: #f8fafc;
-    font-size: 17px;
+    font-size: 16px;
     font-weight: 700;
 }
 QLabel#appSubtitle {
     color: #b8c7d8;
-    font-size: 11px;
+    font-size: 10px;
+}
+QLabel#appLogo {
+    background: #07131f;
+    border: 1px solid #1e3b54;
+    border-radius: 12px;
 }
 QLabel#sectionHelpText, QLabel#statusHelperLabel {
     color: #aebdd0;
@@ -402,31 +408,37 @@ QPushButton#smartImportButton:pressed {
     border-color: #b8d9ff;
 }
 QPushButton#navButton {
-    background: #0a1724;
+    background: transparent;
     border: 1px solid transparent;
     border-radius: 14px;
     color: #b9c9db;
-    padding: 7px 12px;
+    padding: 8px 12px;
     text-align: right;
-    min-height: 31px;
+    min-height: 34px;
+    icon-size: 16px;
 }
 QPushButton#navButton:checked {
-    background: #143c68;
+    background: #123a66;
     color: #ffffff;
     border: 1px solid #2d87f0;
 }
 QPushButton#navButton:hover {
-    background: #14263a;
+    background: #0f2539;
     color: #ffffff;
 }
 QPushButton#futureNavButton {
-    background: #0b1724;
-    border: 1px solid #1c3145;
+    background: #091522;
+    border: 1px solid #192d40;
     border-radius: 14px;
     color: #7d8fa3;
     padding: 7px 12px;
     text-align: right;
     min-height: 29px;
+}
+QPushButton#futureNavButton:disabled {
+    background: #091522;
+    border-color: #192d40;
+    color: #66778a;
 }
 QPushButton#topNavButton {
     background: transparent;
@@ -502,6 +514,39 @@ QFrame#sideRail {
     background: #071522;
     border-left: 1px solid #1b3145;
     border-radius: 0;
+}
+QFrame#sidebarNavGroup {
+    background: #081625;
+    border: 1px solid #152b40;
+    border-radius: 18px;
+}
+QFrame#sidebarCard {
+    background: #0b1826;
+    border: 1px solid #1d354b;
+    border-radius: 18px;
+}
+QFrame#sidebarReadyFooter {
+    background: #081625;
+    border: 1px solid #1d354b;
+    border-radius: 14px;
+}
+QLabel#sidebarCardTitle {
+    color: #f3f7fb;
+    font-size: 12px;
+    font-weight: 700;
+}
+QLabel#sidebarStatusLabel, QLabel#sidebarThemeLabel {
+    color: #b9c9db;
+    background: transparent;
+    line-height: 1.35;
+}
+QLabel#readyIndicator {
+    background: #32d36b;
+    border-radius: 5px;
+    min-width: 10px;
+    min-height: 10px;
+    max-width: 10px;
+    max-height: 10px;
 }
 QFrame#topNav {
     background: transparent;
@@ -1272,6 +1317,9 @@ class MainWindow(QMainWindow):
         self.future_reports_button = QPushButton("تقارير متقدمة — قريبًا")
         self.future_schedule_button = QPushButton("الجدولة — قريبًا")
         self.future_templates_button = QPushButton("مشاركة القوالب — قريبًا")
+        self.sidebar_status_summary_label = QLabel()
+        self.sidebar_theme_label = QLabel("السمة الحالية: داكن")
+        self.sidebar_bottom_status_label = QLabel("جاهز")
         self.bottom_status_label = QLabel("جاهز")
         self.bottom_output_label = QLabel(str(self.output_root))
         self.scroll_area = QScrollArea()
@@ -1348,27 +1396,89 @@ class MainWindow(QMainWindow):
         rail.setObjectName("sideRail")
         rail.setFixedWidth(236)
         layout = QVBoxLayout(rail)
-        layout.setSpacing(8)
-        layout.setContentsMargins(14, 12, 14, 10)
+        layout.setSpacing(10)
+        layout.setContentsMargins(12, 12, 12, 10)
 
         layout.addWidget(self._build_header_section())
+        nav_group = QFrame()
+        nav_group.setObjectName("sidebarNavGroup")
+        nav_layout = QVBoxLayout(nav_group)
+        nav_layout.setContentsMargins(6, 6, 6, 6)
+        nav_layout.setSpacing(5)
         for button in (
             self.nav_import_button,
             self.nav_clips_button,
             self.nav_queue_button,
             self.nav_logs_button,
         ):
-            layout.addWidget(button)
-        layout.addSpacing(6)
-        future_title = QLabel("ميزات قادمة")
-        future_title.setObjectName("sectionHelpText")
-        layout.addWidget(future_title)
+            nav_layout.addWidget(button)
+        layout.addWidget(nav_group)
+        layout.addWidget(self._build_sidebar_future_card())
+        layout.addWidget(self._build_sidebar_status_card())
+        layout.addWidget(self._build_sidebar_theme_card())
+        layout.addStretch(1)
+        layout.addWidget(self._build_sidebar_ready_footer())
+        return rail
+
+    def _build_sidebar_future_card(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("sidebarCard")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+        title = QLabel("ميزات قادمة")
+        title.setObjectName("sidebarCardTitle")
+        title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        layout.addWidget(title)
         layout.addWidget(self.future_reports_button)
         layout.addWidget(self.future_schedule_button)
         layout.addWidget(self.future_templates_button)
+        return frame
+
+    def _build_sidebar_status_card(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("sidebarCard")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(7)
+        title = QLabel("الحالة العامة")
+        title.setObjectName("sidebarCardTitle")
+        title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.sidebar_status_summary_label.setObjectName("sidebarStatusLabel")
+        self.sidebar_status_summary_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.sidebar_status_summary_label.setWordWrap(True)
+        layout.addWidget(title)
+        layout.addWidget(self.sidebar_status_summary_label)
+        return frame
+
+    def _build_sidebar_theme_card(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("sidebarCard")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(7)
+        title = QLabel("السمة")
+        title.setObjectName("sidebarCardTitle")
+        title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.sidebar_theme_label.setObjectName("sidebarThemeLabel")
+        self.sidebar_theme_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        layout.addWidget(title)
+        layout.addWidget(self.sidebar_theme_label)
+        return frame
+
+    def _build_sidebar_ready_footer(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("sidebarReadyFooter")
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(10, 7, 10, 7)
+        layout.setSpacing(8)
+        layout.addWidget(self.sidebar_bottom_status_label)
         layout.addStretch(1)
-        layout.addWidget(self.processing_status_label)
-        return rail
+        indicator = QLabel()
+        indicator.setObjectName("readyIndicator")
+        indicator.setFixedSize(10, 10)
+        layout.addWidget(indicator)
+        return frame
 
     def _build_top_navigation(self) -> QFrame:
         frame = QFrame()
@@ -1614,6 +1724,7 @@ class MainWindow(QMainWindow):
         self.system_status_label.setObjectName("queueDetailsLabel")
         self.queue_current_job_label.setObjectName("queueDetailsLabel")
         self.queue_info_preview_label.setObjectName("queueDetailsLabel")
+        self.sidebar_bottom_status_label.setObjectName("sidebarStatusLabel")
         for button in (
             self.nav_import_button,
             self.nav_clips_button,
@@ -1622,12 +1733,23 @@ class MainWindow(QMainWindow):
         ):
             button.setObjectName("navButton")
             button.setCheckable(True)
+            button.setIconSize(QSize(16, 16))
+        style = self.style()
+        nav_icons = (
+            (self.nav_import_button, QStyle.StandardPixmap.SP_DialogOpenButton),
+            (self.nav_clips_button, QStyle.StandardPixmap.SP_FileDialogDetailedView),
+            (self.nav_queue_button, QStyle.StandardPixmap.SP_FileDialogListView),
+            (self.nav_logs_button, QStyle.StandardPixmap.SP_FileDialogInfoView),
+        )
+        for button, icon_id in nav_icons:
+            button.setIcon(style.standardIcon(icon_id))
         for button in (
             self.future_reports_button,
             self.future_schedule_button,
             self.future_templates_button,
         ):
             button.setObjectName("futureNavButton")
+            button.setIconSize(QSize(14, 14))
 
         self.smart_paste_button.setMinimumWidth(118)
         self.global_smart_import_button.setMinimumWidth(118)
@@ -1692,7 +1814,7 @@ class MainWindow(QMainWindow):
         frame.setObjectName("appHeader")
         frame.setFrameShape(QFrame.StyledPanel)
         layout = QHBoxLayout(frame)
-        layout.setContentsMargins(4, 4, 4, 8)
+        layout.setContentsMargins(9, 9, 9, 9)
         layout.setSpacing(9)
 
         logo = QLabel()
@@ -1711,9 +1833,11 @@ class MainWindow(QMainWindow):
         title = QLabel(APP_NAME)
         title.setObjectName("appTitle")
         title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        title.setWordWrap(False)
         english_name = QLabel("AlmiqsAlBaseet")
         english_name.setObjectName("metricCaption")
         english_name.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        english_name.setWordWrap(False)
         text_layout.addWidget(title)
         text_layout.addWidget(english_name)
         layout.addLayout(text_layout, stretch=1)
@@ -3141,6 +3265,20 @@ class MainWindow(QMainWindow):
         self.bottom_status_label.setText(status_text)
         self.bottom_output_label.setText(f"مجلد النتائج: {self._short_path_text(output_path, limit=82)}")
         self.bottom_output_label.setToolTip(str(output_path))
+        last_job_summary = "لا توجد"
+        if self.job_queue:
+            last_job = self.job_queue[-1]
+            last_job_summary = self._queue_status_label(last_job.status)
+        self.sidebar_status_summary_label.setText(
+            "\n".join(
+                [
+                    f"الحالة: {status_text}",
+                    f"في قائمة الانتظار: {queue_count}",
+                    f"آخر مهمة: {last_job_summary}",
+                ]
+            )
+        )
+        self.sidebar_bottom_status_label.setText(status_text)
 
         project_title = self.project_name_input.text().strip() or "عمل بلا عنوان"
         self.current_work_label.setText(

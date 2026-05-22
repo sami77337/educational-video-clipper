@@ -334,6 +334,7 @@ def test_dashboard_pages_contain_required_sections_and_controls() -> None:
     window = MainWindow()
     group_titles = {group.title() for group in window.findChildren(QGroupBox)}
     button_texts = {button.text() for button in window.findChildren(QPushButton)}
+    label_texts = {label.text() for label in window.findChildren(QLabel)}
 
     assert {"الاستيراد", "المقاطع", "قائمة الانتظار", "السجل"} == {
         window.nav_import_button.text(),
@@ -374,6 +375,9 @@ def test_dashboard_pages_contain_required_sections_and_controls() -> None:
     assert window.import_extracted_clips_table.columnCount() == 7
     assert window.operations_log_table.columnCount() == 5
     assert window.queue_snapshot_table.columnCount() == 4
+    assert {"الحالة العامة", "السمة"}.issubset(label_texts)
+    assert window.sidebar_status_summary_label.objectName() == "sidebarStatusLabel"
+    assert window.sidebar_theme_label.text() == "السمة الحالية: داكن"
     assert not window.future_reports_button.isEnabled()
     assert "قريبًا" in window.future_reports_button.text()
 
@@ -420,6 +424,9 @@ def test_dashboard_visual_proportions_are_compact_for_preview() -> None:
     assert "QPushButton#primaryActionButton:pressed" in style
     assert "QPushButton#topNavButton" in style
     assert "QRadioButton:checked" in style
+    assert "QFrame#sidebarCard" in style
+    assert "QPushButton#futureNavButton" in style
+    assert "QLabel#readyIndicator" in style
     assert window.minimumHeight() <= 640
     assert window.centralWidget().horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff
     assert window.bottom_status_label.parent().maximumHeight() <= 28
