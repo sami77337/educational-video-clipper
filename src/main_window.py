@@ -9,7 +9,7 @@ import sys
 from urllib.parse import parse_qs, urlsplit
 
 from PySide6.QtCore import QByteArray, QObject, QRectF, QSize, Qt, QThread, QUrl, Signal, Slot
-from PySide6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -203,6 +203,7 @@ QLabel#appTitle {
     color: #f8fafc;
     font-size: 22px;
     font-weight: 800;
+    min-height: 34px;
 }
 QLabel#appSubtitle {
     background: transparent;
@@ -2032,7 +2033,8 @@ class MainWindow(QMainWindow):
             logo_path = self._asset_path("icon.png")
         if logo_path.exists():
             pixmap = QPixmap(str(logo_path))
-            logo.setPixmap(pixmap.scaled(72, 72, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            if not pixmap.isNull():
+                logo.setPixmap(self._sidebar_logo_pixmap(pixmap, QSize(72, 72)))
         logo.setFixedSize(80, 80)
         logo.setAlignment(Qt.AlignCenter)
         logo_halo = QFrame()
@@ -2046,19 +2048,42 @@ class MainWindow(QMainWindow):
         title.setObjectName("appTitle")
         title.setAlignment(Qt.AlignCenter)
         title.setWordWrap(False)
+        title.setMinimumHeight(34)
         english_name = QLabel("AlmiqsAlBaseet")
         english_name.setObjectName("appSubtitle")
         english_name.setAlignment(Qt.AlignCenter)
         english_name.setWordWrap(False)
-        version = QLabel(f"v{APP_VERSION}")
-        version.setObjectName("appVersion")
-        version.setAlignment(Qt.AlignCenter)
         layout.addWidget(logo_halo, alignment=Qt.AlignCenter)
         layout.addWidget(title)
         layout.addWidget(english_name)
-        layout.addWidget(version)
 
         return frame
+
+    def _sidebar_logo_pixmap(self, source: QPixmap, target_size: QSize) -> QPixmap:
+        """Use the existing logo art, cropped and rounded to avoid a pasted-square look."""
+        side = min(source.width(), source.height())
+        crop_side = int(side * 0.58)
+        crop_x = max(0, (source.width() - crop_side) // 2)
+        crop_y = max(0, int(side * 0.12))
+        if crop_y + crop_side > source.height():
+            crop_y = max(0, source.height() - crop_side)
+        cropped = source.copy(crop_x, crop_y, crop_side, crop_side)
+        scaled = cropped.scaled(target_size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        if scaled.width() != target_size.width() or scaled.height() != target_size.height():
+            x = max(0, (scaled.width() - target_size.width()) // 2)
+            y = max(0, (scaled.height() - target_size.height()) // 2)
+            scaled = scaled.copy(x, y, target_size.width(), target_size.height())
+
+        rounded = QPixmap(target_size)
+        rounded.fill(Qt.transparent)
+        painter = QPainter(rounded)
+        painter.setRenderHint(QPainter.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, target_size.width(), target_size.height()), 18, 18)
+        painter.setClipPath(path)
+        painter.drawPixmap(0, 0, scaled)
+        painter.end()
+        return rounded
 
     def _build_page_heading(self, title_text: str, subtitle_text: str) -> QFrame:
         frame = QFrame()
