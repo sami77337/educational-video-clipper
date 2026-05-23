@@ -603,7 +603,7 @@ QFrame#appearancePanel {
     background: qradialgradient(cx:0.82, cy:0.22, radius:0.95, fx:0.82, fy:0.22, stop:0 #1e5e95, stop:0.34 #123b62, stop:1 #071827);
     border: 1px solid #3a77a0;
     border-radius: 24px;
-    min-height: 114px;
+    min-height: 126px;
 }
 QLabel#appearanceIndicator {
     background: qradialgradient(cx:0.35, cy:0.3, radius:0.78, fx:0.35, fy:0.3, stop:0 #7ec7ff, stop:0.45 #2c79bf, stop:1 #123d6d);
@@ -641,8 +641,8 @@ QLabel#appearanceModePill {
     font-size: 11.5px;
     font-weight: 750;
     padding: 6px 16px;
-    min-width: 72px;
-    min-height: 32px;
+    min-width: 78px;
+    min-height: 36px;
 }
 QLabel#readyIndicator {
     background: #40e287;
@@ -1601,7 +1601,7 @@ class MainWindow(QMainWindow):
         frame.setObjectName("sidebarCard")
         frame.setProperty("sidebarRole", "appearance")
         frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-        frame.setMaximumHeight(192)
+        frame.setMaximumHeight(206)
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
@@ -1610,9 +1610,9 @@ class MainWindow(QMainWindow):
         title.setAlignment(Qt.AlignCenter)
         appearance = QFrame()
         appearance.setObjectName("appearancePanel")
-        appearance.setMinimumHeight(114)
+        appearance.setMinimumHeight(126)
         appearance_layout = QHBoxLayout(appearance)
-        appearance_layout.setContentsMargins(13, 13, 13, 13)
+        appearance_layout.setContentsMargins(13, 10, 13, 18)
         appearance_layout.setSpacing(10)
         moon = QLabel("◑")
         moon.setObjectName("appearanceIndicator")
@@ -1631,7 +1631,7 @@ class MainWindow(QMainWindow):
         state = QLabel("مفعّل")
         state.setObjectName("appearanceModePill")
         state.setAlignment(Qt.AlignCenter)
-        state.setMinimumSize(72, 32)
+        state.setMinimumSize(78, 36)
         state.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         layout.addWidget(title)
         text_layout.addWidget(mode)
