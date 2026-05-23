@@ -187,6 +187,9 @@ QMainWindow, QScrollArea, QWidget {
 QScrollArea {
     border: none;
 }
+QLabel {
+    background: transparent;
+}
 QFrame#appHeader {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #173553, stop:0.42 #0d243c, stop:1 #061522);
     border: 1px solid #315f7f;
@@ -241,7 +244,7 @@ QLabel#pageSubtitle {
     font-size: 12px;
 }
 QGroupBox {
-    background: #0f1b29;
+    background: #102034;
     border: 1px solid #20394f;
     border-radius: 18px;
     margin-top: 0;
@@ -255,17 +258,17 @@ QGroupBox::title {
     right: 16px;
     padding: 3px 11px;
     color: #f4f8fd;
-    background: #0f1b29;
+    background: #122840;
     border: 1px solid #243f57;
     border-radius: 10px;
     font-size: 14px;
     font-weight: 750;
 }
 QGroupBox#dashboardCard {
-    background: #0f1b29;
+    background: #102034;
 }
 QGroupBox#mainActionsCard {
-    background: #0c1825;
+    background: #102238;
     border-color: #24435d;
     border-radius: 18px;
     padding: 7px 12px;
@@ -305,13 +308,13 @@ QGroupBox#importSummaryCard {
     padding-top: 42px;
 }
 QGroupBox#nestedSettingsGroup, QGroupBox#jobDetailsCard {
-    background: #0c1825;
+    background: #102238;
     border-color: #33506a;
     border-radius: 12px;
     padding-top: 34px;
 }
 QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTableWidget {
-    background: #08131f;
+    background: #0f2236;
     border: 1px solid #2b4054;
     border-radius: 11px;
     color: #f4f7fb;
@@ -327,13 +330,13 @@ QTextEdit {
 }
 QTextEdit#pasteBox {
     min-height: 190px;
-    background: #06121e;
+    background: #0e2236;
     border: 1px dashed #3b6688;
     border-radius: 17px;
     padding: 12px;
 }
 QTextEdit#logArea {
-    background: #07111c;
+    background: #0d1f32;
     border-color: #31465b;
     font-family: Consolas, "Courier New", monospace;
     font-size: 11px;
@@ -347,7 +350,7 @@ QTextEdit#warningArea {
     font-size: 11px;
 }
 QTextEdit#reviewArea {
-    background: #07111c;
+    background: #0d1f32;
     border-color: #31465b;
     font-family: Consolas, "Courier New", monospace;
     font-size: 11px;
@@ -359,7 +362,7 @@ QLineEdit:disabled, QTextEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabl
 }
 QTableWidget {
     gridline-color: #26394b;
-    alternate-background-color: #0d1b29;
+    alternate-background-color: #102438;
     border-radius: 12px;
 }
 QTableWidget::item {
@@ -464,13 +467,14 @@ QPushButton#futureNavButton:disabled {
     color: #8497aa;
 }
 QPushButton#topNavButton {
-    background: #0d1d2f;
-    border: 1px solid #223e56;
-    border-radius: 18px;
-    color: #c2d1e2;
-    padding: 8px 22px;
-    min-height: 35px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #17314c, stop:0.52 #10253b, stop:1 #0c1d30);
+    border: 1px solid #315671;
+    border-radius: 20px;
+    color: #d2dfed;
+    padding: 9px 22px;
+    min-height: 38px;
     min-width: 146px;
+    font-size: 12.5px;
     font-weight: 700;
 }
 QPushButton#topNavButton:checked {
@@ -490,54 +494,60 @@ QPushButton#topNavButton:pressed {
     padding-bottom: 7px;
 }
 QGroupBox#mainActionsCard[topActions="true"] {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #12273c, stop:0.48 #0b1c2d, stop:1 #071522);
-    border: 1px solid #254a64;
-    border-radius: 22px;
-    padding: 7px 12px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #17324d, stop:0.48 #10263d, stop:1 #0b1e31);
+    border: 1px solid #315b78;
+    border-radius: 24px;
+    padding: 9px 14px;
 }
 QPushButton[topAction="true"] {
-    background: #162c43;
-    border: 1px solid #335d7b;
-    border-radius: 15px;
-    color: #edf6ff;
-    padding: 7px 15px;
-    min-height: 32px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1d3b56, stop:1 #142f49);
+    border: 1px solid #477897;
+    border-radius: 17px;
+    color: #f1f8ff;
+    padding: 9px 18px;
+    min-height: 40px;
     min-width: 108px;
-    font-size: 11.5px;
-    font-weight: 700;
+    font-size: 12.5px;
+    font-weight: 750;
 }
 QPushButton[topAction="true"]:hover {
-    background: #1e3d5a;
-    border-color: #5d93ba;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #275074, stop:1 #1a3d5d);
+    border-color: #78aacb;
 }
 QPushButton[topAction="true"]:pressed {
-    background: #10283f;
+    background: #15334f;
     border-color: #8ab8d8;
-    padding-top: 8px;
-    padding-bottom: 6px;
+    padding-top: 10px;
+    padding-bottom: 8px;
 }
 QPushButton[topAction="true"]:disabled {
-    background: #101f30;
-    border-color: #273f55;
-    color: #77889a;
+    background: #14263a;
+    border-color: #2f485f;
+    color: #8093a6;
 }
 QPushButton#smartImportButton[topAction="true"] {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1f67bf, stop:1 #174f91);
-    border-color: #69a9e8;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #26a66d, stop:0.55 #188655, stop:1 #116541);
+    border-color: #72d9a6;
+    color: #f2fff8;
 }
 QPushButton#smartImportButton[topAction="true"]:hover {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2879dd, stop:1 #1d5ea9);
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #31bc7d, stop:0.55 #209b64, stop:1 #15734a);
+    border-color: #9be8bf;
+}
+QPushButton#smartImportButton[topAction="true"]:pressed {
+    background: #0f5d3d;
+    border-color: #bdf3d2;
 }
 QPushButton#primaryActionButton[topAction="true"] {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2f8dff, stop:0.55 #2679e8, stop:1 #1b5eb8);
     border-color: #8ac3ff;
-    border-radius: 17px;
+    border-radius: 19px;
     color: #ffffff;
-    font-size: 12.5px;
+    font-size: 13px;
     font-weight: 800;
-    min-height: 36px;
+    min-height: 42px;
     min-width: 152px;
-    padding: 8px 24px;
+    padding: 10px 26px;
 }
 QPushButton#primaryActionButton[topAction="true"]:hover {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4aa0ff, stop:0.55 #2d86f5, stop:1 #2169ca);
@@ -551,9 +561,9 @@ QPushButton#newWorkButton, QPushButton#validateActionButton, QPushButton#openOut
     border-color: #416886;
 }
 QPushButton#newWorkButton[topAction="true"], QPushButton#validateActionButton[topAction="true"], QPushButton#openOutputButton[topAction="true"] {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1b354d, stop:1 #12283d);
-    border-color: #416f91;
-    border-radius: 15px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1d3b56, stop:1 #142f49);
+    border-color: #477897;
+    border-radius: 17px;
 }
 QPushButton#newWorkButton[topAction="true"]:hover, QPushButton#validateActionButton[topAction="true"]:hover, QPushButton#openOutputButton[topAction="true"]:hover {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #244760, stop:1 #17334c);
@@ -564,16 +574,16 @@ QPushButton#newWorkButton[topAction="true"]:pressed, QPushButton#validateActionB
     border-color: #9fc8e6;
 }
 QPushButton#openOutputButton[topAction="true"]:disabled {
-    background: #101f30;
-    border-color: #273f55;
-    color: #77889a;
+    background: #14263a;
+    border-color: #2f485f;
+    color: #8093a6;
 }
 QPushButton#advancedToggleButton {
     background: #122235;
     border-style: dashed;
 }
 QLabel#processingStatusLabel, QLabel#logHeaderLabel {
-    background: #0a1623;
+    background: #10263c;
     border: 1px solid #2b4054;
     border-radius: 999px;
     padding: 5px 11px;
@@ -585,14 +595,14 @@ QLabel#queueEditStatusLabel {
 }
 QLabel#queueSummaryLabel {
     color: #d7e5f6;
-    background: #0b1724;
+    background: #102236;
     border: 1px solid #243d54;
     border-radius: 12px;
     padding: 8px 10px;
 }
 QLabel#queueDetailsLabel {
     color: #e4edf8;
-    background: #08131f;
+    background: #0e2033;
     border: 1px solid #253f56;
     border-radius: 12px;
     padding: 9px 11px;
@@ -608,7 +618,7 @@ QLabel#metricCaption {
 }
 QLabel#emptyStateLabel {
     color: #aebdd0;
-    background: #07131f;
+    background: #0f2337;
     border: 1px dashed #2e4b64;
     border-radius: 16px;
     padding: 14px;
@@ -747,9 +757,9 @@ QFrame#topNav {
     border: none;
 }
 QFrame#topNavStrip {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #112338, stop:0.5 #0a1827, stop:1 #071421);
-    border: 1px solid #25445d;
-    border-radius: 24px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #173450, stop:0.5 #10283f, stop:1 #0c2034);
+    border: 1px solid #345d78;
+    border-radius: 26px;
 }
 QFrame#bottomStatusBar {
     background: #07111d;
@@ -1744,7 +1754,7 @@ class MainWindow(QMainWindow):
     def _build_top_navigation(self) -> QFrame:
         frame = QFrame()
         frame.setObjectName("topNav")
-        frame.setMaximumHeight(50)
+        frame.setMaximumHeight(58)
         layout = QHBoxLayout(frame)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -1752,7 +1762,7 @@ class MainWindow(QMainWindow):
         strip = QFrame()
         strip.setObjectName("topNavStrip")
         strip_layout = QHBoxLayout(strip)
-        strip_layout.setContentsMargins(6, 6, 6, 6)
+        strip_layout.setContentsMargins(7, 7, 7, 7)
         strip_layout.setSpacing(6)
         self.top_nav_buttons = {}
         for key, button in (
@@ -1764,7 +1774,7 @@ class MainWindow(QMainWindow):
             top_button = QPushButton(button.text())
             top_button.setObjectName("topNavButton")
             top_button.setCheckable(True)
-            top_button.setMinimumSize(146, 35)
+            top_button.setMinimumSize(146, 38)
             top_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             top_button.clicked.connect(lambda _checked=False, page=key: self.switch_dashboard_page(page))
             self.top_nav_buttons[key] = top_button
@@ -2074,9 +2084,9 @@ class MainWindow(QMainWindow):
             self.open_output_button,
         ):
             button.setProperty("topAction", True)
-            button.setMinimumHeight(34)
+            button.setMinimumHeight(42)
             button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self.start_button.setMinimumHeight(38)
+        self.start_button.setMinimumHeight(44)
         self.start_button.setMinimumWidth(152)
 
         for table in (
@@ -3085,10 +3095,10 @@ class MainWindow(QMainWindow):
         group = QGroupBox("أزرار التشغيل")
         self._style_card(group, "mainActionsCard")
         group.setProperty("topActions", True)
-        group.setMaximumHeight(54)
+        group.setMaximumHeight(66)
         layout = QHBoxLayout(group)
-        layout.setContentsMargins(12, 6, 12, 6)
-        layout.setSpacing(8)
+        layout.setContentsMargins(14, 8, 14, 8)
+        layout.setSpacing(10)
 
         layout.addWidget(self.new_work_button)
         layout.addWidget(self.global_smart_import_button)
