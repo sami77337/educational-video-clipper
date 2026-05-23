@@ -464,26 +464,109 @@ QPushButton#futureNavButton:disabled {
     color: #8497aa;
 }
 QPushButton#topNavButton {
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 14px;
-    color: #b9c9db;
-    padding: 7px 20px;
-    min-height: 31px;
-    min-width: 132px;
+    background: #0d1d2f;
+    border: 1px solid #223e56;
+    border-radius: 18px;
+    color: #c2d1e2;
+    padding: 8px 22px;
+    min-height: 35px;
+    min-width: 146px;
+    font-weight: 700;
 }
 QPushButton#topNavButton:checked {
-    background: #132941;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2f86f4, stop:0.58 #236bd2, stop:1 #164a8b);
     color: #ffffff;
-    border-color: #2d87f0;
+    border-color: #76b8ff;
 }
 QPushButton#topNavButton:hover {
-    background: #102236;
+    background: #142f4d;
+    border-color: #4d8bc1;
     color: #ffffff;
+}
+QPushButton#topNavButton:pressed {
+    background: #0f3766;
+    border-color: #a4d4ff;
+    padding-top: 9px;
+    padding-bottom: 7px;
+}
+QGroupBox#mainActionsCard[topActions="true"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #12273c, stop:0.48 #0b1c2d, stop:1 #071522);
+    border: 1px solid #254a64;
+    border-radius: 22px;
+    padding: 7px 12px;
+}
+QPushButton[topAction="true"] {
+    background: #162c43;
+    border: 1px solid #335d7b;
+    border-radius: 15px;
+    color: #edf6ff;
+    padding: 7px 15px;
+    min-height: 32px;
+    min-width: 108px;
+    font-size: 11.5px;
+    font-weight: 700;
+}
+QPushButton[topAction="true"]:hover {
+    background: #1e3d5a;
+    border-color: #5d93ba;
+}
+QPushButton[topAction="true"]:pressed {
+    background: #10283f;
+    border-color: #8ab8d8;
+    padding-top: 8px;
+    padding-bottom: 6px;
+}
+QPushButton[topAction="true"]:disabled {
+    background: #101f30;
+    border-color: #273f55;
+    color: #77889a;
+}
+QPushButton#smartImportButton[topAction="true"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1f67bf, stop:1 #174f91);
+    border-color: #69a9e8;
+}
+QPushButton#smartImportButton[topAction="true"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2879dd, stop:1 #1d5ea9);
+}
+QPushButton#primaryActionButton[topAction="true"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2f8dff, stop:0.55 #2679e8, stop:1 #1b5eb8);
+    border-color: #8ac3ff;
+    border-radius: 17px;
+    color: #ffffff;
+    font-size: 12.5px;
+    font-weight: 800;
+    min-height: 36px;
+    min-width: 152px;
+    padding: 8px 24px;
+}
+QPushButton#primaryActionButton[topAction="true"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4aa0ff, stop:0.55 #2d86f5, stop:1 #2169ca);
+}
+QPushButton#primaryActionButton[topAction="true"]:pressed {
+    background: #155fb8;
+    border-color: #c2e0ff;
 }
 QPushButton#newWorkButton, QPushButton#validateActionButton, QPushButton#openOutputButton {
     background: #1a334b;
     border-color: #416886;
+}
+QPushButton#newWorkButton[topAction="true"], QPushButton#validateActionButton[topAction="true"], QPushButton#openOutputButton[topAction="true"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1b354d, stop:1 #12283d);
+    border-color: #416f91;
+    border-radius: 15px;
+}
+QPushButton#newWorkButton[topAction="true"]:hover, QPushButton#validateActionButton[topAction="true"]:hover, QPushButton#openOutputButton[topAction="true"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #244760, stop:1 #17334c);
+    border-color: #6c9ec2;
+}
+QPushButton#newWorkButton[topAction="true"]:pressed, QPushButton#validateActionButton[topAction="true"]:pressed, QPushButton#openOutputButton[topAction="true"]:pressed {
+    background: #10283f;
+    border-color: #9fc8e6;
+}
+QPushButton#openOutputButton[topAction="true"]:disabled {
+    background: #101f30;
+    border-color: #273f55;
+    color: #77889a;
 }
 QPushButton#advancedToggleButton {
     background: #122235;
@@ -664,9 +747,9 @@ QFrame#topNav {
     border: none;
 }
 QFrame#topNavStrip {
-    background: #0c1724;
-    border: 1px solid #1c3449;
-    border-radius: 18px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #112338, stop:0.5 #0a1827, stop:1 #071421);
+    border: 1px solid #25445d;
+    border-radius: 24px;
 }
 QFrame#bottomStatusBar {
     background: #07111d;
@@ -1661,7 +1744,7 @@ class MainWindow(QMainWindow):
     def _build_top_navigation(self) -> QFrame:
         frame = QFrame()
         frame.setObjectName("topNav")
-        frame.setMaximumHeight(44)
+        frame.setMaximumHeight(50)
         layout = QHBoxLayout(frame)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -1669,8 +1752,8 @@ class MainWindow(QMainWindow):
         strip = QFrame()
         strip.setObjectName("topNavStrip")
         strip_layout = QHBoxLayout(strip)
-        strip_layout.setContentsMargins(4, 4, 4, 4)
-        strip_layout.setSpacing(4)
+        strip_layout.setContentsMargins(6, 6, 6, 6)
+        strip_layout.setSpacing(6)
         self.top_nav_buttons = {}
         for key, button in (
             ("logs", self.nav_logs_button),
@@ -1681,6 +1764,8 @@ class MainWindow(QMainWindow):
             top_button = QPushButton(button.text())
             top_button.setObjectName("topNavButton")
             top_button.setCheckable(True)
+            top_button.setMinimumSize(146, 35)
+            top_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             top_button.clicked.connect(lambda _checked=False, page=key: self.switch_dashboard_page(page))
             self.top_nav_buttons[key] = top_button
             strip_layout.addWidget(top_button)
@@ -1981,6 +2066,18 @@ class MainWindow(QMainWindow):
         self.new_work_button.setMinimumWidth(94)
         self.open_output_button.setMinimumWidth(118)
         self.processing_status_label.setMinimumWidth(140)
+        for button in (
+            self.new_work_button,
+            self.global_smart_import_button,
+            self.validate_button,
+            self.start_button,
+            self.open_output_button,
+        ):
+            button.setProperty("topAction", True)
+            button.setMinimumHeight(34)
+            button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.start_button.setMinimumHeight(38)
+        self.start_button.setMinimumWidth(152)
 
         for table in (
             self.queue_table,
@@ -2987,10 +3084,11 @@ class MainWindow(QMainWindow):
     def _build_action_section(self) -> QGroupBox:
         group = QGroupBox("أزرار التشغيل")
         self._style_card(group, "mainActionsCard")
-        group.setMaximumHeight(56)
+        group.setProperty("topActions", True)
+        group.setMaximumHeight(54)
         layout = QHBoxLayout(group)
-        layout.setContentsMargins(10, 6, 10, 6)
-        layout.setSpacing(9)
+        layout.setContentsMargins(12, 6, 12, 6)
+        layout.setSpacing(8)
 
         layout.addWidget(self.new_work_button)
         layout.addWidget(self.global_smart_import_button)
