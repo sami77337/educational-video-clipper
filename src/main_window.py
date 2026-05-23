@@ -8,8 +8,8 @@ import re
 import sys
 from urllib.parse import parse_qs, urlsplit
 
-from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
-from PySide6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QPixmap
+from PySide6.QtCore import QByteArray, QObject, QRectF, QSize, Qt, QThread, QUrl, Signal, Slot
+from PySide6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -33,7 +33,9 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -94,7 +96,7 @@ from src.smart_paste_parser import (
 )
 from src.smart_validation import format_smart_validation_report_ar, validate_clips_before_cutting
 from src.time_utils import normalize_timestamp_text, parse_timestamp
-from src.version import APP_NAME, APP_SUBTITLE
+from src.version import APP_NAME, APP_VERSION
 from src.validation import ClipRowInput, normalize_clip_exclusions, validate_clip_rows, validate_required_text
 from src.video_speed import AR_INVALID_VIDEO_SPEED, DEFAULT_VIDEO_SPEED, VideoSpeedError, normalize_video_speed
 from src.video_volume import (
@@ -180,50 +182,102 @@ APP_STYLE_SHEET = """
 QMainWindow, QScrollArea, QWidget {
     background: #07111d;
     color: #edf2f7;
-    font-size: 12px;
+    font-size: 11px;
 }
 QScrollArea {
     border: none;
 }
+QLabel {
+    background: transparent;
+}
 QFrame#appHeader {
-    background: #101c2b;
-    border: 1px solid #244157;
-    border-radius: 14px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #173553, stop:0.42 #0d243c, stop:1 #061522);
+    border: 1px solid #315f7f;
+    border-radius: 28px;
+}
+QFrame#logoHalo {
+    background: qradialgradient(cx:0.5, cy:0.42, radius:0.72, fx:0.45, fy:0.34, stop:0 #1d5d93, stop:0.45 #12375d, stop:1 #071725);
+    border: 1px solid #3f80a9;
+    border-radius: 31px;
 }
 QLabel#appTitle {
+    background: transparent;
+    border: none;
     color: #f8fafc;
-    font-size: 24px;
-    font-weight: 700;
+    font-size: 22px;
+    font-weight: 800;
+    min-height: 34px;
 }
 QLabel#appSubtitle {
-    color: #b8c7d8;
-    font-size: 13px;
+    background: transparent;
+    border: none;
+    color: #d5e2ef;
+    font-size: 12.5px;
+    font-weight: 650;
+}
+QLabel#appVersion {
+    background: transparent;
+    border: none;
+    color: #aabdd0;
+    font-size: 11.5px;
+    font-weight: 600;
+}
+QLabel#appLogo {
+    background: transparent;
+    border: none;
+    border-radius: 24px;
 }
 QLabel#sectionHelpText, QLabel#statusHelperLabel {
     color: #aebdd0;
 }
+QFrame#pageHeading {
+    background: transparent;
+    border: none;
+}
+QLabel#pageTitle {
+    color: #f8fafc;
+    font-size: 22px;
+    font-weight: 800;
+}
+QLabel#pageSubtitle {
+    color: #aebdd0;
+    font-size: 12px;
+}
 QGroupBox {
-    background: #101d2b;
-    border: 1px solid #263f55;
-    border-radius: 12px;
-    margin-top: 20px;
-    padding: 16px 14px 14px 14px;
+    background: #102034;
+    border: 1px solid #20394f;
+    border-radius: 18px;
+    margin-top: 0;
+    padding: 42px 16px 16px 16px;
     font-weight: 600;
 }
 QGroupBox::title {
-    subcontrol-origin: margin;
+    subcontrol-origin: padding;
     subcontrol-position: top right;
-    right: 14px;
-    padding: 2px 8px;
-    color: #d7e5f6;
-    background: #101d2b;
+    top: 12px;
+    right: 16px;
+    padding: 3px 11px;
+    color: #f4f8fd;
+    background: #122840;
+    border: 1px solid #243f57;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 750;
 }
 QGroupBox#dashboardCard {
-    background: #101d2b;
+    background: #102034;
 }
 QGroupBox#mainActionsCard {
-    background: #0f2133;
-    border-color: #315875;
+    background: #102238;
+    border-color: #24435d;
+    border-radius: 18px;
+    padding: 7px 12px;
+}
+QGroupBox#mainActionsCard::title {
+    color: transparent;
+    background: transparent;
+    border: none;
+    padding: 0;
 }
 QGroupBox#clipsCard {
     border-color: #345c7a;
@@ -231,34 +285,61 @@ QGroupBox#clipsCard {
 QGroupBox#queueCard {
     border-color: #2e536e;
 }
+QGroupBox#queueControlCard {
+    background: #0f1b29;
+    border-color: #2a4c66;
+}
+QGroupBox#smartImportCard {
+    background: #101f31;
+    border-color: #2d5777;
+    padding-top: 46px;
+}
+QGroupBox#smartImportCard::title {
+    color: #f8fafc;
+    font-size: 16px;
+}
+QGroupBox#importSideCard {
+    background: #101b29;
+    border-color: #294a64;
+}
+QGroupBox#importSummaryCard {
+    background: #101b29;
+    border-color: #294a64;
+    padding-top: 42px;
+}
 QGroupBox#nestedSettingsGroup, QGroupBox#jobDetailsCard {
-    background: #0c1825;
+    background: #102238;
     border-color: #33506a;
-    margin-top: 16px;
+    border-radius: 12px;
+    padding-top: 34px;
 }
 QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTableWidget {
-    background: #08131f;
+    background: #0f2236;
     border: 1px solid #2b4054;
-    border-radius: 8px;
+    border-radius: 11px;
     color: #f4f7fb;
     selection-background-color: #2d6cdf;
     selection-color: #ffffff;
 }
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox {
-    min-height: 28px;
+    min-height: 24px;
     padding: 3px 8px;
 }
 QTextEdit {
     padding: 8px;
 }
 QTextEdit#pasteBox {
-    min-height: 92px;
+    min-height: 190px;
+    background: #0e2236;
+    border: 1px dashed #3b6688;
+    border-radius: 17px;
+    padding: 12px;
 }
 QTextEdit#logArea {
-    background: #07111c;
+    background: #0d1f32;
     border-color: #31465b;
     font-family: Consolas, "Courier New", monospace;
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.35;
 }
 QTextEdit#warningArea {
@@ -266,13 +347,13 @@ QTextEdit#warningArea {
     border-color: #7a6022;
     color: #ffe6a3;
     font-family: Consolas, "Courier New", monospace;
-    font-size: 12px;
+    font-size: 11px;
 }
 QTextEdit#reviewArea {
-    background: #07111c;
+    background: #0d1f32;
     border-color: #31465b;
     font-family: Consolas, "Courier New", monospace;
-    font-size: 12px;
+    font-size: 11px;
 }
 QLineEdit:disabled, QTextEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled {
     background: #172331;
@@ -281,11 +362,11 @@ QLineEdit:disabled, QTextEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabl
 }
 QTableWidget {
     gridline-color: #26394b;
-    alternate-background-color: #0d1b29;
-    border-radius: 9px;
+    alternate-background-color: #102438;
+    border-radius: 12px;
 }
 QTableWidget::item {
-    padding: 8px;
+    padding: 6px;
 }
 QTableWidget::item:selected {
     background: #1f5f9f;
@@ -296,16 +377,16 @@ QHeaderView::section {
     color: #e7eef8;
     border: 0;
     border-left: 1px solid #2b4054;
-    padding: 8px 10px;
+    padding: 6px 9px;
     font-weight: 600;
 }
 QPushButton {
     background: #1b2e42;
     border: 1px solid #365a76;
-    border-radius: 9px;
+    border-radius: 11px;
     color: #f2f6fb;
-    padding: 8px 13px;
-    min-height: 32px;
+    padding: 5px 10px;
+    min-height: 25px;
 }
 QPushButton:hover {
     background: #253d56;
@@ -313,6 +394,9 @@ QPushButton:hover {
 }
 QPushButton:pressed {
     background: #132638;
+    border-color: #7aa7ca;
+    padding-top: 6px;
+    padding-bottom: 4px;
 }
 QPushButton:disabled {
     background: #121f2e;
@@ -324,31 +408,185 @@ QPushButton#primaryActionButton {
     border-color: #69abff;
     color: #ffffff;
     font-weight: 700;
-    min-height: 42px;
-    padding: 10px 22px;
-    font-size: 14px;
+    min-height: 34px;
+    padding: 7px 18px;
+    font-size: 12px;
 }
 QPushButton#primaryActionButton:hover {
     background: #3a90ff;
 }
+QPushButton#primaryActionButton:pressed {
+    background: #155fb8;
+    border-color: #b8d9ff;
+}
 QPushButton#smartImportButton {
-    background: #1c6f67;
-    border-color: #39a99a;
+    background: #236fdb;
+    border-color: #65a9ff;
     font-weight: 700;
+}
+QPushButton#smartImportButton:pressed {
+    background: #155fb8;
+    border-color: #b8d9ff;
+}
+QPushButton#navButton {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 19px;
+    color: #d5e2ef;
+    padding: 9px 16px;
+    text-align: right;
+    min-height: 42px;
+    font-size: 13.5px;
+    font-weight: 750;
+    icon-size: 20px;
+}
+QPushButton#navButton:checked {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2169ad, stop:0.55 #174c82, stop:1 #103459);
+    color: #ffffff;
+    border: 1px solid #66b3ff;
+}
+QPushButton#navButton:hover {
+    background: #123351;
+    border-color: #315c7c;
+    color: #ffffff;
+}
+QPushButton#futureNavButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #102840, stop:1 #081b2e);
+    border: 1px solid #2a4c68;
+    border-radius: 20px;
+    color: #9aacbf;
+    padding: 8px 12px;
+    text-align: center;
+    min-height: 33px;
+    font-size: 12.5px;
+    font-weight: 650;
+}
+QPushButton#futureNavButton:disabled {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #0e2338, stop:1 #071928);
+    border-color: #24435d;
+    color: #8497aa;
+}
+QPushButton#topNavButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #17314c, stop:0.52 #10253b, stop:1 #0c1d30);
+    border: 1px solid #315671;
+    border-radius: 20px;
+    color: #d2dfed;
+    padding: 9px 22px;
+    min-height: 38px;
+    min-width: 146px;
+    font-size: 12.5px;
+    font-weight: 700;
+}
+QPushButton#topNavButton:checked {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2f86f4, stop:0.58 #236bd2, stop:1 #164a8b);
+    color: #ffffff;
+    border-color: #76b8ff;
+}
+QPushButton#topNavButton:hover {
+    background: #142f4d;
+    border-color: #4d8bc1;
+    color: #ffffff;
+}
+QPushButton#topNavButton:pressed {
+    background: #0f3766;
+    border-color: #a4d4ff;
+    padding-top: 9px;
+    padding-bottom: 7px;
+}
+QGroupBox#mainActionsCard[topActions="true"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #17324d, stop:0.48 #10263d, stop:1 #0b1e31);
+    border: 1px solid #315b78;
+    border-radius: 24px;
+    padding: 9px 14px;
+}
+QPushButton[topAction="true"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1d3b56, stop:1 #142f49);
+    border: 1px solid #477897;
+    border-radius: 17px;
+    color: #f1f8ff;
+    padding: 9px 18px;
+    min-height: 40px;
+    min-width: 108px;
+    font-size: 12.5px;
+    font-weight: 750;
+}
+QPushButton[topAction="true"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #275074, stop:1 #1a3d5d);
+    border-color: #78aacb;
+}
+QPushButton[topAction="true"]:pressed {
+    background: #15334f;
+    border-color: #8ab8d8;
+    padding-top: 10px;
+    padding-bottom: 8px;
+}
+QPushButton[topAction="true"]:disabled {
+    background: #14263a;
+    border-color: #2f485f;
+    color: #8093a6;
+}
+QPushButton#smartImportButton[topAction="true"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #26a66d, stop:0.55 #188655, stop:1 #116541);
+    border-color: #72d9a6;
+    color: #f2fff8;
+}
+QPushButton#smartImportButton[topAction="true"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #31bc7d, stop:0.55 #209b64, stop:1 #15734a);
+    border-color: #9be8bf;
+}
+QPushButton#smartImportButton[topAction="true"]:pressed {
+    background: #0f5d3d;
+    border-color: #bdf3d2;
+}
+QPushButton#primaryActionButton[topAction="true"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #2f8dff, stop:0.55 #2679e8, stop:1 #1b5eb8);
+    border-color: #8ac3ff;
+    border-radius: 19px;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 800;
+    min-height: 42px;
+    min-width: 152px;
+    padding: 10px 26px;
+}
+QPushButton#primaryActionButton[topAction="true"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4aa0ff, stop:0.55 #2d86f5, stop:1 #2169ca);
+}
+QPushButton#primaryActionButton[topAction="true"]:pressed {
+    background: #155fb8;
+    border-color: #c2e0ff;
 }
 QPushButton#newWorkButton, QPushButton#validateActionButton, QPushButton#openOutputButton {
     background: #1a334b;
     border-color: #416886;
+}
+QPushButton#newWorkButton[topAction="true"], QPushButton#validateActionButton[topAction="true"], QPushButton#openOutputButton[topAction="true"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1d3b56, stop:1 #142f49);
+    border-color: #477897;
+    border-radius: 17px;
+}
+QPushButton#newWorkButton[topAction="true"]:hover, QPushButton#validateActionButton[topAction="true"]:hover, QPushButton#openOutputButton[topAction="true"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #244760, stop:1 #17334c);
+    border-color: #6c9ec2;
+}
+QPushButton#newWorkButton[topAction="true"]:pressed, QPushButton#validateActionButton[topAction="true"]:pressed, QPushButton#openOutputButton[topAction="true"]:pressed {
+    background: #10283f;
+    border-color: #9fc8e6;
+}
+QPushButton#openOutputButton[topAction="true"]:disabled {
+    background: #14263a;
+    border-color: #2f485f;
+    color: #8093a6;
 }
 QPushButton#advancedToggleButton {
     background: #122235;
     border-style: dashed;
 }
 QLabel#processingStatusLabel, QLabel#logHeaderLabel {
-    background: #0a1623;
+    background: #10263c;
     border: 1px solid #2b4054;
     border-radius: 999px;
-    padding: 7px 13px;
+    padding: 5px 11px;
     font-weight: 600;
     color: #d9e7f7;
 }
@@ -357,25 +595,255 @@ QLabel#queueEditStatusLabel {
 }
 QLabel#queueSummaryLabel {
     color: #d7e5f6;
-    background: #0b1724;
+    background: #102236;
     border: 1px solid #243d54;
-    border-radius: 8px;
+    border-radius: 12px;
     padding: 8px 10px;
 }
 QLabel#queueDetailsLabel {
     color: #e4edf8;
-    background: #08131f;
+    background: #0e2033;
     border: 1px solid #253f56;
-    border-radius: 8px;
-    padding: 10px 12px;
+    border-radius: 12px;
+    padding: 9px 11px;
     line-height: 1.35;
+}
+QLabel#metricValue {
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 700;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1b3a56, stop:1 #132c45);
+    border: 1px solid #345a75;
+    border-radius: 14px;
+    padding: 8px 10px;
+    min-height: 34px;
+}
+QLabel#metricCaption {
+    color: #aebdd0;
+    background: #11283e;
+    border: 1px solid #2a4861;
+    border-radius: 12px;
+    padding: 5px 9px;
+    min-height: 24px;
+}
+QLabel#emptyStateLabel {
+    color: #aebdd0;
+    background: #0f2337;
+    border: 1px dashed #2e4b64;
+    border-radius: 16px;
+    padding: 14px;
+}
+QFrame#dashboardShell, QFrame#sideRail, QFrame#topNav, QFrame#topNavStrip, QFrame#bottomStatusBar {
+    background: #07111d;
+}
+QFrame#sideRail {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #071525, stop:0.5 #050f1c, stop:1 #07121f);
+    border-left: 1px solid #1a344b;
+    border-radius: 0;
+}
+QFrame#sidebarNavGroup {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #142f4c, stop:0.46 #0d2238, stop:1 #071827);
+    border: 1px solid #2b536f;
+    border-radius: 27px;
+}
+QFrame#sidebarCard {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #142d49, stop:0.46 #0c2137, stop:1 #061725);
+    border: 1px solid #2a4f69;
+    border-radius: 27px;
+}
+QFrame#sidebarCard[sidebarRole="future"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #15304c, stop:0.48 #0d2238, stop:1 #071725);
+    border-color: #2b536d;
+}
+QFrame#sidebarCard[sidebarRole="status"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #16334f, stop:0.43 #0c243a, stop:1 #061624);
+    border-color: #315b78;
+}
+QFrame#sidebarCard[sidebarRole="appearance"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #173452, stop:0.42 #0c243c, stop:1 #061725);
+    border-color: #315f82;
+}
+QFrame#sidebarReadyFooter {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #12304a, stop:0.55 #0a2136, stop:1 #061725);
+    border: 1px solid #2e5874;
+    border-radius: 23px;
+}
+QLabel#sidebarCardTitle {
+    background: transparent;
+    border: none;
+    color: #f6fbff;
+    font-size: 14px;
+    font-weight: 800;
+    min-height: 24px;
+}
+QLabel#sidebarStatusLabel, QLabel#sidebarThemeLabel, QLabel#sidebarStatusValue {
+    color: #c9d8e6;
+    background: transparent;
+    line-height: 1.35;
+    font-size: 12.5px;
+    min-height: 22px;
+}
+QLabel#sidebarStatusValue {
+    color: #f5fbff;
+    font-weight: 750;
+}
+QFrame#sidebarStatusRow {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #132d47, stop:0.55 #0d2237, stop:1 #091a2b);
+    border: 1px solid #2a506d;
+    border-radius: 20px;
+    min-height: 34px;
+}
+QLabel#sidebarGreenDot {
+    background: #40e287;
+    border: 1px solid #8ff0bc;
+    border-radius: 5px;
+    min-width: 10px;
+    min-height: 10px;
+    max-width: 10px;
+    max-height: 10px;
+}
+QFrame#appearancePanel {
+    background: qradialgradient(cx:0.82, cy:0.22, radius:0.95, fx:0.82, fy:0.22, stop:0 #1e5e95, stop:0.34 #123b62, stop:1 #071827);
+    border: 1px solid #3a77a0;
+    border-radius: 24px;
+    min-height: 126px;
+}
+QLabel#appearanceIndicator {
+    background: qradialgradient(cx:0.35, cy:0.3, radius:0.78, fx:0.35, fy:0.3, stop:0 #7ec7ff, stop:0.45 #2c79bf, stop:1 #123d6d);
+    border: 1px solid #83c9ff;
+    border-radius: 20px;
+    color: #ffffff;
+    font-size: 18px;
+    font-weight: 800;
+    min-width: 40px;
+    min-height: 40px;
+    max-width: 40px;
+    max-height: 40px;
+}
+QLabel#appearanceText {
+    background: transparent;
+    border: none;
+    color: #f3f8ff;
+    font-size: 13px;
+    font-weight: 750;
+    min-height: 24px;
+}
+QLabel#appearanceHint {
+    background: transparent;
+    border: none;
+    color: #a9bdd1;
+    font-size: 11.5px;
+    font-weight: 600;
+    min-height: 22px;
+}
+QLabel#appearanceModePill {
+    background: #17466f;
+    border: 1px solid #5da6dc;
+    border-radius: 16px;
+    color: #dceeff;
+    font-size: 11.5px;
+    font-weight: 750;
+    padding: 6px 16px;
+    min-width: 78px;
+    min-height: 36px;
+}
+QLabel#readyIndicator {
+    background: #40e287;
+    border: 1px solid #8ff0bc;
+    border-radius: 6px;
+    min-width: 12px;
+    min-height: 12px;
+    max-width: 12px;
+    max-height: 12px;
+}
+QLabel#sidebarReadyText {
+    color: #f2fbf6;
+    background: transparent;
+    font-size: 13px;
+    font-weight: 800;
+}
+QFrame#topNav {
+    background: transparent;
+    border: none;
+}
+QFrame#topNavStrip {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #173450, stop:0.5 #10283f, stop:1 #0c2034);
+    border: 1px solid #345d78;
+    border-radius: 26px;
+}
+QFrame#bottomStatusBar {
+    background: #07111d;
+    border-top: 1px solid #1d3448;
 }
 QCheckBox, QRadioButton {
     spacing: 8px;
 }
-QCheckBox::indicator, QRadioButton::indicator {
+QRadioButton {
+    background: #0b1724;
+    border: 1px solid #243d54;
+    border-radius: 11px;
+    color: #d9e7f7;
+    padding: 7px 12px;
+    min-height: 28px;
+}
+QRadioButton:hover {
+    border-color: #4d7fa7;
+    background: #102237;
+}
+QRadioButton:checked {
+    background: #173f73;
+    border-color: #2d87f0;
+    color: #ffffff;
+}
+QCheckBox::indicator {
     width: 15px;
     height: 15px;
+}
+QRadioButton::indicator {
+    width: 0;
+    height: 0;
+}
+QScrollBar:vertical {
+    background: #07111d;
+    width: 10px;
+    margin: 2px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical {
+    background: #355169;
+    min-height: 28px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #4d6f8b;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
+    background: transparent;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+QScrollBar:horizontal {
+    background: #07111d;
+    height: 10px;
+    margin: 2px;
+    border-radius: 5px;
+}
+QScrollBar::handle:horizontal {
+    background: #355169;
+    min-width: 28px;
+    border-radius: 5px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #4d6f8b;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0;
+    background: transparent;
+}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: transparent;
 }
 """
 
@@ -931,10 +1399,12 @@ class MainWindow(QMainWindow):
         self._queue_auto_continue_after_worker = False
         self._editing_queue_job: VideoJob | None = None
         self._last_output_folder: Path | None = None
+        self._window_state_before_fullscreen: Qt.WindowStates | None = None
+        self._window_geometry_before_fullscreen: QByteArray | None = None
 
         self.setWindowTitle(APP_NAME)
         self.setLayoutDirection(Qt.RightToLeft)
-        self.resize(1100, 820)
+        self.resize(1180, 760)
 
         self.youtube_radio = QRadioButton("رابط يوتيوب")
         self.local_file_radio = QRadioButton("فيديو من الجهاز")
@@ -947,7 +1417,14 @@ class MainWindow(QMainWindow):
         self.browser_cookies_help_label = QLabel()
         self.project_name_input = QLineEdit()
         self.paste_message_input = QTextEdit()
-        self.smart_paste_button = QPushButton("استيراد ذكي")
+        self.smart_paste_button = QPushButton("تحليل النص")
+        self.global_smart_import_button = QPushButton("استيراد ذكي")
+        self.clear_paste_text_button = QPushButton("مسح النص")
+        self.replace_import_button = QPushButton("استبدال الجدول الحالي")
+        self.append_import_button = QPushButton("إضافة إلى جدول المقاطع")
+        self.queue_import_button = QPushButton("إضافة إلى قائمة الانتظار")
+        self.import_summary_label = QLabel("سيظهر ملخص الاستيراد بعد تحليل النص أو تحميل مصدر.")
+        self.import_extracted_clips_table = QTableWidget(0, 7)
         self.parse_message_button = QPushButton("تحويل بسيط إلى جدول")
         self.queue_table = QTableWidget(0, 6)
         self.add_current_work_to_queue_button = QPushButton("إضافة العمل الحالي إلى قائمة الانتظار")
@@ -980,7 +1457,13 @@ class MainWindow(QMainWindow):
         self.clips_table = QTableWidget(0, 5)
         self.classification_rules_table = QTableWidget(0, 4)
         self.add_row_button = QPushButton("إضافة مقطع")
-        self.import_excel_button = QPushButton("استيراد من Excel")
+        self.clips_import_shortcut_button = QPushButton("استيراد ذكي")
+        self.clips_new_work_shortcut_button = QPushButton("عمل جديد")
+        self.clips_clear_shortcut_button = QPushButton("مسح القائمة")
+        self.clips_delete_shortcut_button = QPushButton("حذف المحدد")
+        self.clips_point_shortcut_button = QPushButton("نقطة المقطع")
+        self.clips_export_shortcut_button = QPushButton("تصدير")
+        self.import_excel_button = QPushButton("استيراد من Excel / CSV")
         self.delete_row_button = QPushButton("حذف المقطع المحدد")
         self.clear_table_button = QPushButton("مسح الجدول")
         self.preview_clip_start_button = QPushButton("معاينة بداية المقطع")
@@ -1021,6 +1504,40 @@ class MainWindow(QMainWindow):
         self.show_global_log_button = QPushButton("عرض السجل العام")
         self.log_header_label = QLabel("سجل عام")
         self.log_area = QTextEdit()
+        self.page_stack = QStackedWidget()
+        self.nav_import_button = QPushButton("الاستيراد")
+        self.nav_clips_button = QPushButton("المقاطع")
+        self.nav_queue_button = QPushButton("قائمة الانتظار")
+        self.nav_logs_button = QPushButton("السجل")
+        self.top_nav_buttons: dict[str, QPushButton] = {}
+        self.dashboard_source_label = QLabel()
+        self.dashboard_clips_label = QLabel()
+        self.dashboard_queue_label = QLabel()
+        self.dashboard_status_label = QLabel()
+        self.dashboard_output_label = QLabel()
+        self.operations_log_table = QTableWidget(0, 5)
+        self.queue_snapshot_table = QTableWidget(0, 4)
+        self.current_work_label = QLabel()
+        self.system_status_label = QLabel()
+        self.selected_clip_details_label = QLabel("لم يتم تحديد مقطع")
+        self.selected_clip_preview_label = QLabel("المعاينة المتقدمة قريبًا")
+        self.queue_current_job_label = QLabel("لا توجد وظيفة قيد المعالجة الآن")
+        self.queue_info_preview_label = QLabel("لا توجد معلومات إضافية متاحة")
+        self.queue_job_log_area = QTextEdit()
+        self.queue_stop_all_button = QPushButton("إيقاف الكل — قريبًا")
+        self.queue_move_up_button = QPushButton("تحريك لأعلى — قريبًا")
+        self.queue_move_down_button = QPushButton("تحريك لأسفل — قريبًا")
+        self.queue_reorder_button = QPushButton("إعادة الترتيب — قريبًا")
+        self.future_reports_button = QPushButton("تقارير متقدمة — قريبًا")
+        self.future_schedule_button = QPushButton("الجدولة — قريبًا")
+        self.future_templates_button = QPushButton("مشاركة القوالب — قريبًا")
+        self.sidebar_engine_status_label = QLabel("جاهز")
+        self.sidebar_smart_status_label = QLabel("جاهز")
+        self.sidebar_last_job_label = QLabel("لا توجد")
+        self.sidebar_queue_count_label = QLabel("0")
+        self.sidebar_bottom_status_label = QLabel("جاهز")
+        self.bottom_status_label = QLabel("جاهز")
+        self.bottom_output_label = QLabel(str(self.output_root))
         self.scroll_area = QScrollArea()
         self._global_log_messages: list[str] = []
         self._active_log_job: VideoJob | None = None
@@ -1050,25 +1567,408 @@ class MainWindow(QMainWindow):
         return self.scroll_area
 
     def _build_ui(self) -> QWidget:
-        central = QWidget()
-        central.setObjectName("mainContent")
-        layout = QVBoxLayout(central)
-        layout.setSpacing(16)
-        layout.setContentsMargins(22, 22, 22, 22)
+        shell = QFrame()
+        shell.setObjectName("dashboardShell")
+        layout = QHBoxLayout(shell)
+        layout.setSpacing(12)
+        layout.setContentsMargins(12, 10, 12, 8)
+
+        content = QFrame()
+        content.setObjectName("mainContent")
+        content_layout = QVBoxLayout(content)
+        content_layout.setSpacing(8)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+
+        content_layout.addWidget(self._build_top_navigation())
+        content_layout.addWidget(self._build_action_section())
+
+        self.page_stack.addWidget(self._page_scroll("الاستيراد", self._build_import_page()))
+        self.page_stack.addWidget(self._page_scroll("المقاطع", self._build_clips_page()))
+        self.page_stack.addWidget(self._page_scroll("قائمة الانتظار", self._build_queue_dashboard_page()))
+        self.page_stack.addWidget(self._page_scroll("السجل", self._build_logs_dashboard_page()))
+        content_layout.addWidget(self.page_stack, stretch=1)
+        content_layout.addWidget(self._build_bottom_status_bar())
+
+        layout.addWidget(content, stretch=1)
+        layout.addWidget(self._build_side_rail())
+
+        self.switch_dashboard_page("logs")
+        self._refresh_dashboard_overview()
+        return shell
+
+    def _page_scroll(self, name: str, page: QWidget) -> QScrollArea:
+        page.setObjectName(f"{name}Page")
+        scroll = QScrollArea()
+        scroll.setObjectName("pageScrollArea")
+        scroll.setWidget(page)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        return scroll
+
+    def _build_side_rail(self) -> QFrame:
+        rail = QFrame()
+        rail.setObjectName("sideRail")
+        rail.setFixedWidth(258)
+        layout = QVBoxLayout(rail)
+        layout.setSpacing(9)
+        layout.setContentsMargins(12, 12, 12, 10)
 
         layout.addWidget(self._build_header_section())
-        layout.addWidget(self._build_video_source_section())
-        layout.addWidget(self._build_project_section())
-        layout.addWidget(self._build_paste_section())
-        layout.addWidget(self._build_action_section())
-        layout.addWidget(self._build_help_section())
-        layout.addWidget(self._build_clips_section(), stretch=1)
-        layout.addWidget(self._build_classification_section())
-        layout.addWidget(self._build_padding_section())
-        layout.addWidget(self._build_queue_section())
-        layout.addWidget(self._build_log_section(), stretch=1)
+        nav_group = QFrame()
+        nav_group.setObjectName("sidebarNavGroup")
+        nav_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        nav_group.setMaximumHeight(205)
+        nav_layout = QVBoxLayout(nav_group)
+        nav_layout.setContentsMargins(8, 8, 8, 8)
+        nav_layout.setSpacing(5)
+        for button in (
+            self.nav_import_button,
+            self.nav_clips_button,
+            self.nav_queue_button,
+            self.nav_logs_button,
+        ):
+            nav_layout.addWidget(button)
+        layout.addWidget(nav_group)
+        layout.addWidget(self._build_sidebar_future_card())
+        layout.addWidget(self._build_sidebar_status_card())
+        layout.addWidget(self._build_sidebar_theme_card())
+        layout.addStretch(1)
+        layout.addWidget(self._build_sidebar_ready_footer())
+        return rail
 
-        return central
+    def _build_sidebar_future_card(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("sidebarCard")
+        frame.setProperty("sidebarRole", "future")
+        frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        frame.setMaximumHeight(155)
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(14, 13, 14, 13)
+        layout.setSpacing(8)
+        title = QLabel("ميزات قادمة")
+        title.setObjectName("sidebarCardTitle")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        layout.addWidget(self.future_reports_button)
+        layout.addWidget(self.future_schedule_button)
+        layout.addWidget(self.future_templates_button)
+        return frame
+
+    def _build_sidebar_status_card(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("sidebarCard")
+        frame.setProperty("sidebarRole", "status")
+        frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        frame.setMaximumHeight(220)
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(9)
+        title = QLabel("الحالة العامة")
+        title.setObjectName("sidebarCardTitle")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        layout.addWidget(self._build_sidebar_status_row("المحرك", self.sidebar_engine_status_label, show_dot=True))
+        layout.addWidget(self._build_sidebar_status_row("الفحص الذكي", self.sidebar_smart_status_label, show_dot=True))
+        layout.addWidget(self._build_sidebar_status_row("آخر مهمة", self.sidebar_last_job_label))
+        layout.addWidget(self._build_sidebar_status_row("في قائمة الانتظار", self.sidebar_queue_count_label))
+        return frame
+
+    def _build_sidebar_status_row(self, label_text: str, value_label: QLabel, show_dot: bool = False) -> QFrame:
+        row = QFrame()
+        row.setObjectName("sidebarStatusRow")
+        row.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        row.setMinimumHeight(34)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(7)
+        label = QLabel(label_text)
+        label.setObjectName("sidebarStatusLabel")
+        label.setAlignment(Qt.AlignCenter)
+        label.setMinimumHeight(22)
+        value_label.setObjectName("sidebarStatusValue")
+        value_label.setAlignment(Qt.AlignCenter)
+        value_label.setMinimumHeight(22)
+        layout.addWidget(value_label, stretch=1)
+        layout.addWidget(label, stretch=1)
+        if show_dot:
+            dot = QLabel()
+            dot.setObjectName("sidebarGreenDot")
+            dot.setFixedSize(10, 10)
+            layout.addWidget(dot)
+        return row
+
+    def _build_sidebar_theme_card(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("sidebarCard")
+        frame.setProperty("sidebarRole", "appearance")
+        frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        frame.setMaximumHeight(206)
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+        title = QLabel("المظهر")
+        title.setObjectName("sidebarCardTitle")
+        title.setAlignment(Qt.AlignCenter)
+        appearance = QFrame()
+        appearance.setObjectName("appearancePanel")
+        appearance.setMinimumHeight(126)
+        appearance_layout = QHBoxLayout(appearance)
+        appearance_layout.setContentsMargins(13, 10, 13, 18)
+        appearance_layout.setSpacing(10)
+        moon = QLabel("◑")
+        moon.setObjectName("appearanceIndicator")
+        moon.setAlignment(Qt.AlignCenter)
+        text_layout = QVBoxLayout()
+        text_layout.setContentsMargins(0, 0, 0, 0)
+        text_layout.setSpacing(6)
+        mode = QLabel("الوضع الحالي: داكن")
+        mode.setObjectName("appearanceText")
+        mode.setAlignment(Qt.AlignCenter)
+        mode.setMinimumHeight(24)
+        hint = QLabel("واجهة كحلية هادئة")
+        hint.setObjectName("appearanceHint")
+        hint.setAlignment(Qt.AlignCenter)
+        hint.setMinimumHeight(22)
+        state = QLabel("مفعّل")
+        state.setObjectName("appearanceModePill")
+        state.setAlignment(Qt.AlignCenter)
+        state.setMinimumSize(78, 36)
+        state.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        layout.addWidget(title)
+        text_layout.addWidget(mode)
+        text_layout.addWidget(hint)
+        text_layout.addWidget(state, alignment=Qt.AlignCenter)
+        appearance_layout.addLayout(text_layout, stretch=1)
+        appearance_layout.addWidget(moon)
+        layout.addWidget(appearance)
+        return frame
+
+    def _build_sidebar_ready_footer(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("sidebarReadyFooter")
+        frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        frame.setMaximumHeight(44)
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(13, 8, 13, 8)
+        layout.setSpacing(9)
+        layout.addWidget(self.sidebar_bottom_status_label)
+        layout.addStretch(1)
+        indicator = QLabel()
+        indicator.setObjectName("readyIndicator")
+        indicator.setFixedSize(12, 12)
+        layout.addWidget(indicator)
+        return frame
+
+    def _build_top_navigation(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("topNav")
+        frame.setMinimumHeight(76)
+        frame.setMaximumHeight(76)
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addStretch(1)
+        strip = QFrame()
+        strip.setObjectName("topNavStrip")
+        strip.setMinimumHeight(72)
+        strip.setMaximumHeight(72)
+        strip_layout = QHBoxLayout(strip)
+        strip_layout.setContentsMargins(7, 7, 7, 7)
+        strip_layout.setSpacing(6)
+        self.top_nav_buttons = {}
+        for key, button in (
+            ("logs", self.nav_logs_button),
+            ("queue", self.nav_queue_button),
+            ("clips", self.nav_clips_button),
+            ("import", self.nav_import_button),
+        ):
+            top_button = QPushButton(button.text())
+            top_button.setObjectName("topNavButton")
+            top_button.setCheckable(True)
+            top_button.setMinimumSize(146, 38)
+            top_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            top_button.clicked.connect(lambda _checked=False, page=key: self.switch_dashboard_page(page))
+            self.top_nav_buttons[key] = top_button
+            strip_layout.addWidget(top_button)
+        layout.addWidget(strip)
+        layout.addStretch(1)
+        return frame
+
+    def _build_bottom_status_bar(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("bottomStatusBar")
+        frame.setMaximumHeight(24)
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(8, 1, 8, 1)
+        layout.setSpacing(8)
+        layout.addWidget(self.bottom_status_label)
+        layout.addStretch(1)
+        layout.addWidget(self.bottom_output_label)
+        language_label = QLabel("العربية | داكن")
+        language_label.setObjectName("sectionHelpText")
+        layout.addWidget(language_label)
+        return frame
+
+    def switch_dashboard_page(self, page: str) -> None:
+        page_indexes = {"import": 0, "clips": 1, "queue": 2, "logs": 3}
+        if page not in page_indexes:
+            return
+        self.page_stack.setCurrentIndex(page_indexes[page])
+        for key, button in {
+            "import": self.nav_import_button,
+            "clips": self.nav_clips_button,
+            "queue": self.nav_queue_button,
+            "logs": self.nav_logs_button,
+        }.items():
+            button.setChecked(key == page)
+        for key, button in self.top_nav_buttons.items():
+            button.setChecked(key == page)
+        self._refresh_dashboard_overview()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key_F11:
+            self.toggle_fullscreen()
+            event.accept()
+            return
+        if event.key() == Qt.Key_Escape and self.isFullScreen():
+            self.exit_fullscreen()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def toggle_fullscreen(self) -> None:
+        if self.isFullScreen():
+            self.exit_fullscreen()
+        else:
+            self.enter_fullscreen()
+
+    def enter_fullscreen(self) -> None:
+        if self.isFullScreen():
+            return
+        self._window_state_before_fullscreen = self.windowState()
+        self._window_geometry_before_fullscreen = self.saveGeometry()
+        self.showFullScreen()
+
+    def exit_fullscreen(self) -> None:
+        if not self.isFullScreen():
+            return
+        previous_state = self._window_state_before_fullscreen
+        previous_geometry = self._window_geometry_before_fullscreen
+        self.showNormal()
+        if previous_geometry is not None:
+            self.restoreGeometry(previous_geometry)
+        if previous_state is not None:
+            self.setWindowState(previous_state)
+        self._window_state_before_fullscreen = None
+        self._window_geometry_before_fullscreen = None
+
+    def _build_import_page(self) -> QWidget:
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(
+            self._build_page_heading(
+                "الاستيراد",
+                "استورد المقاطع بذكاء من روابط، ملفات، أو نصوص عربية واقعية.",
+            ),
+            0,
+            0,
+            1,
+            3,
+        )
+        layout.addWidget(self._build_paste_section(), 1, 1, 1, 2)
+        layout.addWidget(self._build_video_source_section(), 1, 0)
+        layout.addWidget(self._build_import_summary_section(), 2, 0)
+        layout.addWidget(self._build_import_extracted_clips_section(), 2, 1, 1, 2)
+        layout.addWidget(self._build_import_apply_section(), 3, 0, 1, 3)
+        layout.setColumnStretch(0, 2)
+        layout.setColumnStretch(1, 3)
+        layout.setColumnStretch(2, 2)
+        layout.setRowStretch(1, 3)
+        layout.setRowStretch(2, 2)
+        return page
+
+    def _build_clips_page(self) -> QWidget:
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(
+            self._build_page_heading("المقاطع", "راجع جدول المقاطع، المعاينة، والإعدادات قبل إرسال العمل إلى قائمة الانتظار."),
+            0,
+            0,
+            1,
+            3,
+        )
+        layout.addWidget(self._build_clips_toolbar_section(), 1, 0, 1, 3)
+        layout.addWidget(self._build_selected_clip_details_section(), 2, 0)
+        layout.addWidget(self._build_clips_section(), 2, 1, 1, 2)
+        layout.addWidget(self._build_padding_section(), 3, 0, 1, 2)
+        layout.addWidget(self._build_clip_quick_actions_section(), 3, 2)
+        layout.addWidget(self._build_classification_section(), 4, 0, 1, 3)
+        layout.setColumnStretch(0, 1)
+        layout.setColumnStretch(1, 2)
+        layout.setColumnStretch(2, 2)
+        layout.setRowStretch(2, 5)
+        layout.setRowStretch(3, 2)
+        return page
+
+    def _build_queue_dashboard_page(self) -> QWidget:
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(
+            self._build_page_heading("قائمة الانتظار", "إدارة المقاطع بترتيب التنفيذ ومتابعة حالة كل مهمة بوضوح."),
+            0,
+            0,
+            1,
+            3,
+        )
+        layout.addWidget(self._build_current_job_card(), 1, 0, 1, 2)
+        layout.addWidget(self._build_queue_controls_card(), 1, 2)
+        layout.addWidget(self._build_queue_table_card(), 2, 0, 1, 3)
+        layout.addWidget(self._build_queue_job_log_card(), 3, 0)
+        layout.addWidget(self._build_queue_info_preview_card(), 3, 1)
+        layout.addWidget(self._build_queue_task_details_card(), 3, 2)
+        layout.setColumnStretch(0, 2)
+        layout.setColumnStretch(1, 2)
+        layout.setColumnStretch(2, 1)
+        layout.setRowStretch(2, 3)
+        layout.setRowStretch(3, 2)
+        return page
+
+    def _build_logs_dashboard_page(self) -> QWidget:
+        page = QWidget()
+        layout = QGridLayout(page)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(
+            self._build_page_heading("لوحة التشغيل الرئيسية", "نظرة شاملة على حالة العمل، قائمة الانتظار، وسجل التشغيل."),
+            0,
+            0,
+            1,
+            3,
+        )
+        layout.addWidget(self._build_dashboard_summary_section(), 1, 0, 1, 3)
+        layout.addWidget(self._build_operations_log_section(), 2, 0, 2, 2)
+        layout.addWidget(self._build_queue_snapshot_section(), 2, 2)
+        layout.addWidget(self._build_current_work_section(), 3, 2)
+        layout.addWidget(self._build_system_status_section(), 4, 0, 1, 3)
+        layout.setColumnStretch(0, 2)
+        layout.setColumnStretch(1, 2)
+        layout.setColumnStretch(2, 2)
+        layout.setRowStretch(2, 3)
+        layout.setRowStretch(3, 1)
+        layout.setRowStretch(4, 1)
+        return page
 
 
     def _asset_path(self, filename: str) -> Path:
@@ -1085,10 +1985,55 @@ class MainWindow(QMainWindow):
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 
+    def _make_sidebar_icon(self, kind: str) -> QIcon:
+        pixmap = QPixmap(40, 40)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        accent_pen = QPen(QColor("#66b3ff"), 2.4)
+        accent_pen.setCapStyle(Qt.RoundCap)
+        accent_pen.setJoinStyle(Qt.RoundJoin)
+        pen = QPen(QColor("#ecf6ff"), 2.5)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+
+        if kind == "import":
+            painter.drawRoundedRect(QRectF(10, 24, 20, 6), 3, 3)
+            painter.drawLine(20, 8, 20, 21)
+            painter.drawLine(13, 15, 20, 22)
+            painter.drawLine(27, 15, 20, 22)
+            painter.setPen(accent_pen)
+            painter.drawLine(12, 30, 28, 30)
+        elif kind == "clips":
+            painter.drawRoundedRect(QRectF(9, 10, 22, 20), 4, 4)
+            for x in (14, 26):
+                painter.drawLine(x, 10, x, 30)
+            painter.setPen(accent_pen)
+            painter.drawLine(9, 16, 31, 16)
+            painter.drawLine(9, 24, 31, 24)
+        elif kind == "queue":
+            for y in (11, 19, 27):
+                painter.drawEllipse(QRectF(9, y - 2.2, 4.4, 4.4))
+                painter.drawRoundedRect(QRectF(17, y - 2.4, 14, 4.8), 2.4, 2.4)
+            painter.setPen(accent_pen)
+            painter.drawLine(17, 11, 28, 11)
+        elif kind == "logs":
+            painter.drawRoundedRect(QRectF(11, 7, 18, 26), 4, 4)
+            painter.drawLine(15, 15, 25, 15)
+            painter.drawLine(15, 21, 25, 21)
+            painter.setPen(accent_pen)
+            painter.drawLine(15, 27, 22, 27)
+
+        painter.end()
+        return QIcon(pixmap)
+
     def _apply_visual_polish(self) -> None:
-        self.setMinimumSize(980, 720)
+        self.setMinimumSize(980, 640)
 
         self.smart_paste_button.setObjectName("smartImportButton")
+        self.global_smart_import_button.setObjectName("smartImportButton")
         self.start_button.setObjectName("primaryActionButton")
         self.new_work_button.setObjectName("newWorkButton")
         self.validate_button.setObjectName("validateActionButton")
@@ -1101,24 +2046,94 @@ class MainWindow(QMainWindow):
         self.queue_job_details_label.setObjectName("queueDetailsLabel")
         self.paste_message_input.setObjectName("pasteBox")
         self.log_area.setObjectName("logArea")
+        self.queue_job_log_area.setObjectName("logArea")
+        self.import_summary_label.setObjectName("queueSummaryLabel")
+        self.selected_clip_details_label.setObjectName("queueDetailsLabel")
+        self.selected_clip_preview_label.setObjectName("emptyStateLabel")
+        self.current_work_label.setObjectName("queueDetailsLabel")
+        self.system_status_label.setObjectName("queueDetailsLabel")
+        self.queue_current_job_label.setObjectName("queueDetailsLabel")
+        self.queue_info_preview_label.setObjectName("queueDetailsLabel")
+        self.sidebar_bottom_status_label.setObjectName("sidebarReadyText")
+        for button in (
+            self.nav_import_button,
+            self.nav_clips_button,
+            self.nav_queue_button,
+            self.nav_logs_button,
+        ):
+            button.setObjectName("navButton")
+            button.setCheckable(True)
+            button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+            button.setIconSize(QSize(20, 20))
+        nav_icons = (
+            (self.nav_import_button, "import"),
+            (self.nav_clips_button, "clips"),
+            (self.nav_queue_button, "queue"),
+            (self.nav_logs_button, "logs"),
+        )
+        for button, icon_kind in nav_icons:
+            button.setIcon(self._make_sidebar_icon(icon_kind))
+        for button in (
+            self.future_reports_button,
+            self.future_schedule_button,
+            self.future_templates_button,
+        ):
+            button.setObjectName("futureNavButton")
+            button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+            button.setIcon(QIcon())
 
-        self.smart_paste_button.setMinimumWidth(140)
-        self.start_button.setMinimumWidth(165)
-        self.validate_button.setMinimumWidth(140)
-        self.new_work_button.setMinimumWidth(110)
-        self.open_output_button.setMinimumWidth(135)
-        self.processing_status_label.setMinimumWidth(170)
+        self.smart_paste_button.setMinimumWidth(118)
+        self.global_smart_import_button.setMinimumWidth(118)
+        self.start_button.setMinimumWidth(145)
+        self.validate_button.setMinimumWidth(120)
+        self.new_work_button.setMinimumWidth(94)
+        self.open_output_button.setMinimumWidth(118)
+        self.processing_status_label.setMinimumWidth(140)
+        for button in (
+            self.new_work_button,
+            self.global_smart_import_button,
+            self.validate_button,
+            self.start_button,
+            self.open_output_button,
+        ):
+            button.setProperty("topAction", True)
+            button.setMinimumHeight(42)
+            button.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.start_button.setMinimumHeight(44)
+        self.start_button.setMinimumWidth(152)
 
         for table in (
             self.queue_table,
             self.queue_job_clips_table,
             self.clips_table,
             self.classification_rules_table,
+            self.import_extracted_clips_table,
+            self.operations_log_table,
+            self.queue_snapshot_table,
         ):
             self._apply_table_visual_defaults(table)
 
         self.queue_job_details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.queue_selected_job_details_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.import_summary_label.setWordWrap(True)
+        self.selected_clip_details_label.setWordWrap(True)
+        self.selected_clip_preview_label.setWordWrap(True)
+        self.selected_clip_preview_label.setAlignment(Qt.AlignCenter)
+        self.current_work_label.setWordWrap(True)
+        self.system_status_label.setWordWrap(True)
+        self.queue_current_job_label.setWordWrap(True)
+        self.queue_info_preview_label.setWordWrap(True)
+        self.queue_job_log_area.setReadOnly(True)
+        for button in (
+            self.queue_stop_all_button,
+            self.queue_move_up_button,
+            self.queue_move_down_button,
+            self.queue_reorder_button,
+            self.future_reports_button,
+            self.future_schedule_button,
+            self.future_templates_button,
+        ):
+            button.setEnabled(False)
         self.log_area.setLineWrapMode(QTextEdit.WidgetWidth)
         self.setStyleSheet(APP_STYLE_SHEET)
 
@@ -1131,9 +2146,9 @@ class MainWindow(QMainWindow):
     def _style_card(self, group: QGroupBox, object_name: str = "dashboardCard") -> QGroupBox:
         group.setObjectName(object_name)
         shadow = QGraphicsDropShadowEffect(group)
-        shadow.setBlurRadius(18)
-        shadow.setOffset(0, 4)
-        shadow.setColor(QColor(0, 0, 0, 80))
+        shadow.setBlurRadius(12)
+        shadow.setOffset(0, 2)
+        shadow.setColor(QColor(0, 0, 0, 60))
         group.setGraphicsEffect(shadow)
         return group
 
@@ -1141,8 +2156,11 @@ class MainWindow(QMainWindow):
         frame = QFrame()
         frame.setObjectName("appHeader")
         frame.setFrameShape(QFrame.StyledPanel)
-        layout = QHBoxLayout(frame)
-        layout.setSpacing(12)
+        frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        frame.setMaximumHeight(190)
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(5)
 
         logo = QLabel()
         logo.setObjectName("appLogo")
@@ -1151,28 +2169,150 @@ class MainWindow(QMainWindow):
             logo_path = self._asset_path("icon.png")
         if logo_path.exists():
             pixmap = QPixmap(str(logo_path))
-            logo.setPixmap(pixmap.scaled(104, 104, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        logo.setFixedSize(116, 116)
+            if not pixmap.isNull():
+                logo.setPixmap(self._sidebar_logo_pixmap(pixmap, QSize(72, 72)))
+        logo.setFixedSize(80, 80)
         logo.setAlignment(Qt.AlignCenter)
+        logo_halo = QFrame()
+        logo_halo.setObjectName("logoHalo")
+        logo_halo.setFixedSize(96, 96)
+        logo_layout = QVBoxLayout(logo_halo)
+        logo_layout.setContentsMargins(8, 8, 8, 8)
+        logo_layout.addWidget(logo, alignment=Qt.AlignCenter)
 
-        title_layout = QVBoxLayout()
         title = QLabel(APP_NAME)
         title.setObjectName("appTitle")
-        subtitle = QLabel(APP_SUBTITLE)
-        subtitle.setObjectName("appSubtitle")
-        subtitle.setWordWrap(True)
-        title_layout.addWidget(title)
-        title_layout.addWidget(subtitle)
-
-        layout.addWidget(logo)
-        layout.addLayout(title_layout, stretch=1)
+        title.setAlignment(Qt.AlignCenter)
+        title.setWordWrap(False)
+        title.setMinimumHeight(34)
+        english_name = QLabel("AlmiqsAlBaseet")
+        english_name.setObjectName("appSubtitle")
+        english_name.setAlignment(Qt.AlignCenter)
+        english_name.setWordWrap(False)
+        layout.addWidget(logo_halo, alignment=Qt.AlignCenter)
+        layout.addWidget(title)
+        layout.addWidget(english_name)
 
         return frame
 
-    def _build_video_source_section(self) -> QGroupBox:
-        group = QGroupBox("مصدر الفيديو")
+    def _sidebar_logo_pixmap(self, source: QPixmap, target_size: QSize) -> QPixmap:
+        """Use the existing logo art, cropped and rounded to avoid a pasted-square look."""
+        side = min(source.width(), source.height())
+        crop_side = int(side * 0.58)
+        crop_x = max(0, (source.width() - crop_side) // 2)
+        crop_y = max(0, int(side * 0.12))
+        if crop_y + crop_side > source.height():
+            crop_y = max(0, source.height() - crop_side)
+        cropped = source.copy(crop_x, crop_y, crop_side, crop_side)
+        scaled = cropped.scaled(target_size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        if scaled.width() != target_size.width() or scaled.height() != target_size.height():
+            x = max(0, (scaled.width() - target_size.width()) // 2)
+            y = max(0, (scaled.height() - target_size.height()) // 2)
+            scaled = scaled.copy(x, y, target_size.width(), target_size.height())
+
+        rounded = QPixmap(target_size)
+        rounded.fill(Qt.transparent)
+        painter = QPainter(rounded)
+        painter.setRenderHint(QPainter.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, target_size.width(), target_size.height()), 18, 18)
+        painter.setClipPath(path)
+        painter.drawPixmap(0, 0, scaled)
+        painter.end()
+        return rounded
+
+    def _build_page_heading(self, title_text: str, subtitle_text: str) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("pageHeading")
+        frame.setMaximumHeight(48)
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(2, 0, 2, 2)
+        layout.setSpacing(1)
+        title = QLabel(title_text)
+        title.setObjectName("pageTitle")
+        title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        subtitle = QLabel(subtitle_text)
+        subtitle.setObjectName("pageSubtitle")
+        subtitle.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        subtitle.setWordWrap(True)
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+        return frame
+
+    def _build_metric_card(self, title: str, value_label: QLabel, caption: str = "") -> QGroupBox:
+        group = QGroupBox(title)
         self._style_card(group)
-        layout = QGridLayout(group)
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(4)
+        value_label.setObjectName("metricValue")
+        value_label.setAlignment(Qt.AlignCenter)
+        value_label.setWordWrap(True)
+        layout.addWidget(value_label)
+        if caption:
+            caption_label = QLabel(caption)
+            caption_label.setObjectName("metricCaption")
+            caption_label.setAlignment(Qt.AlignCenter)
+            caption_label.setWordWrap(True)
+            layout.addWidget(caption_label)
+        return group
+
+    def _build_import_summary_section(self) -> QGroupBox:
+        group = QGroupBox("ملخص الاستيراد")
+        self._style_card(group, "importSummaryCard")
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(14, 12, 14, 14)
+        layout.setSpacing(10)
+        self.import_summary_label.setWordWrap(True)
+        layout.addWidget(self.import_summary_label)
+        layout.addStretch(1)
+        return group
+
+    def _build_import_extracted_clips_section(self) -> QGroupBox:
+        group = QGroupBox("المقاطع المستخرجة")
+        self._style_card(group, "clipsCard")
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(14, 12, 14, 14)
+        layout.setSpacing(10)
+        self.import_extracted_clips_table.setHorizontalHeaderLabels(
+            ["", "#", "العنوان", "البداية", "النهاية", "الاستثناءات", "الحالة"]
+        )
+        self.import_extracted_clips_table.verticalHeader().setVisible(False)
+        self.import_extracted_clips_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.import_extracted_clips_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.import_extracted_clips_table.setMinimumHeight(190)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
+        self.import_extracted_clips_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        self.import_empty_label = QLabel("لا توجد مقاطع بعد\nقم بلصق النص أو استيراد ملف أو إدخال رابط لبدء التحليل.")
+        self.import_empty_label.setObjectName("emptyStateLabel")
+        self.import_empty_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.import_extracted_clips_table)
+        layout.addWidget(self.import_empty_label)
+        return group
+
+    def _build_import_apply_section(self) -> QGroupBox:
+        group = QGroupBox("تطبيق النتائج")
+        self._style_card(group, "mainActionsCard")
+        group.setMaximumHeight(58)
+        layout = QHBoxLayout(group)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(10)
+        layout.addWidget(self.queue_import_button, stretch=1)
+        layout.addWidget(self.append_import_button, stretch=1)
+        layout.addWidget(self.replace_import_button, stretch=1)
+        return group
+
+    def _build_video_source_section(self) -> QGroupBox:
+        group = QGroupBox("مصدر الاستيراد")
+        self._style_card(group, "importSideCard")
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(14, 12, 14, 14)
+        layout.setSpacing(9)
 
         source_group = QButtonGroup(self)
         source_group.addButton(self.youtube_radio)
@@ -1191,23 +2331,50 @@ class MainWindow(QMainWindow):
         )
         self.browser_cookies_help_label.setWordWrap(True)
 
-        layout.addWidget(self.youtube_radio, 0, 0)
-        layout.addWidget(self.youtube_input, 0, 1, 1, 2)
-        layout.addWidget(self.local_file_radio, 1, 0)
-        layout.addWidget(self.local_file_input, 1, 1)
-        layout.addWidget(self.browse_button, 1, 2)
-        layout.addWidget(self.source_status_label, 2, 0, 1, 3)
-        layout.addWidget(self.use_browser_cookies_checkbox, 3, 0)
-        layout.addWidget(QLabel("المتصفح"), 3, 1)
-        layout.addWidget(self.browser_combo, 3, 2)
-        layout.addWidget(self.browser_cookies_help_label, 4, 0, 1, 3)
-        layout.setColumnStretch(1, 1)
+        source_tabs = QHBoxLayout()
+        source_tabs.setSpacing(8)
+        source_tabs.addWidget(self.local_file_radio)
+        source_tabs.addWidget(self.youtube_radio)
+        layout.addLayout(source_tabs)
+
+        youtube_label = QLabel("رابط يوتيوب")
+        youtube_label.setObjectName("sectionHelpText")
+        layout.addWidget(youtube_label)
+        youtube_row = QHBoxLayout()
+        youtube_row.setSpacing(8)
+        youtube_row.addWidget(self.youtube_input, stretch=1)
+        layout.addLayout(youtube_row)
+
+        local_label = QLabel("ملف فيديو من الجهاز")
+        local_label.setObjectName("sectionHelpText")
+        layout.addWidget(local_label)
+        local_row = QHBoxLayout()
+        local_row.setSpacing(8)
+        local_row.addWidget(self.local_file_input, stretch=1)
+        local_row.addWidget(self.browse_button)
+        layout.addLayout(local_row)
+
+        project_label = QLabel("اسم المشروع")
+        project_label.setObjectName("sectionHelpText")
+        self.project_name_input.setPlaceholderText("مثال: درس الجبر - الوحدة الأولى")
+        layout.addWidget(project_label)
+        layout.addWidget(self.project_name_input)
+
+        browser_row = QHBoxLayout()
+        browser_row.setSpacing(8)
+        browser_row.addWidget(QLabel("المتصفح"))
+        browser_row.addWidget(self.browser_combo, stretch=1)
+        layout.addLayout(browser_row)
+        layout.addWidget(self.use_browser_cookies_checkbox)
+        layout.addWidget(self.source_status_label)
+        layout.addWidget(self.browser_cookies_help_label)
+        layout.addStretch(1)
 
         return group
 
     def _build_project_section(self) -> QGroupBox:
         group = QGroupBox("اسم المشروع")
-        self._style_card(group)
+        self._style_card(group, "importSideCard")
         layout = QGridLayout(group)
 
         self.project_name_input.setPlaceholderText("مثال: درس الجبر - الوحدة الأولى")
@@ -1347,7 +2514,7 @@ class MainWindow(QMainWindow):
         self.classification_rules_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.classification_rules_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.classification_rules_table.setAlternatingRowColors(True)
-        self.classification_rules_table.setMinimumHeight(110)
+        self.classification_rules_table.setMinimumHeight(90)
         self.classification_rules_table.horizontalHeader().setSectionResizeMode(RULE_NAME_COLUMN, QHeaderView.Stretch)
         self.classification_rules_table.horizontalHeader().setSectionResizeMode(RULE_MIN_COLUMN, QHeaderView.ResizeToContents)
         self.classification_rules_table.horizontalHeader().setSectionResizeMode(RULE_MAX_COLUMN, QHeaderView.ResizeToContents)
@@ -1365,17 +2532,24 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_paste_section(self) -> QGroupBox:
-        group = QGroupBox("الصق الرسالة هنا")
-        self._style_card(group)
+        group = QGroupBox("الاستيراد الذكي")
+        self._style_card(group, "smartImportCard")
         layout = QVBoxLayout(group)
+        layout.setContentsMargins(14, 12, 14, 14)
+        layout.setSpacing(12)
 
-        layout.addWidget(QLabel("الصق الرسالة هنا"))
-        self.paste_message_input.setPlaceholderText("الصق رسالة واتساب أو تيليجرام كاملة، ويمكن أن تحتوي على رابط الفيديو والمقاطع.")
-        self.paste_message_input.setMinimumHeight(80)
+        helper = QLabel("الصق نص المقاطع هنا لتحليلها تلقائيًا. يدعم الصيغ الشائعة مثل: [بداية:نهاية] العنوان")
+        helper.setObjectName("sectionHelpText")
+        helper.setWordWrap(True)
+        layout.addWidget(helper)
+        self.paste_message_input.setPlaceholderText("الصق نص المقاطع هنا ...")
+        self.paste_message_input.setMinimumHeight(260)
 
         button_row = QHBoxLayout()
-        button_row.addStretch(1)
-        button_row.addWidget(self.smart_paste_button)
+        button_row.setSpacing(10)
+        button_row.addWidget(self.clear_paste_text_button, stretch=1)
+        button_row.addWidget(self.import_excel_button, stretch=2)
+        button_row.addWidget(self.smart_paste_button, stretch=2)
 
         layout.addWidget(self.paste_message_input)
         layout.addLayout(button_row)
@@ -1383,7 +2557,7 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_padding_section(self) -> QGroupBox:
-        group = QGroupBox("إعدادات القص")
+        group = QGroupBox("إعدادات المقطع")
         self._style_card(group)
         layout = QVBoxLayout(group)
         layout.setSpacing(12)
@@ -1646,8 +2820,24 @@ class MainWindow(QMainWindow):
         else:
             self.export_quality_status_label.setText("الإعدادات الافتراضية آمنة")
 
+    def _build_clips_toolbar_section(self) -> QGroupBox:
+        group = QGroupBox("أدوات المقاطع")
+        self._style_card(group, "mainActionsCard")
+        group.setMaximumHeight(56)
+        layout = QHBoxLayout(group)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(8)
+        layout.addWidget(self.clips_import_shortcut_button)
+        layout.addWidget(self.clips_new_work_shortcut_button)
+        layout.addWidget(self.clips_clear_shortcut_button)
+        layout.addWidget(self.clips_delete_shortcut_button)
+        layout.addWidget(self.clips_point_shortcut_button)
+        layout.addWidget(self.clips_export_shortcut_button)
+        layout.addStretch(1)
+        return group
+
     def _build_clips_section(self) -> QGroupBox:
-        group = QGroupBox("جدول المقاطع")
+        group = QGroupBox("قائمة المقاطع")
         self._style_card(group, "clipsCard")
         layout = QVBoxLayout(group)
         layout.setSpacing(12)
@@ -1657,7 +2847,7 @@ class MainWindow(QMainWindow):
         self.clips_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.clips_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.clips_table.setAlternatingRowColors(True)
-        self.clips_table.setMinimumHeight(180)
+        self.clips_table.setMinimumHeight(280)
         self.clips_table.horizontalHeader().setSectionResizeMode(NUMBER_COLUMN, QHeaderView.ResizeToContents)
         self.clips_table.horizontalHeader().setSectionResizeMode(TITLE_COLUMN, QHeaderView.Stretch)
         self.clips_table.horizontalHeader().setSectionResizeMode(START_COLUMN, QHeaderView.ResizeToContents)
@@ -1666,32 +2856,268 @@ class MainWindow(QMainWindow):
 
         table_buttons = QHBoxLayout()
         table_buttons.addWidget(self.add_row_button)
-        table_buttons.addWidget(self.delete_row_button)
         table_buttons.addWidget(self.clear_table_button)
         table_buttons.addStretch(1)
-        table_buttons.addWidget(self.import_excel_button)
-
-        preview_buttons = QHBoxLayout()
-        preview_buttons.addWidget(self.preview_clip_start_button)
-        preview_buttons.addWidget(self.preview_clip_end_button)
-        preview_buttons.addWidget(self.preview_selected_clip_button)
-        preview_buttons.addStretch(1)
 
         layout.addWidget(self.clips_table)
         layout.addLayout(table_buttons)
-        layout.addLayout(preview_buttons)
 
+        return group
+
+    def _build_selected_clip_details_section(self) -> QGroupBox:
+        group = QGroupBox("معاينة المقطع المحدد")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        self.selected_clip_preview_label.setAlignment(Qt.AlignCenter)
+        self.selected_clip_preview_label.setMinimumHeight(120)
+        layout.addWidget(self.selected_clip_preview_label)
+        details_title = QLabel("تفاصيل المقطع المحدد")
+        details_title.setObjectName("sectionHelpText")
+        layout.addWidget(details_title)
+        layout.addWidget(self.selected_clip_details_label)
+        return group
+
+    def _build_clip_quick_actions_section(self) -> QGroupBox:
+        group = QGroupBox("إجراءات سريعة")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.preview_selected_clip_button)
+        layout.addWidget(self.preview_clip_start_button)
+        layout.addWidget(self.preview_clip_end_button)
+        layout.addWidget(self.delete_row_button)
+        duplicate_button = QPushButton("تكرار المقطع — قريبًا")
+        duplicate_button.setEnabled(False)
+        move_button = QPushButton("نقل إلى قائمة الانتظار — قريبًا")
+        move_button.setEnabled(False)
+        layout.addWidget(duplicate_button)
+        layout.addWidget(move_button)
+        layout.addStretch(1)
+        return group
+
+    def _build_queue_controls_card(self) -> QGroupBox:
+        group = QGroupBox("التحكم في القائمة")
+        self._style_card(group, "queueControlCard")
+        layout = QGridLayout(group)
+        buttons = [
+            self.start_queue_processing_button,
+            self.stop_queue_after_current_button,
+            self.queue_stop_all_button,
+            self.queue_move_up_button,
+            self.queue_move_down_button,
+            self.queue_reorder_button,
+            self.load_queue_clips_button,
+            self.delete_queue_job_button,
+        ]
+        for index, button in enumerate(buttons):
+            layout.addWidget(button, index // 2, index % 2)
+        return group
+
+    def _build_current_job_card(self) -> QGroupBox:
+        group = QGroupBox("الوظيفة قيد المعالجة الآن")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.queue_current_job_label)
+        return group
+
+    def _build_queue_table_card(self) -> QGroupBox:
+        group = QGroupBox("قائمة الانتظار")
+        self._style_card(group, "queueCard")
+        layout = QVBoxLayout(group)
+        self.queue_table.setHorizontalHeaderLabels(
+            ["المصدر", "العنوان", "عدد المقاطع", "الحالة", "أولوية عالية", "الإخراج / الملاحظات"]
+        )
+        self.queue_table.verticalHeader().setVisible(False)
+        self.queue_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.queue_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.queue_table.setAlternatingRowColors(True)
+        self.queue_table.setMinimumHeight(190)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_SOURCE_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_TITLE_COLUMN, QHeaderView.Stretch)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_CLIP_COUNT_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_STATUS_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_HIGH_PRIORITY_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_table.horizontalHeader().setSectionResizeMode(QUEUE_ACTION_COLUMN, QHeaderView.Stretch)
+        layout.addWidget(self.queue_table)
+
+        edit_buttons = QHBoxLayout()
+        edit_buttons.addWidget(self.load_queue_job_workspace_button)
+        edit_buttons.addWidget(self.save_queue_job_edits_button)
+        edit_buttons.addWidget(self.cancel_queue_job_edit_button)
+        edit_buttons.addStretch(1)
+        edit_buttons.addWidget(self.queue_advanced_toggle_button)
+        layout.addLayout(edit_buttons)
+
+        self.queue_advanced_toggle_button.setCheckable(True)
+        self.queue_advanced_toggle_button.setChecked(False)
+        advanced_group_layout = QVBoxLayout(self.queue_advanced_group)
+        advanced_controls_layout = QGridLayout(self.queue_advanced_controls_widget)
+        advanced_buttons = [
+            self.add_current_work_to_queue_button,
+            self.add_queue_local_video_button,
+            self.add_queue_url_button,
+            self.validate_queue_job_button,
+            self.validate_all_queue_jobs_button,
+            self.run_selected_queue_job_button,
+            self.run_all_queue_simulation_button,
+            self.save_queue_clips_button,
+            self.save_queue_state_button,
+            self.load_queue_state_button,
+            self.clear_queue_button,
+            self.readiness_button,
+            self.direct_cut_button,
+        ]
+        for index, button in enumerate(advanced_buttons):
+            advanced_controls_layout.addWidget(button, index // 4, index % 4)
+        advanced_group_layout.addWidget(self.queue_advanced_controls_widget)
+        self.queue_advanced_controls_widget.setVisible(False)
+        self.queue_advanced_toggle_button.toggled.connect(self.queue_advanced_controls_widget.setVisible)
+        layout.addWidget(self.queue_advanced_group)
+        return group
+
+    def _build_queue_task_details_card(self) -> QGroupBox:
+        group = QGroupBox("تفاصيل الوظيفة المحددة")
+        self._style_card(group, "jobDetailsCard")
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.queue_selected_job_details_label)
+        layout.addWidget(self.queue_edit_status_label)
+        layout.addWidget(self.queue_job_details_label)
+        layout.addWidget(QLabel("مقاطع المهمة"))
+        self.queue_job_clips_table.setHorizontalHeaderLabels(["الرقم", "العنوان", "البداية", "النهاية", "الاستثناءات"])
+        self.queue_job_clips_table.verticalHeader().setVisible(False)
+        self.queue_job_clips_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.queue_job_clips_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self.queue_job_clips_table.setAlternatingRowColors(True)
+        self.queue_job_clips_table.setMinimumHeight(120)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(NUMBER_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(TITLE_COLUMN, QHeaderView.Stretch)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(START_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(END_COLUMN, QHeaderView.ResizeToContents)
+        self.queue_job_clips_table.horizontalHeader().setSectionResizeMode(EXCLUSIONS_COLUMN, QHeaderView.Stretch)
+        layout.addWidget(self.queue_job_clips_table)
+        details_button_row = QHBoxLayout()
+        details_button_row.addWidget(self.copy_queue_job_details_button)
+        details_button_row.addStretch(1)
+        layout.addLayout(details_button_row)
+        return group
+
+    def _build_queue_info_preview_card(self) -> QGroupBox:
+        group = QGroupBox("معاينة المعلومات")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.queue_info_preview_label)
+        return group
+
+    def _build_queue_job_log_card(self) -> QGroupBox:
+        group = QGroupBox("سجل الوظيفة المحددة")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        filter_row = QHBoxLayout()
+        for label in ("الكل", "تحذيرات", "معلومات", "أخطاء"):
+            button = QPushButton(label)
+            button.setEnabled(label == "الكل")
+            filter_row.addWidget(button)
+        filter_row.addStretch(1)
+        layout.addLayout(filter_row)
+        self.queue_job_log_area.setMinimumHeight(140)
+        layout.addWidget(self.queue_job_log_area)
+        button_row = QHBoxLayout()
+        copy_button = QPushButton("نسخ السجل — قريبًا")
+        copy_button.setEnabled(False)
+        button_row.addWidget(copy_button)
+        save_button = QPushButton("حفظ السجل — قريبًا")
+        save_button.setEnabled(False)
+        button_row.addWidget(save_button)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
+        return group
+
+    def _build_dashboard_summary_section(self) -> QWidget:
+        widget = QWidget()
+        layout = QGridLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        cards = [
+            self._build_metric_card("مصدر الفيديو", self.dashboard_source_label, "مصدر العمل الحالي"),
+            self._build_metric_card("المقاطع", self.dashboard_clips_label, "إجمالي المقاطع في الجدول"),
+            self._build_metric_card("قائمة الانتظار", self.dashboard_queue_label, "المهام الحالية"),
+            self._build_metric_card("الحالة الحالية", self.dashboard_status_label, "حالة التشغيل"),
+            self._build_metric_card("مسار الإخراج", self.dashboard_output_label, "المجلد المستخدم فعليًا"),
+        ]
+        for index, card in enumerate(cards):
+            layout.addWidget(card, 0, index)
+        return widget
+
+    def _build_operations_log_section(self) -> QGroupBox:
+        group = QGroupBox("سجل العمليات")
+        self._style_card(group, "clipsCard")
+        layout = QVBoxLayout(group)
+        filters = QHBoxLayout()
+        filters.addWidget(QPushButton("آخر 7 أيام"))
+        filters.addWidget(QPushButton("كل الحالات"))
+        search = QLineEdit()
+        search.setPlaceholderText("بحث في السجل...")
+        filters.addWidget(search, stretch=1)
+        layout.addLayout(filters)
+        self.operations_log_table.setHorizontalHeaderLabels(["العمل", "التفاصيل", "الحدث", "الوقت", "الحالة"])
+        self.operations_log_table.verticalHeader().setVisible(False)
+        self.operations_log_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.operations_log_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.operations_log_table.setMinimumHeight(140)
+        self.operations_log_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.operations_log_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.operations_log_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.operations_log_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.operations_log_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        layout.addWidget(self.operations_log_table)
+        layout.addWidget(self._build_log_section())
+        return group
+
+    def _build_queue_snapshot_section(self) -> QGroupBox:
+        group = QGroupBox("لقطة سريعة لقائمة الانتظار")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        self.queue_snapshot_table.setHorizontalHeaderLabels(["#", "العنوان", "الحالة", "التقدم"])
+        self.queue_snapshot_table.verticalHeader().setVisible(False)
+        self.queue_snapshot_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.queue_snapshot_table.setMinimumHeight(120)
+        self.queue_snapshot_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.queue_snapshot_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.queue_snapshot_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.queue_snapshot_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        layout.addWidget(self.queue_snapshot_table)
+        return group
+
+    def _build_current_work_section(self) -> QGroupBox:
+        group = QGroupBox("العمل المحدد حاليًا")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.current_work_label)
+        open_button = QPushButton("فتح المجلد")
+        open_button.clicked.connect(self.open_output_folder)
+        layout.addWidget(open_button)
+        return group
+
+    def _build_system_status_section(self) -> QGroupBox:
+        group = QGroupBox("حالة النظام")
+        self._style_card(group)
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.system_status_label)
         return group
 
     def _build_action_section(self) -> QGroupBox:
         group = QGroupBox("أزرار التشغيل")
         self._style_card(group, "mainActionsCard")
+        group.setProperty("topActions", True)
+        group.setMinimumHeight(96)
+        group.setMaximumHeight(96)
         layout = QHBoxLayout(group)
+        layout.setContentsMargins(14, 8, 14, 8)
         layout.setSpacing(10)
 
-        layout.addWidget(self.start_button)
         layout.addWidget(self.new_work_button)
+        layout.addWidget(self.global_smart_import_button)
         layout.addWidget(self.validate_button)
+        layout.addWidget(self.start_button)
         layout.addWidget(self.open_output_button)
         layout.addStretch(1)
         layout.addWidget(self.processing_status_label)
@@ -1745,6 +3171,15 @@ class MainWindow(QMainWindow):
         self.export_quality_enabled_checkbox.toggled.connect(self._update_speed_volume_controls)
         self.export_quality_preset_combo.currentIndexChanged.connect(self._update_speed_volume_controls)
         self.resolution_limit_combo.currentIndexChanged.connect(self._update_speed_volume_controls)
+        self.nav_import_button.clicked.connect(lambda: self.switch_dashboard_page("import"))
+        self.nav_clips_button.clicked.connect(lambda: self.switch_dashboard_page("clips"))
+        self.nav_queue_button.clicked.connect(lambda: self.switch_dashboard_page("queue"))
+        self.nav_logs_button.clicked.connect(lambda: self.switch_dashboard_page("logs"))
+        self.global_smart_import_button.clicked.connect(lambda: self.switch_dashboard_page("import"))
+        self.clear_paste_text_button.clicked.connect(self.paste_message_input.clear)
+        self.replace_import_button.clicked.connect(self.import_smart_paste_message)
+        self.append_import_button.clicked.connect(self.import_smart_paste_message)
+        self.queue_import_button.clicked.connect(self.import_smart_paste_message)
         self.add_current_work_to_queue_button.clicked.connect(self.add_current_work_to_queue)
         self.add_queue_local_video_button.clicked.connect(self.add_local_video_to_queue)
         self.add_queue_url_button.clicked.connect(self.add_url_to_queue)
@@ -1767,7 +3202,15 @@ class MainWindow(QMainWindow):
         self.queue_table.itemChanged.connect(self._sync_queue_high_priority)
         self.queue_table.itemSelectionChanged.connect(self._handle_queue_selection_changed)
         self.queue_table.currentCellChanged.connect(self._handle_queue_selection_changed)
+        self.clips_table.itemChanged.connect(self._refresh_dashboard_overview)
+        self.clips_table.itemSelectionChanged.connect(self._refresh_dashboard_overview)
         self.smart_paste_button.clicked.connect(self.import_smart_paste_message)
+        self.clips_import_shortcut_button.clicked.connect(lambda: self.switch_dashboard_page("import"))
+        self.clips_new_work_shortcut_button.clicked.connect(self.start_new_work)
+        self.clips_clear_shortcut_button.clicked.connect(self.clear_table)
+        self.clips_delete_shortcut_button.clicked.connect(self.delete_selected_row)
+        self.clips_point_shortcut_button.clicked.connect(self.preview_selected_clip)
+        self.clips_export_shortcut_button.clicked.connect(self.add_current_work_and_start_queue)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
         self.show_global_log_button.clicked.connect(self.show_global_log)
         self.copy_queue_job_details_button.clicked.connect(self.copy_selected_queue_job_details)
@@ -1803,6 +3246,7 @@ class MainWindow(QMainWindow):
         self.clips_table.setItem(row, START_COLUMN, QTableWidgetItem(start))
         self.clips_table.setItem(row, END_COLUMN, QTableWidgetItem(end))
         self.clips_table.setItem(row, EXCLUSIONS_COLUMN, QTableWidgetItem(exclusions))
+        self._refresh_dashboard_overview()
 
     def preview_selected_clip_start(self) -> None:
         self._preview_selected_clip(ClipPreviewKind.START)
@@ -2037,6 +3481,7 @@ class MainWindow(QMainWindow):
         finally:
             self.queue_table.blockSignals(False)
         self._update_queue_edit_controls()
+        self._refresh_dashboard_overview()
 
     def _readonly_table_item(self, text: str) -> QTableWidgetItem:
         item = QTableWidgetItem(text)
@@ -2178,17 +3623,320 @@ class MainWindow(QMainWindow):
             return None
         return self.job_queue[row]
 
+    def _refresh_dashboard_overview(self, *_args) -> None:
+        if not hasattr(self, "dashboard_source_label"):
+            return
+
+        output_path = self._dashboard_output_path()
+        short_output_path = self._short_path_text(output_path, limit=62)
+        status_text = self.processing_status_label.text().replace("الحالة:", "").strip() or "جاهز"
+        source_summary = self._current_source_summary(short=True)
+        clip_count = self.clips_table.rowCount()
+        queue_count = len(self.job_queue)
+
+        self.dashboard_source_label.setText(source_summary)
+        self.dashboard_clips_label.setText(str(clip_count))
+        self.dashboard_queue_label.setText(str(queue_count))
+        self.dashboard_status_label.setText(status_text)
+        self.dashboard_output_label.setText(short_output_path)
+        self.dashboard_output_label.setToolTip(str(output_path))
+        self.bottom_status_label.setText(status_text)
+        self.bottom_output_label.setText(f"مجلد النتائج: {self._short_path_text(output_path, limit=82)}")
+        self.bottom_output_label.setToolTip(str(output_path))
+        last_job_summary = "لا توجد"
+        if self.job_queue:
+            last_job = self.job_queue[-1]
+            last_job_summary = self._queue_status_label(last_job.status)
+        self.sidebar_engine_status_label.setText(status_text or "جاهز")
+        self.sidebar_smart_status_label.setText("جاهز")
+        self.sidebar_last_job_label.setText(last_job_summary)
+        self.sidebar_queue_count_label.setText(str(queue_count))
+        self.sidebar_bottom_status_label.setText(status_text)
+
+        project_title = self.project_name_input.text().strip() or "عمل بلا عنوان"
+        self.current_work_label.setText(
+            "\n".join(
+                [
+                    f"العنوان: {project_title}",
+                    f"المصدر: {self._current_source_summary(short=False)}",
+                    f"عدد المقاطع: {clip_count}",
+                    f"مجلد النتائج: {output_path}",
+                ]
+            )
+        )
+
+        running_job = self._current_running_queue_job()
+        if running_job is None:
+            self.queue_current_job_label.setText("لا توجد وظيفة قيد المعالجة الآن")
+        else:
+            self.queue_current_job_label.setText(
+                "\n".join(
+                    [
+                        f"العنوان: {running_job.title}",
+                        f"الحالة: {self._queue_status_label(running_job.status)}",
+                        f"المصدر: {self._queue_source_label(running_job)}",
+                        f"عدد المقاطع: {running_job.clip_count}",
+                        f"أولوية عالية: {'نعم' if running_job.settings.high_priority else 'لا'}",
+                    ]
+                )
+            )
+
+        selected_job = self._selected_queue_job()
+        if selected_job is None:
+            self.queue_info_preview_label.setText("لا توجد معلومات إضافية متاحة")
+        else:
+            info_lines = [
+                f"المصدر: {self._queue_source_label(selected_job)}",
+                f"الحالة: {self._queue_status_label(selected_job.status)}",
+                f"عدد المقاطع: {selected_job.clip_count}",
+            ]
+            if selected_job.output_folder:
+                info_lines.append(f"الإخراج: {selected_job.output_folder}")
+            if selected_job.failure_stage:
+                info_lines.append(f"مرحلة الفشل: {selected_job.failure_stage}")
+            if selected_job.failure_message:
+                info_lines.append(f"سبب الفشل: {self._short_queue_text(selected_job.failure_message, 120)}")
+            self.queue_info_preview_label.setText("\n".join(info_lines))
+
+        processing_state = "قيد المعالجة" if self._queue_processing_thread or self._processing_thread else "جاهز"
+        last_result = str(self._last_output_folder) if self._last_output_folder else "لا توجد نتيجة محفوظة بعد"
+        self.system_status_label.setText(
+            "\n".join(
+                [
+                    f"حالة التطبيق: {status_text}",
+                    f"حالة المعالجة: {processing_state}",
+                    f"عدد مهام قائمة الانتظار: {queue_count}",
+                    f"مسار الإخراج: {output_path}",
+                    f"آخر نتيجة: {last_result}",
+                ]
+            )
+        )
+
+        self._refresh_selected_clip_details()
+        self._refresh_import_summary()
+        self._refresh_import_extracted_clips_table()
+        self._refresh_queue_snapshot_table()
+        self._refresh_operations_log_table()
+
+    def _dashboard_output_path(self) -> Path:
+        return self._last_output_folder or self.output_root
+
+    def _short_path_text(self, path: Path | str, limit: int = 70) -> str:
+        text = str(path)
+        if len(text) <= limit:
+            return text
+        normalized = text.replace("/", "\\")
+        parts = [part for part in normalized.split("\\") if part]
+        if len(parts) >= 4:
+            prefix = parts[0]
+            tail = "\\".join(parts[-3:])
+            compact = f"{prefix}\\…\\{tail}"
+            if len(compact) <= limit:
+                return compact
+        return f"…{text[-max(10, limit - 1):]}"
+
+    def _current_source_summary(self, *, short: bool) -> str:
+        if self.local_file_radio.isChecked():
+            path = self.local_file_input.text().strip()
+            if short:
+                return "فيديو محلي" if path else "فيديو محلي غير محدد"
+            return path or "لم يتم اختيار ملف فيديو"
+
+        url = self.youtube_input.text().strip()
+        if short:
+            return "رابط يوتيوب" if url else "رابط يوتيوب غير محدد"
+        return self._safe_queue_source_text(url) if url else "لم يتم إدخال رابط"
+
+    def _current_running_queue_job(self) -> VideoJob | None:
+        for job in self.job_queue:
+            if self._queue_job_is_running(job):
+                return job
+        return None
+
+    def _refresh_selected_clip_details(self) -> None:
+        if not hasattr(self, "selected_clip_details_label"):
+            return
+
+        row = self._selected_clip_row()
+        if row is None:
+            self.selected_clip_details_label.setText("لم يتم تحديد مقطع")
+            self.selected_clip_preview_label.setText("المعاينة المتقدمة قريبًا")
+            return
+
+        title = self._cell_text(row, TITLE_COLUMN) or f"مقطع {row + 1}"
+        start = self._cell_text(row, START_COLUMN) or "-"
+        end = self._cell_text(row, END_COLUMN) or "-"
+        exclusions = self._cell_text(row, EXCLUSIONS_COLUMN) or "-"
+        duration = self._clip_duration_text(start, end)
+        self.selected_clip_preview_label.setText(
+            "\n".join(
+                [
+                    "المعاينة المتقدمة قريبًا" if not self._has_previewable_local_source() else "يمكن استخدام أزرار المعاينة الحالية.",
+                    f"{start} - {end}",
+                ]
+            )
+        )
+        self.selected_clip_details_label.setText(
+            "\n".join(
+                [
+                    f"العنوان: {title}",
+                    f"المصدر: {self._current_source_summary(short=False)}",
+                    f"البداية: {start}",
+                    f"النهاية: {end}",
+                    f"المدة: {duration}",
+                    f"الاستثناءات: {exclusions}",
+                    "الحالة: جاهز للمراجعة",
+                ]
+            )
+        )
+
+    def _has_previewable_local_source(self) -> bool:
+        return self.local_file_radio.isChecked() and bool(self.local_file_input.text().strip())
+
+    def _clip_duration_text(self, start: str, end: str) -> str:
+        try:
+            start_seconds = parse_timestamp(start)
+            end_seconds = parse_timestamp(end)
+        except ValueError:
+            return "-"
+        if end_seconds <= start_seconds:
+            return "-"
+        total_seconds = end_seconds - start_seconds
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours:
+            return f"{hours:02}:{minutes:02}:{seconds:02}"
+        return f"{minutes:02}:{seconds:02}"
+
+    def _refresh_import_summary(self) -> None:
+        if not hasattr(self, "import_summary_label"):
+            return
+        has_import_context = bool(
+            self.youtube_input.text().strip()
+            or self.project_name_input.text().strip()
+            or self.clips_table.rowCount()
+            or self.paste_message_input.toPlainText().strip()
+        )
+        if not has_import_context:
+            self.import_summary_label.setText("سيظهر ملخص الاستيراد بعد تحليل النص أو تحميل مصدر.")
+            return
+
+        self.import_summary_label.setText(
+            "\n".join(
+                [
+                    f"الرابط المكتشف: {self._safe_queue_source_text(self.youtube_input.text().strip()) or '-'}",
+                    f"عنوان المشروع: {self.project_name_input.text().strip() or '-'}",
+                    f"عدد المقاطع: {self.clips_table.rowCount()}",
+                    "التحذيرات: تظهر داخل معاينة الاستيراد الذكي عند وجودها",
+                    "الأخطاء: تظهر داخل معاينة الاستيراد الذكي عند وجودها",
+                ]
+            )
+        )
+
+    def _refresh_import_extracted_clips_table(self) -> None:
+        if not hasattr(self, "import_extracted_clips_table"):
+            return
+        self.import_extracted_clips_table.blockSignals(True)
+        try:
+            self.import_extracted_clips_table.setRowCount(0)
+            for source_row in range(self.clips_table.rowCount()):
+                target_row = self.import_extracted_clips_table.rowCount()
+                self.import_extracted_clips_table.insertRow(target_row)
+
+                check_item = QTableWidgetItem("")
+                check_item.setFlags((check_item.flags() | Qt.ItemIsUserCheckable) & ~Qt.ItemIsEditable)
+                check_item.setCheckState(Qt.Checked)
+                check_item.setTextAlignment(Qt.AlignCenter)
+                self.import_extracted_clips_table.setItem(target_row, 0, check_item)
+
+                start = self._cell_text(source_row, START_COLUMN)
+                end = self._cell_text(source_row, END_COLUMN)
+                status = "جاهز" if start and end else "يحتاج مراجعة"
+                values = [
+                    str(source_row + 1),
+                    self._cell_text(source_row, TITLE_COLUMN) or f"مقطع {source_row + 1}",
+                    start,
+                    end,
+                    self._cell_text(source_row, EXCLUSIONS_COLUMN),
+                    status,
+                ]
+                for offset, value in enumerate(values, start=1):
+                    self.import_extracted_clips_table.setItem(
+                        target_row,
+                        offset,
+                        self._readonly_table_item(value),
+                    )
+        finally:
+            self.import_extracted_clips_table.blockSignals(False)
+
+        if hasattr(self, "import_empty_label"):
+            has_rows = self.import_extracted_clips_table.rowCount() > 0
+            self.import_empty_label.setVisible(not has_rows)
+            self.import_extracted_clips_table.setVisible(has_rows)
+
+    def _refresh_queue_snapshot_table(self) -> None:
+        if not hasattr(self, "queue_snapshot_table"):
+            return
+        self.queue_snapshot_table.blockSignals(True)
+        try:
+            self.queue_snapshot_table.setRowCount(0)
+            for index, job in enumerate(self.job_queue, start=1):
+                row = self.queue_snapshot_table.rowCount()
+                self.queue_snapshot_table.insertRow(row)
+                progress = "اكتمل" if job.status == JobStatus.DONE else ("قيد العمل" if self._queue_job_is_running(job) else "-")
+                for column, value in enumerate(
+                    [
+                        str(index),
+                        job.title,
+                        self._queue_status_label(job.status),
+                        progress,
+                    ]
+                ):
+                    self.queue_snapshot_table.setItem(row, column, self._readonly_table_item(value))
+        finally:
+            self.queue_snapshot_table.blockSignals(False)
+
+    def _refresh_operations_log_table(self) -> None:
+        if not hasattr(self, "operations_log_table"):
+            return
+        self.operations_log_table.blockSignals(True)
+        try:
+            self.operations_log_table.setRowCount(0)
+            log_lines: list[str] = []
+            for message in self._global_log_messages[-80:]:
+                log_lines.extend(line for line in message.splitlines() if line.strip())
+            for line in log_lines[-80:]:
+                timestamp = "-"
+                details = line
+                if line.startswith("[") and "]" in line:
+                    timestamp = line[1 : line.index("]")]
+                    details = line[line.index("]") + 1 :].strip()
+                if "فشل" in details or "خطأ" in details:
+                    status = "خطأ"
+                elif "تحذير" in details or "راجع" in details:
+                    status = "تحذير"
+                else:
+                    status = "معلومات"
+                row = self.operations_log_table.rowCount()
+                self.operations_log_table.insertRow(row)
+                for column, value in enumerate(["سجل عام", details, "رسالة", timestamp, status]):
+                    self.operations_log_table.setItem(row, column, self._readonly_table_item(value))
+        finally:
+            self.operations_log_table.blockSignals(False)
+
     def _update_selected_queue_job_details(self) -> None:
         job = self._selected_queue_job()
         if job is None:
             self.queue_job_details_label.setText("لم يتم تحديد مهمة")
             self.queue_job_clips_table.setRowCount(0)
             self.copy_queue_job_details_button.setEnabled(False)
+            self._refresh_dashboard_overview()
             return
 
         self.copy_queue_job_details_button.setEnabled(True)
         self.queue_job_details_label.setText(self._format_queue_job_details(job))
         self._populate_queue_job_clips_preview(job)
+        self._refresh_dashboard_overview()
 
     def _format_queue_job_details(self, job: VideoJob) -> str:
         settings = job.settings
@@ -3153,6 +4901,7 @@ class MainWindow(QMainWindow):
             self._update_selected_queue_job_details()
             if self._active_log_job is job:
                 self._show_selected_queue_job_log()
+        self._refresh_dashboard_overview()
 
     def add_classification_rule(self) -> None:
         self._insert_classification_rule(
@@ -4018,6 +5767,8 @@ class MainWindow(QMainWindow):
     def _render_log(self, header: str, messages: list[str]) -> None:
         self.log_header_label.setText(header)
         self.log_area.setPlainText("\n".join(messages))
+        if hasattr(self, "queue_job_log_area"):
+            self.queue_job_log_area.setPlainText("\n".join(messages))
         self._flush_log_update()
 
     def show_global_log(self) -> None:
@@ -4037,8 +5788,14 @@ class MainWindow(QMainWindow):
     def _flush_log_update(self) -> None:
         scrollbar = self.log_area.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+        if hasattr(self, "queue_job_log_area"):
+            queue_scrollbar = self.queue_job_log_area.verticalScrollBar()
+            queue_scrollbar.setValue(queue_scrollbar.maximum())
         self.log_area.repaint()
+        if hasattr(self, "queue_job_log_area"):
+            self.queue_job_log_area.repaint()
         self.processing_status_label.repaint()
+        self._refresh_dashboard_overview()
         QApplication.processEvents()
 
     def _write_validation_errors(self, errors: list[str]) -> None:

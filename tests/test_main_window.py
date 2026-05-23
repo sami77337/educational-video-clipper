@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import QEvent, Qt, QThread
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication, QDialog, QGroupBox, QLabel, QPushButton, QScrollArea
 
 from src.main_window import (
@@ -216,8 +217,9 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert window.post_padding_input.value() == 0
     assert window.video_speed_input.value() > 0
     assert window.volume_input.value() > 0
-    assert window.import_excel_button.text() == "استيراد من Excel"
-    assert window.smart_paste_button.text() == "استيراد ذكي"
+    assert window.import_excel_button.text() == "استيراد من Excel / CSV"
+    assert window.smart_paste_button.text() == "تحليل النص"
+    assert window.global_smart_import_button.text() == "استيراد ذكي"
     assert window.parse_message_button.text() == "تحويل بسيط إلى جدول"
     assert window.parse_message_button.parent() is None
     assert not window.parse_message_button.isVisible()
@@ -234,7 +236,7 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
     assert [
         window.queue_table.horizontalHeaderItem(column).text()
         for column in range(window.queue_table.columnCount())
-    ] == ["المصدر", "العنوان", "عدد المقاطع", "الحالة", "أولوية عالية", "الإجراء"]
+    ] == ["المصدر", "العنوان", "عدد المقاطع", "الحالة", "أولوية عالية", "الإخراج / الملاحظات"]
     assert window.queue_table.rowCount() == 0
     assert window.queue_job_details_label.text() == "لم يتم تحديد مهمة"
     assert window.copy_queue_job_details_button.text() == "نسخ تفاصيل المهمة"
@@ -281,8 +283,165 @@ def test_main_window_smoke_expected_widgets_and_buttons_exist() -> None:
         window.delete_queue_job_button,
         window.clear_queue_button,
     ):
-        assert "قائمة الانتظار" in _ancestor_group_titles(button)
-        assert "إدارة قائمة الانتظار المتقدمة" in _ancestor_group_titles(button)
+        titles = _ancestor_group_titles(button)
+        assert (
+            "قائمة الانتظار" in titles
+            or "إدارة قائمة الانتظار المتقدمة" in titles
+            or "التحكم في القائمة" in titles
+        )
+
+    window.close()
+    app.processEvents()
+
+
+def test_four_page_dashboard_navigation_preserves_state() -> None:
+    app = _app()
+    window = MainWindow()
+
+    assert window.page_stack.count() == 4
+    assert window.page_stack.currentIndex() == 3
+    assert window.nav_logs_button.isChecked()
+    assert [window.page_stack.widget(index).widget().objectName() for index in range(window.page_stack.count())] == [
+        "الاستيرادPage",
+        "المقاطعPage",
+        "قائمة الانتظارPage",
+        "السجلPage",
+    ]
+
+    window.project_name_input.setText("مشروع")
+    window.youtube_input.setText("https://youtu.be/abc123")
+    window._insert_clip_row(1, "مقطع", "00:01:00", "00:02:00")
+    window.add_current_work_to_queue()
+    queue_count = len(window.job_queue)
+
+    for page_name, expected_index in (
+        ("import", 0),
+        ("clips", 1),
+        ("queue", 2),
+        ("logs", 3),
+    ):
+        window.switch_dashboard_page(page_name)
+        assert window.page_stack.currentIndex() == expected_index
+        assert window.clips_table.rowCount() == 1
+        assert len(window.job_queue) == queue_count
+
+    window.close()
+    app.processEvents()
+
+
+def test_dashboard_pages_contain_required_sections_and_controls() -> None:
+    app = _app()
+    window = MainWindow()
+    group_titles = {group.title() for group in window.findChildren(QGroupBox)}
+    button_texts = {button.text() for button in window.findChildren(QPushButton)}
+    label_texts = {label.text() for label in window.findChildren(QLabel)}
+
+    assert {"الاستيراد", "المقاطع", "قائمة الانتظار", "السجل"} == {
+        window.nav_import_button.text(),
+        window.nav_clips_button.text(),
+        window.nav_queue_button.text(),
+        window.nav_logs_button.text(),
+    }
+    assert {
+        "الاستيراد الذكي",
+        "مصدر الاستيراد",
+        "ملخص الاستيراد",
+        "المقاطع المستخرجة",
+        "قائمة المقاطع",
+        "معاينة المقطع المحدد",
+        "إعدادات المقطع",
+        "التحكم في القائمة",
+        "الوظيفة قيد المعالجة الآن",
+        "تفاصيل الوظيفة المحددة",
+        "سجل الوظيفة المحددة",
+        "سجل العمليات",
+        "لقطة سريعة لقائمة الانتظار",
+        "العمل المحدد حاليًا",
+        "حالة النظام",
+    }.issubset(group_titles)
+    assert {
+        "عمل جديد",
+        "استيراد ذكي",
+        "فحص ذكي قبل القص",
+        "بدء القص",
+        "فتح مجلد النتائج",
+        "تحليل النص",
+        "استيراد من Excel / CSV",
+        "مسح النص",
+        "استبدال الجدول الحالي",
+        "إضافة إلى جدول المقاطع",
+        "إضافة إلى قائمة الانتظار",
+    }.issubset(button_texts)
+    assert window.import_extracted_clips_table.columnCount() == 7
+    assert window.operations_log_table.columnCount() == 5
+    assert window.queue_snapshot_table.columnCount() == 4
+    assert {"الحالة العامة", "المظهر", "الوضع الحالي: داكن"}.issubset(label_texts)
+    assert window.sidebar_engine_status_label.objectName() == "sidebarStatusValue"
+    assert window.sidebar_smart_status_label.text() == "جاهز"
+    assert window.sidebar_queue_count_label.text() == "0"
+    assert all(not button.icon().isNull() for button in (
+        window.nav_import_button,
+        window.nav_clips_button,
+        window.nav_queue_button,
+        window.nav_logs_button,
+    ))
+    assert not window.future_reports_button.isEnabled()
+    assert "قريبًا" in window.future_reports_button.text()
+
+    window.close()
+    app.processEvents()
+
+
+def test_f11_toggles_true_fullscreen_and_escape_exits() -> None:
+    app = _app()
+    window = MainWindow()
+    window.show()
+    app.processEvents()
+
+    assert not window.isFullScreen()
+    window.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key_F11, Qt.NoModifier))
+    app.processEvents()
+
+    assert window.isFullScreen()
+    assert window._window_geometry_before_fullscreen is not None
+    assert window._window_state_before_fullscreen is not None
+
+    window.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key_Escape, Qt.NoModifier))
+    app.processEvents()
+
+    assert not window.isFullScreen()
+    assert window._window_geometry_before_fullscreen is None
+    assert window._window_state_before_fullscreen is None
+
+    window.close()
+    app.processEvents()
+
+
+def test_dashboard_visual_proportions_are_compact_for_preview() -> None:
+    app = _app()
+    window = MainWindow()
+
+    style = window.styleSheet()
+    assert "font-size: 11px" in style
+    assert "min-height: 25px" in style
+    assert "QPushButton#primaryActionButton" in style
+    assert "min-height: 34px" in style
+    assert "border-radius: 12px" in style
+    assert "QScrollBar::handle:vertical" in style
+    assert "QPushButton#primaryActionButton:pressed" in style
+    assert "QPushButton#topNavButton" in style
+    assert "QRadioButton:checked" in style
+    assert "QFrame#sidebarCard" in style
+    assert "QPushButton#futureNavButton" in style
+    assert "QLabel#readyIndicator" in style
+    assert "QFrame#appearancePanel" in style
+    assert "QLabel#appearanceIndicator" in style
+    assert "QLabel#sidebarGreenDot" in style
+    assert window.minimumHeight() <= 640
+    assert window.centralWidget().horizontalScrollBarPolicy() == Qt.ScrollBarAlwaysOff
+    assert window.bottom_status_label.parent().maximumHeight() <= 28
+    assert window.paste_message_input.minimumHeight() >= 200
+    assert window.operations_log_table.minimumHeight() <= 150
 
     window.close()
     app.processEvents()
@@ -2372,10 +2531,10 @@ def test_queue_processing_keeps_preparation_ui_available_while_running() -> None
         if group.title()
     }
     assert {
-        "مصدر الفيديو",
-        "الصق الرسالة هنا",
-        "جدول المقاطع",
-        "إعدادات القص",
+        "مصدر الاستيراد",
+        "الاستيراد الذكي",
+        "قائمة المقاطع",
+        "إعدادات المقطع",
         "قائمة الانتظار",
         "سجل الحالة",
     }.issubset(enabled_sections)
@@ -2399,6 +2558,10 @@ def test_simple_conversion_button_is_hidden_from_main_workflow() -> None:
     window.show()
     app.processEvents()
 
+    assert window.global_smart_import_button.isVisible()
+    assert window.global_smart_import_button.isEnabled()
+    window.switch_dashboard_page("import")
+    app.processEvents()
     assert window.smart_paste_button.isVisible()
     assert window.smart_paste_button.isEnabled()
     assert not window.parse_message_button.isVisible()
