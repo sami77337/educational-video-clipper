@@ -612,9 +612,19 @@ QLabel#metricValue {
     color: #ffffff;
     font-size: 16px;
     font-weight: 700;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1b3a56, stop:1 #132c45);
+    border: 1px solid #345a75;
+    border-radius: 14px;
+    padding: 8px 10px;
+    min-height: 34px;
 }
 QLabel#metricCaption {
     color: #aebdd0;
+    background: #11283e;
+    border: 1px solid #2a4861;
+    border-radius: 12px;
+    padding: 5px 9px;
+    min-height: 24px;
 }
 QLabel#emptyStateLabel {
     color: #aebdd0;
@@ -1754,13 +1764,16 @@ class MainWindow(QMainWindow):
     def _build_top_navigation(self) -> QFrame:
         frame = QFrame()
         frame.setObjectName("topNav")
-        frame.setMaximumHeight(58)
+        frame.setMinimumHeight(76)
+        frame.setMaximumHeight(76)
         layout = QHBoxLayout(frame)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addStretch(1)
         strip = QFrame()
         strip.setObjectName("topNavStrip")
+        strip.setMinimumHeight(72)
+        strip.setMaximumHeight(72)
         strip_layout = QHBoxLayout(strip)
         strip_layout.setContentsMargins(7, 7, 7, 7)
         strip_layout.setSpacing(6)
@@ -3095,7 +3108,8 @@ class MainWindow(QMainWindow):
         group = QGroupBox("أزرار التشغيل")
         self._style_card(group, "mainActionsCard")
         group.setProperty("topActions", True)
-        group.setMaximumHeight(66)
+        group.setMinimumHeight(96)
+        group.setMaximumHeight(96)
         layout = QHBoxLayout(group)
         layout.setContentsMargins(14, 8, 14, 8)
         layout.setSpacing(10)
