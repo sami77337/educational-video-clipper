@@ -571,12 +571,14 @@ QLabel#sidebarCardTitle {
     color: #f6fbff;
     font-size: 14px;
     font-weight: 800;
+    min-height: 24px;
 }
 QLabel#sidebarStatusLabel, QLabel#sidebarThemeLabel, QLabel#sidebarStatusValue {
     color: #c9d8e6;
     background: transparent;
     line-height: 1.35;
     font-size: 12.5px;
+    min-height: 22px;
 }
 QLabel#sidebarStatusValue {
     color: #f5fbff;
@@ -586,6 +588,7 @@ QFrame#sidebarStatusRow {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #132d47, stop:0.55 #0d2237, stop:1 #091a2b);
     border: 1px solid #2a506d;
     border-radius: 20px;
+    min-height: 34px;
 }
 QLabel#sidebarGreenDot {
     background: #40e287;
@@ -600,6 +603,7 @@ QFrame#appearancePanel {
     background: qradialgradient(cx:0.82, cy:0.22, radius:0.95, fx:0.82, fy:0.22, stop:0 #1e5e95, stop:0.34 #123b62, stop:1 #071827);
     border: 1px solid #3a77a0;
     border-radius: 24px;
+    min-height: 76px;
 }
 QLabel#appearanceIndicator {
     background: qradialgradient(cx:0.35, cy:0.3, radius:0.78, fx:0.35, fy:0.3, stop:0 #7ec7ff, stop:0.45 #2c79bf, stop:1 #123d6d);
@@ -619,6 +623,7 @@ QLabel#appearanceText {
     color: #f3f8ff;
     font-size: 13px;
     font-weight: 750;
+    min-height: 22px;
 }
 QLabel#appearanceHint {
     background: transparent;
@@ -626,6 +631,7 @@ QLabel#appearanceHint {
     color: #a9bdd1;
     font-size: 11.5px;
     font-weight: 600;
+    min-height: 20px;
 }
 QLabel#appearanceModePill {
     background: #17466f;
@@ -635,6 +641,7 @@ QLabel#appearanceModePill {
     font-size: 11.5px;
     font-weight: 750;
     padding: 4px 12px;
+    min-height: 24px;
 }
 QLabel#readyIndicator {
     background: #40e287;
@@ -1550,10 +1557,10 @@ class MainWindow(QMainWindow):
         frame.setObjectName("sidebarCard")
         frame.setProperty("sidebarRole", "status")
         frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-        frame.setMaximumHeight(190)
+        frame.setMaximumHeight(220)
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(14, 13, 14, 13)
-        layout.setSpacing(8)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(9)
         title = QLabel("الحالة العامة")
         title.setObjectName("sidebarCardTitle")
         title.setAlignment(Qt.AlignCenter)
@@ -1568,14 +1575,17 @@ class MainWindow(QMainWindow):
         row = QFrame()
         row.setObjectName("sidebarStatusRow")
         row.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        row.setMinimumHeight(34)
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(10, 7, 10, 7)
+        layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(7)
         label = QLabel(label_text)
         label.setObjectName("sidebarStatusLabel")
         label.setAlignment(Qt.AlignCenter)
+        label.setMinimumHeight(22)
         value_label.setObjectName("sidebarStatusValue")
         value_label.setAlignment(Qt.AlignCenter)
+        value_label.setMinimumHeight(22)
         layout.addWidget(value_label, stretch=1)
         layout.addWidget(label, stretch=1)
         if show_dot:
@@ -1590,18 +1600,19 @@ class MainWindow(QMainWindow):
         frame.setObjectName("sidebarCard")
         frame.setProperty("sidebarRole", "appearance")
         frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-        frame.setMaximumHeight(132)
+        frame.setMaximumHeight(152)
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(14, 13, 14, 13)
-        layout.setSpacing(9)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
         title = QLabel("المظهر")
         title.setObjectName("sidebarCardTitle")
         title.setAlignment(Qt.AlignCenter)
         appearance = QFrame()
         appearance.setObjectName("appearancePanel")
+        appearance.setMinimumHeight(76)
         appearance_layout = QHBoxLayout(appearance)
-        appearance_layout.setContentsMargins(11, 10, 11, 10)
-        appearance_layout.setSpacing(9)
+        appearance_layout.setContentsMargins(12, 11, 12, 11)
+        appearance_layout.setSpacing(10)
         moon = QLabel("◑")
         moon.setObjectName("appearanceIndicator")
         moon.setAlignment(Qt.AlignCenter)
@@ -1611,12 +1622,15 @@ class MainWindow(QMainWindow):
         mode = QLabel("الوضع الحالي: داكن")
         mode.setObjectName("appearanceText")
         mode.setAlignment(Qt.AlignCenter)
+        mode.setMinimumHeight(22)
         hint = QLabel("واجهة كحلية هادئة")
         hint.setObjectName("appearanceHint")
         hint.setAlignment(Qt.AlignCenter)
+        hint.setMinimumHeight(20)
         state = QLabel("مفعّل")
         state.setObjectName("appearanceModePill")
         state.setAlignment(Qt.AlignCenter)
+        state.setMinimumHeight(24)
         layout.addWidget(title)
         text_layout.addWidget(mode)
         text_layout.addWidget(hint)
