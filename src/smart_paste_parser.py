@@ -613,16 +613,37 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
 def format_smart_paste_debug_report(preview: SmartPastePreview, original_input: str = "") -> str:
     """Return a text debug report without sensitive cookie/browser data."""
 
+    blocking_markers = (
+        "نهاية المقطع قبل بدايته",
+        "وقت الاستثناء غير صحيح",
+        "نهاية الاستثناء قبل بدايته",
+    )
+    blocking_warnings = [
+        warning
+        for warning in preview.warnings
+        if any(marker in warning.message_ar for marker in blocking_markers)
+    ]
+    nonblocking_warnings = [warning for warning in preview.warnings if warning not in blocking_warnings]
+    exclusion_count = sum(len(clip.exclusions) for clip in preview.clips)
+
     lines = [
         "تقرير فحص الاستيراد الذكي",
-        f"عنوان المشروع: {preview.project_title or 'غير مكتشف'}",
         f"الرابط: {preview.video_urls[0] if preview.video_urls else 'غير مكتشف'}",
+        f"عنوان المشروع: {preview.project_title or 'غير مكتشف'}",
         f"عدد المقاطع: {len(preview.clips)}",
-        f"عدد التحذيرات: {len(preview.warnings)}",
+        f"عدد الاستثناءات: {exclusion_count}",
+        f"التحذيرات: {len(nonblocking_warnings)}",
+        f"الأخطاء: {len(blocking_warnings)}",
         f"عدد الأسطر التي تحتاج مراجعة: {len(preview.unparsed_lines)}",
         "",
-        "المقاطع:",
+        "جدول مختصر للمقاطع:",
+        "العنوان | البداية | النهاية | الاستثناءات | الحالة",
     ]
+    for clip in preview.clips:
+        status = "صالح مع تحذير" if clip.confidence != "high" or clip.notes_text else "صالح"
+        exclusions = ", ".join(f"{exclusion.start} - {exclusion.end}" for exclusion in clip.exclusions) or "-"
+        lines.append(f"{clip.title} | {clip.start} | {clip.end} | {exclusions} | {status}")
+    lines.extend(["", "المقاطع:"])
     for clip in preview.clips:
         lines.append(f"{clip.number}. {clip.start} - {clip.end} | {clip.title}")
         if clip.exclusions_text:
@@ -633,9 +654,20 @@ def format_smart_paste_debug_report(preview: SmartPastePreview, original_input: 
             lines.append(f"   الملاحظات: {clip.notes_text}")
         lines.append(f"   الثقة: {clip.confidence}")
         lines.append(f"   الأسطر: {clip.source_lines}")
-    if preview.warnings:
+    if nonblocking_warnings:
         lines.extend(["", "التحذيرات:"])
-        lines.extend(f"- السطر {warning.line_number}: {warning.message_ar}" for warning in preview.warnings)
+        lines.extend(
+            f"- السطر {warning.line_number}: {warning.message_ar}"
+            + (f"\n  النص: {warning.raw_line}" if warning.raw_line else "")
+            for warning in nonblocking_warnings
+        )
+    if blocking_warnings:
+        lines.extend(["", "الأخطاء:"])
+        lines.extend(
+            f"- السطر {warning.line_number}: {warning.message_ar}"
+            + (f"\n  النص: {warning.raw_line}" if warning.raw_line else "")
+            for warning in blocking_warnings
+        )
     if preview.unparsed_lines:
         lines.extend(["", "أسطر تحتاج مراجعة:"])
         lines.extend(f"- السطر {line.line_number}: {line.raw_line}" for line in preview.unparsed_lines)
