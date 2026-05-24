@@ -310,7 +310,7 @@ class VideoProcessor:
         input_video_path = project_output_folder / INPUT_VIDEO_NAME
 
         _emit(progress_callback, AR_DOWNLOADING_YOUTUBE)
-        download_youtube_video(
+        input_video_path = download_youtube_video(
             clean_url,
             input_video_path,
             self._youtube_dl_factory,

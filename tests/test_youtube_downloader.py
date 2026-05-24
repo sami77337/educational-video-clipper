@@ -3,12 +3,20 @@ from yt_dlp.utils import DownloadError
 
 from src.video.youtube_downloader import (
     AR_EMPTY_YOUTUBE_URL,
+    AR_YOUTUBE_FORMAT_FALLBACK_FAILED,
+    AR_YOUTUBE_FORMAT_ATTEMPT,
+    AR_YOUTUBE_FORMAT_SUCCESS,
     YOUTUBE_BEST_VIDEO_AUDIO_FORMAT,
+    YOUTUBE_FORMAT_FALLBACKS,
     YouTubeDownloadError,
     download_youtube_video,
     normalize_browser_name,
     validate_youtube_url,
 )
+
+
+def _materialized_outtmpl(options: dict, ext: str = "mp4"):
+    return options["outtmpl"].replace("%(ext)s", ext)
 
 
 def _capture_youtube_options(tmp_path, **download_kwargs) -> tuple[dict, list[str]]:
@@ -30,7 +38,8 @@ def _capture_youtube_options(tmp_path, **download_kwargs) -> tuple[dict, list[st
             hook = captured_options["progress_hooks"][0]
             hook({"status": "downloading", "downloaded_bytes": 50, "total_bytes": 100})
             hook({"status": "finished"})
-            destination.write_bytes(b"video")
+            with open(_materialized_outtmpl(captured_options), "wb") as file:
+                file.write(b"video")
 
     download_youtube_video(
         "https://youtu.be/example",
@@ -54,8 +63,10 @@ def test_download_youtube_video_keeps_best_video_best_audio_and_cookies_disabled
     options, _messages = _capture_youtube_options(tmp_path)
 
     assert options["format"] == YOUTUBE_BEST_VIDEO_AUDIO_FORMAT
+    assert options["format"] == YOUTUBE_FORMAT_FALLBACKS[0]
     assert "cookiesfrombrowser" not in options
     assert options["merge_output_format"] == "mp4"
+    assert options["outtmpl"].endswith("input.%(ext)s")
     assert options["retries"] == 10
     assert options["fragment_retries"] == 10
     assert options["socket_timeout"] == 30
@@ -97,7 +108,8 @@ def test_download_youtube_video_passes_ffmpeg_location_when_available(tmp_path) 
             return False
 
         def download(self, urls):
-            destination.write_bytes(b"video")
+            with open(_materialized_outtmpl(captured_options), "wb") as file:
+                file.write(b"video")
 
     download_youtube_video(
         "https://youtu.be/example",
@@ -142,3 +154,100 @@ def test_youtube_bot_sign_in_error_is_translated_to_arabic(tmp_path) -> None:
         )
 
     assert "تعذر تنزيل الفيديو من يوتيوب بسبب تحقق يوتيوب" in str(error.value)
+    assert "قد يحتاج هذا الفيديو إلى تسجيل دخول أو استخدام Cookies من المتصفح." in str(error.value)
+
+
+def test_download_youtube_video_retries_next_format_when_requested_format_unavailable(tmp_path) -> None:
+    destination = tmp_path / "input.mp4"
+    attempts: list[str] = []
+    messages: list[str] = []
+
+    class FakeYoutubeDL:
+        def __init__(self, options):
+            self.options = options
+            attempts.append(options["format"])
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def download(self, urls):
+            if len(attempts) == 1:
+                raise DownloadError("ERROR: Requested format is not available")
+            with open(_materialized_outtmpl(self.options, "webm"), "wb") as file:
+                file.write(b"video")
+
+    result = download_youtube_video(
+        "https://youtu.be/example",
+        destination,
+        FakeYoutubeDL,
+        messages.append,
+        ffmpeg_location_provider=lambda: None,
+    )
+
+    assert result == tmp_path / "input.webm"
+    assert attempts == YOUTUBE_FORMAT_FALLBACKS[:2]
+    assert f"{AR_YOUTUBE_FORMAT_ATTEMPT}: {YOUTUBE_FORMAT_FALLBACKS[0]}" in messages
+    assert f"{AR_YOUTUBE_FORMAT_ATTEMPT}: {YOUTUBE_FORMAT_FALLBACKS[1]}" in messages
+    assert f"{AR_YOUTUBE_FORMAT_SUCCESS}: {YOUTUBE_FORMAT_FALLBACKS[1]}" in messages
+
+
+def test_download_youtube_video_reports_clear_error_after_all_format_fallbacks_fail(tmp_path) -> None:
+    destination = tmp_path / "input.mp4"
+    attempts: list[str] = []
+
+    class FakeYoutubeDL:
+        def __init__(self, options):
+            attempts.append(options["format"])
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def download(self, urls):
+            raise DownloadError("ERROR: requested format not available")
+
+    with pytest.raises(YouTubeDownloadError) as error:
+        download_youtube_video(
+            "https://youtu.be/example",
+            destination,
+            FakeYoutubeDL,
+            ffmpeg_location_provider=lambda: None,
+        )
+
+    assert attempts == YOUTUBE_FORMAT_FALLBACKS
+    assert str(error.value) == AR_YOUTUBE_FORMAT_FALLBACK_FAILED
+
+
+def test_download_youtube_video_non_format_error_is_translated_without_retry(tmp_path) -> None:
+    destination = tmp_path / "input.mp4"
+    attempts: list[str] = []
+
+    class FakeYoutubeDL:
+        def __init__(self, options):
+            attempts.append(options["format"])
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def download(self, urls):
+            raise DownloadError("HTTP Error 403: Forbidden")
+
+    with pytest.raises(YouTubeDownloadError) as error:
+        download_youtube_video(
+            "https://youtu.be/example",
+            destination,
+            FakeYoutubeDL,
+            ffmpeg_location_provider=lambda: None,
+        )
+
+    assert attempts == [YOUTUBE_FORMAT_FALLBACKS[0]]
+    assert "فشل تحميل الفيديو من يوتيوب" in str(error.value)
+    assert "HTTP Error 403" in str(error.value)
