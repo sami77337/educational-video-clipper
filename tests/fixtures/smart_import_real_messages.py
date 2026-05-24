@@ -280,9 +280,9 @@ https://www.youtube.com/live/zoFRX8ng7bw?si=gA1pcmkCs_Rs16js
 """,
         "expected_url": "",
         "expected_project_title": "",
-        "expected_clips": [("00:10:12", "00:17:51", "السلامة من الذنوب محاسبة النفس")],
-        "expected_exclusions": {},
-        "expected_warnings": ["تم اكتشاف مقطع متعدد الأجزاء، قد يحتاج مراجعة قبل القص"],
-        "notes": "Multi-part candidate should stay one preview clip, not independent clips.",
+        "expected_clips": [("00:10:12", "00:17:51", "السلامة من الذنوب + محاسبة النفس")],
+        "expected_exclusions": {0: [("00:11:35", "00:12:33")]},
+        "expected_warnings": ["تم اكتشاف مقطع مركب مع حذف داخلي"],
+        "notes": "Safe two-part candidate is represented as one clip with an internal exclusion.",
     },
 ]

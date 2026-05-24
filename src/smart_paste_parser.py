@@ -73,11 +73,22 @@ _INTERNAL_CUT_PHRASES = (
 )
 _EXCLUSION_CUE_PATTERN = re.compile(
     r"(?:"
-    r"استثناء|حذف|احذف|يقطع|"
+    r"استثناء|استثني|حذف|احذف|يحذف|إزالة|ازالة|شيل|قص|اقتصاص|الاقتصاصات|بدون|"
+    r"لا\s+نريد|لا\s+اريد|لا\s+أريد|استبعد|تجاهل|يقطع|قصوا|قصوه|"
+    r"لتقصير\s+المقطع|تكون\s+الفائدة\s+افضل|يقصر\s+المقطع|"
+    r"skip|exclude|remove|cut\s+out|delete|omit|without|"
     r"مابين\s+القوسين\s+يقطع|ما\s+بين\s+القوسين\s+يقطع|"
     r"يحتاج\s+قص\s+من\s+الداخل|قص\s+داخل\s+المقطع|حذف\s+داخل\s+المقطع|"
     r"احذف\s+من\s+داخل\s+المقطع|قصوا\s+الاستراحة|هذا\s+الجزء\s+يقطع"
     r")\s*:?\s*"
+    ,
+    re.IGNORECASE,
+)
+_LOOSE_EXCLUSION_RANGE_PATTERN = re.compile(
+    rf"(?:من\s+)?(?:الدقيقة\s+|minute\s+)?"
+    rf"({_END_TIME_PATTERN})\s*{_RANGE_SEPARATOR_PATTERN}\s*"
+    rf"(?:الدقيقة\s+|minute\s+)?({_END_TIME_PATTERN})",
+    re.IGNORECASE,
 )
 _START_LABEL_PATTERN = re.compile(r"(?:البداية|بداية|بداية\s+المقطع|من\s+البداية)\s*:?")
 _END_LABEL_PATTERN = re.compile(r"(?:النهاية|نهاية|نهاية\s+المقطع|إلى\s+النهاية|الى\s+النهاية)\s*:?")
@@ -337,6 +348,39 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
         if pending_title is not None and pending_title.title == source_title:
             pending_title = None
 
+    def handle_following_exclusion_note(context: _LineContext) -> None:
+        nonlocal clips, pending_exclusion_clip_index
+        if not clips:
+            return
+        previous_clip = clips[-1]
+        exclusions = _extract_following_exclusion_ranges(context.text, previous_clip)
+        if not exclusions:
+            clips[-1] = replace(
+                previous_clip,
+                general_notes=[*previous_clip.general_notes, _clean_note_text(context.text)],
+            )
+            add_warning(context, "ملاحظة تحتاج مراجعة: توجد ملاحظة عن قص داخلي بدون وقت محدد")
+            pending_exclusion_clip_index = len(clips) - 1
+            return
+
+        attached: list[SmartPasteExclusion] = []
+        for exclusion in exclusions:
+            if not _exclusion_has_valid_order(exclusion):
+                add_warning(context, "نهاية الاستثناء قبل بدايته")
+                continue
+            if not _exclusion_inside_clip(exclusion, previous_clip.start, previous_clip.end):
+                add_warning(context, "وقت الاستثناء خارج حدود المقطع السابق")
+                continue
+            attached.append(exclusion)
+        if not attached:
+            return
+
+        updated_exclusions = [*previous_clip.exclusions, *attached]
+        clips[-1] = replace(previous_clip, exclusions=updated_exclusions)
+        add_warning(context, "استثناء مكتشف من ملاحظة تالية")
+        if _exclusions_have_overlap_or_duplicate(updated_exclusions):
+            add_warning(context, "يوجد تداخل أو تكرار في الاستثناءات")
+
     for context in contexts:
         line_urls = _extract_youtube_urls(context.text)
         for url in line_urls:
@@ -351,7 +395,9 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
         context = _LineContext(context.line_number, context.raw_line, text_without_urls)
 
         if _is_note_line(context.text):
-            if clips:
+            if clips and _line_has_exclusion_cue(context.text):
+                handle_following_exclusion_note(context)
+            elif clips:
                 previous_clip = clips[-1]
                 clips[-1] = replace(
                     previous_clip,
@@ -363,6 +409,10 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
             continue
 
         unsupported_warnings = _detect_unsupported_patterns(context)
+
+        if clips and _looks_like_following_exclusion_note_line(context.text):
+            handle_following_exclusion_note(context)
+            continue
 
         if label_block is not None:
             handled_label = _consume_labeled_context(label_block, context)
@@ -663,8 +713,22 @@ def _parse_multi_part_clip(text: str) -> _ClipCandidate | None:
             )
     if len(parts) < 2:
         return None
-    title_source = _strip_number_prefix(_RANGE_PATTERN.sub(" ", text).replace("+", " "))
+    title_source = _strip_number_prefix(_RANGE_PATTERN.sub(" ", text))
+    title_source = re.sub(r"^\s*\+\s*", " ", title_source)
     notes = _extract_notes_from_text(title_source)
+    if len(parts) == 2 and _part_gap_is_safe(parts[0], parts[1]):
+        exclusion = SmartPasteExclusion(parts[0].end, parts[1].start, raw_text=text)
+        return _ClipCandidate(
+            title=notes.title,
+            start=parts[0].start,
+            end=parts[1].end,
+            exclusions=[exclusion],
+            start_note=notes.start_note,
+            end_note=notes.end_note,
+            general_notes=notes.general_notes,
+            parser_warnings=["تم اكتشاف مقطع مركب مع حذف داخلي"],
+            confidence="medium",
+        )
     return _ClipCandidate(
         title=notes.title,
         start=parts[0].start,
@@ -1096,6 +1160,94 @@ def _exclusion_inside_clip(exclusion: SmartPasteExclusion, clip_start: str, clip
     exclusion_start_seconds = parse_timestamp(exclusion.start)
     exclusion_end_seconds = parse_timestamp(exclusion.end)
     return clip_start_seconds <= exclusion_start_seconds and exclusion_end_seconds <= clip_end_seconds
+
+
+def _looks_like_following_exclusion_note_line(text: str) -> bool:
+    if not _line_has_exclusion_cue(text):
+        return False
+    if _is_clip_title_evidence(text):
+        return False
+    stripped = str(text).strip()
+    if stripped.startswith(("-", "–", "—", "*", "•")):
+        return True
+    if _RANGE_PATTERN.match(stripped):
+        return False
+    return True
+
+
+def _extract_following_exclusion_ranges(text: str, previous_clip: SmartPasteClip) -> list[SmartPasteExclusion]:
+    ranges: list[SmartPasteExclusion] = []
+    seen_spans: list[tuple[int, int]] = []
+    for match in _RANGE_PATTERN.finditer(text):
+        exclusion = _build_exclusion_from_contextual_match(match, text, previous_clip)
+        if exclusion is not None:
+            ranges.append(exclusion)
+            seen_spans.append(match.span())
+
+    for match in _LOOSE_EXCLUSION_RANGE_PATTERN.finditer(text):
+        if any(_spans_overlap(match.span(), span) for span in seen_spans):
+            continue
+        exclusion = _build_exclusion_from_contextual_match(match, text, previous_clip)
+        if exclusion is not None:
+            ranges.append(exclusion)
+    return ranges
+
+
+def _build_exclusion_from_contextual_match(
+    match: re.Match[str],
+    text: str,
+    previous_clip: SmartPasteClip,
+) -> SmartPasteExclusion | None:
+    start = _normalize_exclusion_time_token(match.group(1), previous_clip)
+    end = _normalize_exclusion_time_token(match.group(2), previous_clip)
+    if start is None or end is None:
+        return None
+    return SmartPasteExclusion(start=start, end=end, raw_text=text[match.start() : match.end()])
+
+
+def _normalize_exclusion_time_token(token: str, previous_clip: SmartPasteClip) -> str | None:
+    normalized = normalize_digits(str(token)).strip()
+    if ":" in normalized:
+        timestamp = _normalize_time(normalized)
+        if timestamp is None:
+            return None
+        if parse_timestamp(timestamp) < parse_timestamp(previous_clip.start) and normalized.count(":") == 1:
+            shifted = format_seconds(parse_timestamp(timestamp) + 3600)
+            if parse_timestamp(shifted) <= parse_timestamp(previous_clip.end):
+                return shifted
+        return timestamp
+    if not normalized.isdigit():
+        return None
+    minute = int(normalized)
+    if minute > 59:
+        return None
+    clip_start_seconds = parse_timestamp(previous_clip.start)
+    clip_end_seconds = parse_timestamp(previous_clip.end)
+    base_hour = clip_start_seconds // 3600
+    candidate_seconds = base_hour * 3600 + minute * 60
+    if candidate_seconds < clip_start_seconds and candidate_seconds + 3600 <= clip_end_seconds:
+        candidate_seconds += 3600
+    return format_seconds(candidate_seconds)
+
+
+def _spans_overlap(first: tuple[int, int], second: tuple[int, int]) -> bool:
+    return first[0] < second[1] and second[0] < first[1]
+
+
+def _exclusions_have_overlap_or_duplicate(exclusions: list[SmartPasteExclusion]) -> bool:
+    ranges = sorted((parse_timestamp(exclusion.start), parse_timestamp(exclusion.end)) for exclusion in exclusions)
+    for previous, current in zip(ranges, ranges[1:]):
+        if current[0] <= previous[1]:
+            return True
+    return False
+
+
+def _part_gap_is_safe(first: SmartPastePart, second: SmartPastePart) -> bool:
+    first_start = parse_timestamp(first.start)
+    first_end = parse_timestamp(first.end)
+    second_start = parse_timestamp(second.start)
+    second_end = parse_timestamp(second.end)
+    return first_start < first_end < second_start < second_end
 
 
 def _detect_unsupported_patterns(context: _LineContext) -> list[SmartPasteWarning]:

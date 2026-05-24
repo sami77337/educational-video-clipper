@@ -58,10 +58,6 @@ def test_phase2_full_arabic_indic_whatsapp_message_core_fields() -> None:
     assert "نهاية المقطع قبل بدايته" not in _warning_text(preview)
 
 
-@pytest.mark.xfail(
-    reason="TODO Phase 3: parser should infer following-line minute-only deletion as an exclusion for clip 8.",
-    strict=True,
-)
 def test_phase3_full_arabic_indic_whatsapp_following_line_exclusion_note() -> None:
     preview = parse_smart_paste_message(_FULL_ARABIC_INDIC_WHATSAPP_MESSAGE)
 
@@ -143,10 +139,6 @@ def test_phase2_following_line_exclusion_sample_keeps_basic_clip() -> None:
     assert _clip_ranges(preview) == [("00:27:05", "00:31:01", "النصح للقريب")]
 
 
-@pytest.mark.xfail(
-    reason="TODO Phase 3: parser should interpret following Arabic-Indic minute-only deletion note as an exclusion.",
-    strict=True,
-)
 def test_phase3_following_line_exclusion_with_arabic_indic_digits() -> None:
     preview = parse_smart_paste_message(
         """
@@ -158,10 +150,6 @@ def test_phase3_following_line_exclusion_with_arabic_indic_digits() -> None:
     assert _exclusion_ranges(preview) == [("00:29:00", "00:30:00")]
 
 
-@pytest.mark.xfail(
-    reason="TODO: parser should attach multiple following deletion ranges to one previous clip.",
-    strict=True,
-)
 def test_phase1_multiple_exclusions_after_one_clip() -> None:
     preview = parse_smart_paste_message(
         """
@@ -178,10 +166,6 @@ def test_phase1_multiple_exclusions_after_one_clip() -> None:
     ]
 
 
-@pytest.mark.xfail(
-    reason="TODO: parser should convert compound plus ranges into one clip with an internal-gap exclusion.",
-    strict=True,
-)
 def test_phase1_compound_range_one_clip_with_internal_gap() -> None:
     preview = parse_smart_paste_message(
         """
@@ -208,9 +192,9 @@ def test_phase1_compound_range_currently_is_not_split_into_two_independent_clips
     )
 
     assert len(preview.clips) == 1
-    assert preview.clips[0].multi_part
-    assert _parts(preview) == [("00:10:12", "00:11:35"), ("00:12:33", "00:17:51")]
-    assert any("تم اكتشاف مقطع متعدد الأجزاء" in warning for warning in _warnings(preview))
+    assert not preview.clips[0].multi_part
+    assert _exclusion_ranges(preview) == [("00:11:35", "00:12:33")]
+    assert any("تم اكتشاف مقطع مركب مع حذف داخلي" in warning for warning in _warnings(preview))
 
 
 def test_phase1_reversed_timing_is_blocking_error() -> None:
@@ -227,10 +211,6 @@ def test_phase1_short_end_time_interpreted_as_full_minute_with_warning() -> None
     assert any("وقت النهاية مختصر وتم تفسيره كدقيقة كاملة" in warning for warning in _warnings(preview))
 
 
-@pytest.mark.xfail(
-    reason="TODO: parser should preserve exclusion-word notes without times as review warnings.",
-    strict=True,
-)
 def test_phase1_exclusion_word_without_time_becomes_review_note_not_exclusion() -> None:
     preview = parse_smart_paste_message(
         """
@@ -242,6 +222,49 @@ def test_phase1_exclusion_word_without_time_becomes_review_note_not_exclusion() 
     assert _clip_ranges(preview) == [("00:10:00", "00:20:00", "عنوان")]
     assert _exclusion_ranges(preview) == []
     assert any("ملاحظة تحتاج مراجعة" in warning for warning in _warnings(preview))
+
+
+def test_phase3_out_of_bounds_following_exclusion_warns_without_attaching() -> None:
+    preview = parse_smart_paste_message(
+        """
+8) 27:05 - 31:01 | النصح للقريب
+- حذف 32-33
+""".strip()
+    )
+
+    assert _clip_ranges(preview) == [("00:27:05", "00:31:01", "النصح للقريب")]
+    assert _exclusion_ranges(preview) == []
+    assert any("وقت الاستثناء خارج حدود المقطع السابق" in warning for warning in _warnings(preview))
+
+
+def test_phase3_reversed_following_exclusion_warns_without_auto_swap() -> None:
+    preview = parse_smart_paste_message(
+        """
+1) 00:10:00 - 00:20:00 | عنوان
+- حذف 13-12
+""".strip()
+    )
+
+    assert _clip_ranges(preview) == [("00:10:00", "00:20:00", "عنوان")]
+    assert _exclusion_ranges(preview) == []
+    assert any("نهاية الاستثناء قبل بدايته" in warning for warning in _warnings(preview))
+
+
+def test_phase3_overlapping_following_exclusions_warn() -> None:
+    preview = parse_smart_paste_message(
+        """
+1) 00:10:00 - 00:20:00 | عنوان
+- حذف 12-14
+- حذف 13-15
+""".strip()
+    )
+
+    assert _clip_ranges(preview) == [("00:10:00", "00:20:00", "عنوان")]
+    assert _exclusion_ranges(preview) == [
+        ("00:12:00", "00:14:00"),
+        ("00:13:00", "00:15:00"),
+    ]
+    assert any("يوجد تداخل أو تكرار في الاستثناءات" in warning for warning in _warnings(preview))
 
 
 def test_phase1_time_range_without_exclusion_intent_does_not_become_exclusion() -> None:

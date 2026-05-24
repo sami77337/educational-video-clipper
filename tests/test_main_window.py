@@ -3183,7 +3183,7 @@ def test_smart_paste_preview_dialog_shows_exclusions_and_notes() -> None:
     app.processEvents()
 
 
-def test_smart_paste_preview_dialog_shows_multi_part_clips() -> None:
+def test_smart_paste_preview_dialog_shows_compound_internal_exclusion() -> None:
     app = _app()
     dialog = SmartPasteImportDialog()
     dialog.message_input.setPlainText("10:12 - 11:35 + 12:33 - 17:51 (title)")
@@ -3191,9 +3191,8 @@ def test_smart_paste_preview_dialog_shows_multi_part_clips() -> None:
     preview = dialog.generate_preview()
 
     assert len(preview.clips) == 1
-    assert preview.clips[0].multi_part
-    assert "00:10:12 - 00:11:35" in dialog.clips_preview_table.item(0, 5).text()
-    assert "00:12:33 - 00:17:51" in dialog.clips_preview_table.item(0, 5).text()
+    assert not preview.clips[0].multi_part
+    assert dialog.clips_preview_table.item(0, 4).text() == "00:11:35-00:12:33"
     assert "مقطع مركب" in dialog.warnings_area.toPlainText()
     assert "توجد تحذيرات، راجعها قبل الاستيراد" in dialog.review_status_label.text()
 
@@ -3536,16 +3535,16 @@ def test_smart_paste_preview_real_world_evidence_samples_show_review_metadata() 
         app.processEvents()
 
 
-def test_smart_paste_preview_marks_multi_part_sample_for_review_without_splitting() -> None:
+def test_smart_paste_preview_marks_compound_sample_as_internal_exclusion() -> None:
     app = _app()
     sample = _smart_import_fixture("plus_joined_multi_part_one_clip_candidate")
     dialog = SmartPasteImportDialog(initial_text=sample["input_text"], auto_generate=True)
 
     assert dialog.preview is not None
     assert len(dialog.preview.clips) == 1
-    assert dialog.preview.clips[0].multi_part
-    assert "تم اكتشاف مقطع متعدد الأجزاء، قد يحتاج مراجعة قبل القص" in dialog.warnings_area.toPlainText()
-    assert "مقطع مركب" in dialog.clips_preview_table.item(0, 5).text()
+    assert not dialog.preview.clips[0].multi_part
+    assert dialog.preview.clips[0].exclusions_text == "00:11:35-00:12:33"
+    assert "تم اكتشاف مقطع مركب مع حذف داخلي" in dialog.warnings_area.toPlainText()
     assert "توجد تحذيرات، راجعها قبل الاستيراد" in dialog.review_status_label.text()
 
     dialog.close()
