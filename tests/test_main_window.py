@@ -3167,6 +3167,25 @@ def test_smart_paste_preview_dialog_generates_summary_and_clip_table() -> None:
     app.processEvents()
 
 
+def test_smart_paste_preview_dialog_keeps_footer_buttons_outside_scroll_area() -> None:
+    app = _app()
+    dialog = SmartPasteImportDialog()
+    available = (dialog.screen() or app.primaryScreen()).availableGeometry()
+    expected_max_height = max(520, min(760, int(available.height() * 0.88)))
+
+    assert dialog.maximumHeight() == expected_max_height
+    assert dialog.height() <= expected_max_height
+    assert dialog.body_scroll_area.widget() is not None
+    assert dialog.footer_widget.objectName() == "smartImportFooter"
+    assert dialog.apply_button.parent() is dialog.footer_widget
+    assert dialog.cancel_button.parent() is dialog.footer_widget
+    assert dialog.copy_debug_button.parent() is dialog.footer_widget
+    assert dialog.layout().indexOf(dialog.footer_widget) > dialog.layout().indexOf(dialog.body_scroll_area)
+
+    dialog.close()
+    app.processEvents()
+
+
 def test_smart_paste_preview_dialog_shows_exclusions_and_notes() -> None:
     app = _app()
     dialog = SmartPasteImportDialog()

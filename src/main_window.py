@@ -478,13 +478,13 @@ class SmartPasteImportDialog(QDialog):
 
         self.setWindowTitle("استيراد ذكي")
         self.setLayoutDirection(Qt.RightToLeft)
-        self.resize(760, 620)
         self.setStyleSheet(APP_STYLE_SHEET)
 
         self.message_input = QTextEdit()
         self.message_input.setObjectName("pasteBox")
         self.message_input.setPlaceholderText("الصق الرسالة كاملة هنا، بما في ذلك رابط الفيديو والمقاطع.")
-        self.message_input.setMinimumHeight(120)
+        self.message_input.setMinimumHeight(100)
+        self.message_input.setMaximumHeight(150)
 
         self.summary_label = QLabel("الصق الرسالة ثم اضغط فحص الرسالة.")
         self.summary_label.setWordWrap(True)
@@ -497,7 +497,9 @@ class SmartPasteImportDialog(QDialog):
 
         self.clips_preview_table = QTableWidget(0, 7)
         self.clips_preview_table.setShowGrid(False)
-        self.clips_preview_table.verticalHeader().setDefaultSectionSize(34)
+        self.clips_preview_table.verticalHeader().setDefaultSectionSize(32)
+        self.clips_preview_table.setMinimumHeight(150)
+        self.clips_preview_table.setMaximumHeight(240)
         self.clips_preview_table.setHorizontalHeaderLabels(
             ["#", "العنوان", "البداية", "النهاية", "الاستثناءات", "الحالة", "الملاحظات"]
         )
@@ -515,17 +517,17 @@ class SmartPasteImportDialog(QDialog):
         self.warnings_area = QTextEdit()
         self.warnings_area.setObjectName("warningArea")
         self.warnings_area.setReadOnly(True)
-        self.warnings_area.setMaximumHeight(95)
+        self.warnings_area.setMaximumHeight(82)
 
         self.unparsed_area = QTextEdit()
         self.unparsed_area.setObjectName("reviewArea")
         self.unparsed_area.setReadOnly(True)
-        self.unparsed_area.setMaximumHeight(95)
+        self.unparsed_area.setMaximumHeight(72)
 
         self.analysis_details_area = QTextEdit()
         self.analysis_details_area.setObjectName("reviewArea")
         self.analysis_details_area.setReadOnly(True)
-        self.analysis_details_area.setMaximumHeight(130)
+        self.analysis_details_area.setMaximumHeight(90)
 
         self.parse_button = QPushButton("فحص الرسالة")
         self.apply_button = QPushButton("تطبيق النتائج")
@@ -538,6 +540,7 @@ class SmartPasteImportDialog(QDialog):
         self.copy_debug_button.setEnabled(False)
 
         self._build_ui()
+        self._fit_to_available_screen()
         self.parse_button.clicked.connect(self.generate_preview)
         self.apply_button.clicked.connect(self._accept_preview)
         self.copy_debug_button.clicked.connect(self.copy_debug_report)
@@ -549,42 +552,79 @@ class SmartPasteImportDialog(QDialog):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
 
-        layout.addWidget(QLabel("الصق الرسالة هنا"))
-        layout.addWidget(self.message_input)
-        layout.addWidget(self.parse_button)
+        body_widget = QWidget()
+        body_layout = QVBoxLayout(body_widget)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(8)
+
+        body_layout.addWidget(QLabel("الصق الرسالة هنا"))
+        body_layout.addWidget(self.message_input)
+        body_layout.addWidget(self.parse_button)
 
         summary_group = QGroupBox("ملخص الاستيراد")
         summary_layout = QVBoxLayout(summary_group)
+        summary_layout.setContentsMargins(10, 14, 10, 10)
+        summary_layout.setSpacing(4)
         summary_layout.addWidget(self.summary_label)
         summary_layout.addWidget(self.review_status_label)
-        layout.addWidget(summary_group)
+        body_layout.addWidget(summary_group)
 
         source_group = QGroupBox("المصدر المكتشف")
         source_layout = QGridLayout(source_group)
+        source_layout.setContentsMargins(10, 14, 10, 10)
+        source_layout.setVerticalSpacing(4)
         source_layout.addWidget(QLabel("رابط الفيديو"), 0, 0)
         source_layout.addWidget(self.detected_url_label, 0, 1)
         source_layout.addWidget(QLabel("اسم المشروع"), 1, 0)
         source_layout.addWidget(self.detected_project_label, 1, 1)
         source_layout.setColumnStretch(1, 1)
-        layout.addWidget(source_group)
+        body_layout.addWidget(source_group)
 
-        layout.addWidget(QLabel("المقاطع المكتشفة"))
-        layout.addWidget(self.clips_preview_table, stretch=1)
-        layout.addWidget(QLabel("التحذيرات"))
-        layout.addWidget(self.warnings_area)
-        layout.addWidget(QLabel("أسطر تحتاج مراجعة"))
-        layout.addWidget(self.unparsed_area)
-        layout.addWidget(QLabel("تفاصيل التحليل"))
-        layout.addWidget(self.analysis_details_area)
+        body_layout.addWidget(QLabel("المقاطع المكتشفة"))
+        body_layout.addWidget(self.clips_preview_table)
+        body_layout.addWidget(QLabel("التحذيرات"))
+        body_layout.addWidget(self.warnings_area)
+        body_layout.addWidget(QLabel("أسطر تحتاج مراجعة"))
+        body_layout.addWidget(self.unparsed_area)
+        body_layout.addWidget(QLabel("تفاصيل التحليل"))
+        body_layout.addWidget(self.analysis_details_area)
+
+        self.body_scroll_area = QScrollArea()
+        self.body_scroll_area.setWidgetResizable(True)
+        self.body_scroll_area.setFrameShape(QFrame.NoFrame)
+        self.body_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.body_scroll_area.setWidget(body_widget)
+        layout.addWidget(self.body_scroll_area, stretch=1)
 
         button_row = QHBoxLayout()
+        button_row.setContentsMargins(0, 8, 0, 0)
+        button_row.setSpacing(8)
         button_row.addStretch(1)
         button_row.addWidget(self.copy_debug_button)
         button_row.addWidget(self.apply_button)
         button_row.addWidget(self.cancel_button)
-        layout.addLayout(button_row)
+        self.footer_widget = QWidget()
+        self.footer_widget.setObjectName("smartImportFooter")
+        self.footer_widget.setLayout(button_row)
+        layout.addWidget(self.footer_widget, stretch=0)
+
+    def _fit_to_available_screen(self) -> None:
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            self.resize(820, 660)
+            return
+        available = screen.availableGeometry()
+        max_width = max(640, min(940, int(available.width() * 0.9)))
+        max_height = max(520, min(760, int(available.height() * 0.88)))
+        self.setMaximumSize(max_width, max_height)
+        self.resize(max_width, max_height)
+        self.move(
+            available.x() + (available.width() - self.width()) // 2,
+            available.y() + (available.height() - self.height()) // 2,
+        )
 
     def generate_preview(self) -> SmartPastePreview:
         self.preview = parse_smart_paste_message(self.message_input.toPlainText())
