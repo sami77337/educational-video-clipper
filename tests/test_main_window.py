@@ -3208,7 +3208,7 @@ def test_smart_paste_preview_dialog_blocks_end_before_start_error() -> None:
 
     preview = dialog.generate_preview()
 
-    assert len(preview.clips) == 1
+    assert preview.clips == []
     assert "عدد الأخطاء: 1" in dialog.summary_label.text()
     assert "توجد أخطاء تحتاج مراجعة قبل الاستيراد" in dialog.review_status_label.text()
     assert "نهاية المقطع قبل بدايته" in dialog.warnings_area.toPlainText()

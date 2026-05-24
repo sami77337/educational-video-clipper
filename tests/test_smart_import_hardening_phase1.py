@@ -25,16 +25,7 @@ def _parts(preview: SmartPastePreview, clip_index: int = 0) -> list[tuple[str, s
     return [(part.start, part.end) for part in preview.clips[clip_index].parts]
 
 
-@pytest.mark.xfail(
-    reason=(
-        "TODO: parser should combine metadata title lines and infer following-line "
-        "minute-only deletion as an exclusion for clip 8."
-    ),
-    strict=True,
-)
-def test_phase1_full_arabic_indic_whatsapp_message_with_url_and_exclusion_note() -> None:
-    preview = parse_smart_paste_message(
-        """
+_FULL_ARABIC_INDIC_WHATSAPP_MESSAGE = """
 https://www.youtube.com/watch?v=ZmvFF2XN4lA&list=PLooSZvOk5-rcxSjdgK9I5AK0_UdZwhW_d&index=9
 تاسيس اسألة دروس تأسيس ١:
 (المجلس الثامن و الاربعون)
@@ -50,6 +41,11 @@ https://www.youtube.com/watch?v=ZmvFF2XN4lA&list=PLooSZvOk5-rcxSjdgK9I5AK0_UdZwh
 ٩- ٣١:٣٠ - ٣٦:٠٠ (التدرج في قراءة التفسير لطالب العلم)
 ١٠- ٣٦:١٠ - ٣٨:٠٠ (اتقان فن الفتوى)
 """.strip()
+
+
+def test_phase2_full_arabic_indic_whatsapp_message_core_fields() -> None:
+    preview = parse_smart_paste_message(
+        _FULL_ARABIC_INDIC_WHATSAPP_MESSAGE
     )
 
     assert preview.video_urls == [
@@ -59,14 +55,19 @@ https://www.youtube.com/watch?v=ZmvFF2XN4lA&list=PLooSZvOk5-rcxSjdgK9I5AK0_UdZwh
     assert len(preview.clips) == 10
     clip_8 = preview.clips[7]
     assert (clip_8.title, clip_8.start, clip_8.end) == ("النصح للقريب", "00:27:05", "00:31:01")
-    assert _exclusion_ranges(preview, 7) == [("00:29:00", "00:30:00")]
     assert "نهاية المقطع قبل بدايته" not in _warning_text(preview)
 
 
 @pytest.mark.xfail(
-    reason="TODO: parser should preserve/merge two project metadata lines before the first clip.",
+    reason="TODO Phase 3: parser should infer following-line minute-only deletion as an exclusion for clip 8.",
     strict=True,
 )
+def test_phase3_full_arabic_indic_whatsapp_following_line_exclusion_note() -> None:
+    preview = parse_smart_paste_message(_FULL_ARABIC_INDIC_WHATSAPP_MESSAGE)
+
+    assert _exclusion_ranges(preview, 7) == [("00:29:00", "00:30:00")]
+
+
 def test_phase1_title_on_two_lines_metadata_before_clips() -> None:
     preview = parse_smart_paste_message(
         """
@@ -85,10 +86,6 @@ https://www.youtube.com/watch?v=example
     ]
 
 
-@pytest.mark.xfail(
-    reason="TODO: parser should attach the title line before a following من ... الى ... range.",
-    strict=True,
-)
 def test_phase1_title_before_time_format_on_previous_line() -> None:
     preview = parse_smart_paste_message(
         """
@@ -102,10 +99,6 @@ def test_phase1_title_before_time_format_on_previous_line() -> None:
     ]
 
 
-@pytest.mark.xfail(
-    reason="TODO: parser should complete multi-line البداية/النهاية blocks with minute lines.",
-    strict=True,
-)
 def test_phase1_beginning_end_block_with_nearby_minute_lines() -> None:
     preview = parse_smart_paste_message(
         """
@@ -128,10 +121,6 @@ def test_phase1_time_inside_parentheses_with_title_label_prefix() -> None:
     assert _clip_ranges(preview) == [("00:03:09", "00:19:01", "لماذا نتعلم السنة")]
 
 
-@pytest.mark.xfail(
-    reason="TODO: parser should split same-line title parentheses from following exclusion parentheses.",
-    strict=True,
-)
 def test_phase1_same_line_exclusion_after_title_parentheses() -> None:
     preview = parse_smart_paste_message(
         "26:56 - 29:14 (بقدر ما في قلبك من صلاح فإنه يتسع للخير) (27:40 - 28:20 يقطع)"
@@ -143,11 +132,7 @@ def test_phase1_same_line_exclusion_after_title_parentheses() -> None:
     assert _exclusion_ranges(preview) == [("00:27:40", "00:28:20")]
 
 
-@pytest.mark.xfail(
-    reason="TODO: parser should interpret following Arabic-Indic minute-only deletion note as an exclusion.",
-    strict=True,
-)
-def test_phase1_following_line_exclusion_with_arabic_indic_digits() -> None:
+def test_phase2_following_line_exclusion_sample_keeps_basic_clip() -> None:
     preview = parse_smart_paste_message(
         """
 ٨- ٢٧:٠٥ - ٣١:٠١ (النصح للقريب)
@@ -156,6 +141,20 @@ def test_phase1_following_line_exclusion_with_arabic_indic_digits() -> None:
     )
 
     assert _clip_ranges(preview) == [("00:27:05", "00:31:01", "النصح للقريب")]
+
+
+@pytest.mark.xfail(
+    reason="TODO Phase 3: parser should interpret following Arabic-Indic minute-only deletion note as an exclusion.",
+    strict=True,
+)
+def test_phase3_following_line_exclusion_with_arabic_indic_digits() -> None:
+    preview = parse_smart_paste_message(
+        """
+٨- ٢٧:٠٥ - ٣١:٠١ (النصح للقريب)
+- ارى حذف الدقيقة ٢٩-٣٠ لتكون الفائدة افضل و يقصر المقطع
+""".strip()
+    )
+
     assert _exclusion_ranges(preview) == [("00:29:00", "00:30:00")]
 
 
@@ -214,10 +213,6 @@ def test_phase1_compound_range_currently_is_not_split_into_two_independent_clips
     assert any("تم اكتشاف مقطع متعدد الأجزاء" in warning for warning in _warnings(preview))
 
 
-@pytest.mark.xfail(
-    reason="TODO: parser should report reversed timing as a blocking end-before-start error.",
-    strict=True,
-)
 def test_phase1_reversed_timing_is_blocking_error() -> None:
     preview = parse_smart_paste_message("١٠- ٢٨:٣٤ - ٢٤:٠٠ (ضابط التبديع)")
 
@@ -225,10 +220,6 @@ def test_phase1_reversed_timing_is_blocking_error() -> None:
     assert any("نهاية المقطع قبل بدايته" in warning for warning in _warnings(preview))
 
 
-@pytest.mark.xfail(
-    reason="TODO: parser should interpret short end times such as 29 as 00:29:00 with a warning.",
-    strict=True,
-)
 def test_phase1_short_end_time_interpreted_as_full_minute_with_warning() -> None:
     preview = parse_smart_paste_message("١٣- ٢٨:٠٨ - ٢٩ (ضابط احسان الظن بالله)")
 
@@ -266,10 +257,6 @@ def test_phase1_time_range_without_exclusion_intent_does_not_become_exclusion() 
     assert not any("استثناء" in warning for warning in _warnings(preview))
 
 
-@pytest.mark.xfail(
-    reason="TODO: parser warning should use final copy: سيتم استخدام الرابط الأول في هذه النسخة.",
-    strict=True,
-)
 def test_phase1_multiple_urls_selects_first_and_uses_final_warning_copy() -> None:
     preview = parse_smart_paste_message(
         """

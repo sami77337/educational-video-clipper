@@ -11,8 +11,8 @@ import re
 from dataclasses import dataclass, field, replace
 
 from src.time_utils import (
+    format_seconds,
     normalize_digits,
-    normalize_time_symbols,
     normalize_timestamp_text,
     parse_timestamp,
 )
@@ -22,15 +22,17 @@ VERY_SHORT_CLIP_SECONDS = 3
 VERY_LONG_CLIP_SECONDS = 20 * 60
 
 _TIME_PATTERN = r"\d{1,3}\s*:\s*\d{1,2}(?:\s*:\s*\d{1,2})?"
+_SHORT_END_TIME_PATTERN = r"\d{1,3}"
+_END_TIME_PATTERN = rf"(?:{_TIME_PATTERN}|{_SHORT_END_TIME_PATTERN})"
 _RANGE_SEPARATOR_PATTERN = (
-    r"(?:[-–—]|إلى|الى|إلي|الي|حتّى|حتى|و\s*حتى|وحتى|لغاية|to)"
+    r"(?:[-–—−]|إلى|الى|إلي|الي|حتّى|حتى|و\s*حتى|وحتى|لغاية|to)"
 )
 _RANGE_PATTERN = re.compile(
     rf"(?:\bfrom\s+|من\s+(?:الدقيقة\s+)?)?"
     rf"[\[(]?\s*({_TIME_PATTERN})\s*[\])]?َ?"
     rf"\s*{_RANGE_SEPARATOR_PATTERN}\s*"
     rf"(?:\bto\s+|الدقيقة\s+)?"
-    rf"[\[(]?\s*({_TIME_PATTERN})\s*[\])]?َ?",
+    rf"[\[(]?\s*({_END_TIME_PATTERN})\s*[\])]?َ?",
     re.IGNORECASE,
 )
 _YOUTUBE_URL_PATTERN = re.compile(
@@ -231,6 +233,7 @@ class _ClipCandidate:
     start_note: str = ""
     end_note: str = ""
     general_notes: list[str] = field(default_factory=list)
+    parser_warnings: list[str] = field(default_factory=list)
     confidence: str = "high"
     source_lines: dict[str, list[int]] = field(default_factory=dict)
 
@@ -254,6 +257,7 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
     warnings: list[SmartPasteWarning] = []
     unparsed_lines: list[SmartPasteUnparsedLine] = []
     project_title = ""
+    project_title_parts: list[_TitleEvidence] = []
     pending_candidate: _ClipCandidate | None = None
     pending_context: _LineContext | None = None
     pending_extra_warnings: list[SmartPasteWarning] = []
@@ -266,14 +270,28 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
     def add_warning(context: _LineContext, message: str) -> None:
         warnings.append(SmartPasteWarning(context.line_number, message, context.raw_line))
 
+    def set_project_title(evidence: _TitleEvidence) -> None:
+        nonlocal project_title, project_title_parts, pending_title
+        if not evidence.title:
+            return
+        if not project_title_parts:
+            project_title_parts.append(evidence)
+        elif evidence.title not in [part.title for part in project_title_parts]:
+            project_title_parts.append(evidence)
+        project_title = " - ".join(part.title for part in project_title_parts)
+        pending_title = _TitleEvidence(project_title, evidence.context)
+
     def append_candidate(
         candidate: _ClipCandidate,
         context: _LineContext,
         *,
         title_override: str = "",
         extra_warnings: list[SmartPasteWarning] | None = None,
-    ) -> SmartPasteClip:
+    ) -> SmartPasteClip | None:
         nonlocal clips, warnings
+        if _candidate_has_reversed_time(candidate):
+            warnings.append(SmartPasteWarning(context.line_number, "نهاية المقطع قبل بدايته", context.raw_line))
+            return None
         title = _clean_title(title_override) if title_override else candidate.title
         if not title:
             title = f"مقطع {len(clips) + 1:02d}"
@@ -359,23 +377,27 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
         if pending_exclusion_clip_index is not None:
             exclusion_candidate = _parse_range_clip(context.text)
             if exclusion_candidate is not None:
-                exclusion = SmartPasteExclusion(exclusion_candidate.start, exclusion_candidate.end, context.text)
-                previous_clip = clips[pending_exclusion_clip_index]
-                if _exclusion_has_valid_order(exclusion) and _exclusion_inside_clip(
-                    exclusion,
-                    previous_clip.start,
-                    previous_clip.end,
-                ):
-                    clips[pending_exclusion_clip_index] = replace(
-                        previous_clip,
-                        exclusions=[*previous_clip.exclusions, exclusion],
-                    )
-                    add_warning(context, "تم اكتشاف وقت قد يكون استثناء داخل المقطع")
+                if exclusion_candidate.title:
+                    pending_exclusion_clip_index = None
                 else:
-                    add_warning(context, "تحذير: وقت الاستثناء غير صحيح أو خارج حدود المقطع")
+                    exclusion = SmartPasteExclusion(exclusion_candidate.start, exclusion_candidate.end, context.text)
+                    previous_clip = clips[pending_exclusion_clip_index]
+                    if _exclusion_has_valid_order(exclusion) and _exclusion_inside_clip(
+                        exclusion,
+                        previous_clip.start,
+                        previous_clip.end,
+                    ):
+                        clips[pending_exclusion_clip_index] = replace(
+                            previous_clip,
+                            exclusions=[*previous_clip.exclusions, exclusion],
+                        )
+                        add_warning(context, "تم اكتشاف وقت قد يكون استثناء داخل المقطع")
+                    else:
+                        add_warning(context, "تحذير: وقت الاستثناء غير صحيح أو خارج حدود المقطع")
+                    pending_exclusion_clip_index = None
+                    continue
+            else:
                 pending_exclusion_clip_index = None
-                continue
-            pending_exclusion_clip_index = None
 
         if _START_LABEL_PATTERN.search(context.text) and _END_LABEL_PATTERN.search(context.text):
             candidate = _parse_begin_end_clip(context.text)
@@ -418,8 +440,15 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
         if candidate is not None:
             finalize_pending_candidate()
             title_from_previous = ""
-            if not candidate.title and pending_title is not None and pending_title.title != project_title:
-                title_from_previous = pending_title.title
+            if (
+                not candidate.title
+                and pending_title is not None
+                and (
+                    pending_title.title != project_title
+                    or _is_clip_title_evidence(pending_title.context.text)
+                )
+            ):
+                title_from_previous = _clean_clip_title_prefix(pending_title.title)
                 candidate = replace(
                     candidate,
                     source_lines={
@@ -481,9 +510,14 @@ def parse_smart_paste_message(raw_text: str | None) -> SmartPastePreview:
             continue
 
         cleaned_title = _clean_title(context.text)
-        if not project_title and not clips and _looks_like_project_title(context.text):
-            project_title = cleaned_title
-            pending_title = _TitleEvidence(cleaned_title, context)
+        if not clips and pending_candidate is None and _looks_like_project_title(context.text):
+            evidence = _TitleEvidence(cleaned_title, context)
+            if not project_title:
+                set_project_title(evidence)
+            elif _should_append_project_title_line(context.text, cleaned_title, project_title_parts):
+                set_project_title(evidence)
+            else:
+                pending_title = evidence
             continue
 
         if _is_probable_title_line(context.text):
@@ -576,11 +610,30 @@ def _prepare_line(raw_line: str, line_number: int) -> _LineContext | None:
     stripped = _WHATSAPP_METADATA_PATTERN.sub("", stripped).strip()
     if not stripped:
         return None
-    try:
-        normalized = normalize_time_symbols(stripped)
-    except ValueError:
-        return None
+    normalized = normalize_import_text(stripped)
     return _LineContext(line_number=line_number, raw_line=raw_line, text=normalized)
+
+
+def normalize_separators(text: str) -> str:
+    """Normalize common copied range separators without changing line meaning."""
+
+    normalized = str(text).replace("–", "-").replace("—", "-").replace("−", "-")
+    return normalized
+
+
+def normalize_time_spacing(text: str) -> str:
+    """Normalize spaces inside timestamp-like text such as ٣٤: ١٨."""
+
+    return re.sub(r"(?<=\d)\s*:\s*(?=\d)", ":", str(text))
+
+
+def normalize_import_text(text: str) -> str:
+    """Normalize pasted Smart Import text while preserving original line evidence."""
+
+    normalized = normalize_digits(str(text))
+    normalized = normalize_separators(normalized)
+    normalized = normalize_time_spacing(normalized)
+    return normalized
 
 
 def _extract_youtube_urls(text: str) -> list[str]:
@@ -603,10 +656,11 @@ def _parse_multi_part_clip(text: str) -> _ClipCandidate | None:
         return None
     parts: list[SmartPastePart] = []
     for match in range_matches:
-        start = _normalize_time(match.group(1))
-        end = _normalize_time(match.group(2))
-        if start is not None and end is not None:
-            parts.append(SmartPastePart(start=start, end=end, raw_text=text[match.start() : match.end()]))
+        range_times = _normalize_range_match(match)
+        if range_times is not None:
+            parts.append(
+                SmartPastePart(start=range_times[0], end=range_times[1], raw_text=text[match.start() : match.end()])
+            )
     if len(parts) < 2:
         return None
     title_source = _strip_number_prefix(_RANGE_PATTERN.sub(" ", text).replace("+", " "))
@@ -627,10 +681,10 @@ def _parse_range_clip(text: str) -> _ClipCandidate | None:
     match = _RANGE_PATTERN.search(text)
     if match is None:
         return None
-    start = _normalize_time(match.group(1))
-    end = _normalize_time(match.group(2))
-    if start is None or end is None:
+    range_times = _normalize_range_match(match)
+    if range_times is None:
         return None
+    start, end, parser_warnings = range_times
     prefix = _strip_number_prefix(text[: match.start()])
     suffix = text[match.end() :]
     metadata = _extract_clip_metadata(text, start, end, main_match=match)
@@ -652,6 +706,7 @@ def _parse_range_clip(text: str) -> _ClipCandidate | None:
         start_note=metadata.start_note,
         end_note=metadata.end_note,
         general_notes=metadata.general_notes,
+        parser_warnings=parser_warnings,
         confidence="high" if title else "medium",
         source_lines=source_lines,
     )
@@ -774,6 +829,7 @@ def _find_exclusion_matches(text: str, main_match: re.Match[str]) -> list[re.Mat
         raw_match = match.group(0).strip()
         in_parentheses = (
             (raw_match.startswith("(") and raw_match.endswith(")"))
+            or (raw_match.startswith("(") and ")" in after)
             or (before.rfind("(") > before.rfind(")") and ")" in after)
             or (text[: match.start()].rstrip().endswith("(") and text[match.end() :].lstrip().startswith(")"))
         )
@@ -784,10 +840,10 @@ def _find_exclusion_matches(text: str, main_match: re.Match[str]) -> list[re.Mat
 
 
 def _build_exclusion_from_match(match: re.Match[str], text: str) -> SmartPasteExclusion | None:
-    start = _normalize_time(match.group(1))
-    end = _normalize_time(match.group(2))
-    if start is None or end is None:
+    range_times = _normalize_range_match(match)
+    if range_times is None:
         return None
+    start, end, _parser_warnings = range_times
     return SmartPasteExclusion(start=start, end=end, raw_text=text[match.start() : match.end()])
 
 
@@ -898,6 +954,8 @@ def _candidate_from_label_block(block: _LabelBlock, fallback_title: str = "") ->
         title = block.start_note
     if not original_title and block.start_note and title == block.start_note and fallback_title:
         title = fallback_title
+    if block.title_context is not None and _is_clip_title_evidence(block.title_context.text):
+        title = _clean_clip_title_prefix(title)
     context_line = (block.start_context or block.end_context or block.title_context)
     line_number = context_line.line_number if context_line else 0
     return _ClipCandidate(
@@ -933,6 +991,7 @@ def _attach_boundary_note_to_previous_clip(clips: list[SmartPasteClip], context:
 
 def _warnings_for_candidate(candidate: _ClipCandidate, context: _LineContext) -> list[SmartPasteWarning]:
     warnings: list[SmartPasteWarning] = []
+    warnings.extend(SmartPasteWarning(context.line_number, message, context.raw_line) for message in candidate.parser_warnings)
     warnings.extend(_validate_candidate_exclusions(candidate, context))
     warnings.extend(_validate_candidate_parts(candidate, context))
     start_seconds = parse_timestamp(candidate.start)
@@ -1003,7 +1062,7 @@ def _post_parse_warnings(video_urls: list[str], url_line_numbers: list[int], cli
         warnings.append(
             SmartPasteWarning(
                 line_number,
-                "تم العثور على أكثر من رابط، سيتم استيراد أول رابط فقط في هذه النسخة",
+                "تم العثور على أكثر من رابط، سيتم استخدام الرابط الأول في هذه النسخة",
                 video_urls[1] if len(video_urls) > 1 else "",
             )
         )
@@ -1066,6 +1125,13 @@ def _line_has_ambiguous_number(text: str) -> bool:
     return bool(re.search(r"(?<!\d)\d{1,3}(?!\d)", normalize_digits(text)))
 
 
+def _candidate_has_reversed_time(candidate: _ClipCandidate) -> bool:
+    try:
+        return parse_timestamp(candidate.end) <= parse_timestamp(candidate.start)
+    except ValueError:
+        return False
+
+
 def _is_note_line(text: str) -> bool:
     stripped = text.strip()
     return stripped.startswith("*") or stripped.startswith(("ملاحظة", "تنبيه", ">>>>", "قد تحذف"))
@@ -1088,6 +1154,36 @@ def _normalize_time(value: str) -> str | None:
         return None
 
 
+def _normalize_range_match(match: re.Match[str]) -> tuple[str, str, list[str]] | None:
+    start = _normalize_time(match.group(1))
+    if start is None:
+        return None
+    end_text = match.group(2)
+    parser_warnings: list[str] = []
+    if ":" not in end_text:
+        end = _normalize_short_end_time(start, end_text)
+        if end is None:
+            return None
+        parser_warnings.append("وقت النهاية مختصر وتم تفسيره كدقيقة كاملة")
+        return start, end, parser_warnings
+    end = _normalize_time(end_text)
+    if end is None:
+        return None
+    return start, end, parser_warnings
+
+
+def _normalize_short_end_time(start: str, end_text: str) -> str | None:
+    normalized = normalize_digits(str(end_text)).strip()
+    if not normalized.isdigit():
+        return None
+    end_minute = int(normalized)
+    if end_minute > 59:
+        return None
+    start_seconds = parse_timestamp(start)
+    start_hour = start_seconds // 3600
+    return format_seconds(start_hour * 3600 + end_minute * 60)
+
+
 def _strip_number_prefix(text: str) -> str:
     text = normalize_digits(str(text))
     text = re.sub(r"^\s*\d+\s*[-–—.)]\s*", "", text)
@@ -1101,7 +1197,8 @@ def _strip_number_prefix(text: str) -> str:
 
 def _strip_title_label_prefix(text: str) -> str:
     text = _strip_number_prefix(text)
-    text = re.sub(r"^\s*(?:فائدة|ريلز|عنوان\s+المقطع)\s*[:：]\s*", "", text)
+    text = re.sub(r"^\s*(?:فائدة|ريلز)\s*[:：]\s*", "", text)
+    text = re.sub(r"^\s*عنوان\s+المقطع\s*[:：]\s*", "", text)
     return text
 
 
@@ -1120,11 +1217,21 @@ def _clean_title(value: str) -> str:
     for phrase in _INTERNAL_CUT_PHRASES:
         title = title.replace(phrase, " ")
     title = re.sub(r"\(\s*\)", " ", title)
-    title = re.sub(r"\s+", " ", title).strip(" :：-–—,،؛[]")
+    title = re.sub(r"\s+", " ", title).strip(" :：-–—,،؛[]|")
+    leading_parenthesized = re.match(r"^\(([^()]+)\)\s*[\s()،,؛:：-]*$", title)
+    if leading_parenthesized is not None:
+        title = leading_parenthesized.group(1).strip()
     if title.startswith("(") and title.endswith(")") and _balanced_outer_parentheses(title):
         title = title[1:-1].strip()
     title = re.sub(r"^\(([^()]+)\)\s*([,،])", r"\1 \2", title).strip()
     return title
+
+
+def _clean_clip_title_prefix(value: str) -> str:
+    title = _clean_title(value)
+    title = re.sub(r"^\s*مقطع\s+", "", title)
+    title = re.sub(r"^\s*(?:فائدة|ريلز|عنوان)\s*[:：]\s*", "", title)
+    return title.strip()
 
 
 def _clean_note_text(value: str) -> str:
@@ -1150,6 +1257,32 @@ def _looks_like_project_title(text: str) -> bool:
         return False
     cleaned = _clean_title(text)
     return bool(cleaned) and len(cleaned) >= 3
+
+
+def _should_append_project_title_line(
+    text: str,
+    cleaned_title: str,
+    project_title_parts: list[_TitleEvidence],
+) -> bool:
+    if not project_title_parts or not cleaned_title:
+        return False
+    if len(project_title_parts) >= 2:
+        return False
+    if _is_clip_title_evidence(text):
+        return False
+    stripped = str(text).strip()
+    return stripped.startswith("(") or "المجلس" in stripped
+
+
+def _is_clip_title_evidence(text: str) -> bool:
+    stripped_number = _strip_number_prefix(str(text))
+    cleaned = _clean_title(stripped_number)
+    if not cleaned:
+        return False
+    return bool(
+        re.match(r"^\s*(?:مقطع|فائدة|عنوان(?:\s+المقطع)?|ريلز)\b", stripped_number)
+        or stripped_number != str(text)
+    )
 
 
 def _default_source_lines(line_number: int) -> dict[str, list[int]]:
