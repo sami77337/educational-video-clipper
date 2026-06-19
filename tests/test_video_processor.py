@@ -51,11 +51,7 @@ from src.video_processor import (
 )
 
 
-YOUTUBE_BEST_VIDEO_AUDIO_FORMAT = "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080][ext=mp4]"
-
-
-def _materialized_outtmpl(options: dict, ext: str = "mp4") -> str:
-    return options["outtmpl"].replace("%(ext)s", ext)
+YOUTUBE_BEST_VIDEO_AUDIO_FORMAT = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
 
 
 def _capture_youtube_options(tmp_path, **download_kwargs) -> dict:
@@ -73,7 +69,7 @@ def _capture_youtube_options(tmp_path, **download_kwargs) -> dict:
             return False
 
         def download(self, urls):
-            Path(_materialized_outtmpl(captured_options)).write_bytes(b"video")
+            Path(captured_options["outtmpl"]).write_bytes(b"video")
 
     download_youtube_video("https://youtu.be/example", destination, FakeYoutubeDL, **download_kwargs)
     return captured_options
@@ -155,7 +151,7 @@ def test_youtube_prepare_uses_actual_resolved_output_folder(tmp_path) -> None:
             return False
 
         def download(self, urls):
-            Path(_materialized_outtmpl(captured_options, "webm")).write_bytes(b"video")
+            Path(captured_options["outtmpl"]).write_bytes(b"video")
 
     messages: list[str] = []
     processor = VideoProcessor(output_root=output_root, youtube_dl_factory=FakeYoutubeDL)
@@ -163,8 +159,7 @@ def test_youtube_prepare_uses_actual_resolved_output_folder(tmp_path) -> None:
     prepared_video = processor.prepare_youtube_video("https://youtu.be/example", "YouTube Lesson", messages.append)
 
     assert prepared_video.project_output_folder == output_root.resolve() / "YouTube Lesson"
-    assert Path(captured_options["outtmpl"]) == output_root.resolve() / "YouTube Lesson" / "input.%(ext)s"
-    assert prepared_video.input_video_path == output_root.resolve() / "YouTube Lesson" / "input.webm"
+    assert Path(captured_options["outtmpl"]) == output_root.resolve() / "YouTube Lesson" / INPUT_VIDEO_NAME
     assert any(message.startswith(AR_OUTPUT_FOLDER_USED) for message in messages)
 
 
@@ -1467,7 +1462,7 @@ def test_download_youtube_video_emits_progress_messages(tmp_path) -> None:
             hook = captured_options["progress_hooks"][0]
             hook({"status": "downloading", "downloaded_bytes": 50, "total_bytes": 100})
             hook({"status": "finished"})
-            Path(_materialized_outtmpl(captured_options)).write_bytes(b"video")
+            destination.write_bytes(b"video")
 
     result = download_youtube_video("https://youtu.be/example", destination, FakeYoutubeDL, messages.append)
 

@@ -20,20 +20,7 @@ AR_YOUTUBE_DOWNLOAD_PROGRESS = "جاري تنزيل الفيديو"
 AR_YOUTUBE_DOWNLOAD_FINISHING = "اكتمل تنزيل الفيديو، جاري تجهيز الملف"
 AR_USING_BROWSER_COOKIES = "سيتم استخدام تسجيل الدخول من المتصفح لتنزيل يوتيوب"
 AR_BROWSER_COOKIES_FAILED = "تعذر قراءة تسجيل الدخول من المتصفح. أغلق المتصفح ثم حاول مرة أخرى، أو اختر فيديو من الجهاز."
-AR_YOUTUBE_FORMAT_FALLBACK_FAILED = "فشل تحميل الفيديو من يوتيوب بعد تجربة عدة صيغ. قد يكون الفيديو مقيدًا أو يحتاج تسجيل دخول أو Cookies."
-AR_YOUTUBE_LOGIN_OR_COOKIES_NEEDED = "قد يحتاج هذا الفيديو إلى تسجيل دخول أو استخدام Cookies من المتصفح."
-AR_YOUTUBE_DOWNLOAD_FAILED = "فشل تحميل الفيديو من يوتيوب"
-AR_YOUTUBE_FORMAT_ATTEMPT = "محاولة تحميل يوتيوب بصيغة"
-AR_YOUTUBE_FORMAT_SUCCESS = "نجح تحميل يوتيوب باستخدام الصيغة"
-
-YOUTUBE_FORMAT_FALLBACKS = [
-    "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/best[height<=1080][ext=mp4]",
-    "bv*[height<=1080]+ba/b[height<=1080]/best[height<=1080]",
-    "bv*+ba/bestvideo+bestaudio/best",
-    "best",
-]
-YOUTUBE_BEST_VIDEO_AUDIO_FORMAT = YOUTUBE_FORMAT_FALLBACKS[0]
-YOUTUBE_DOWNLOAD_SUFFIXES = (".mp4", ".webm", ".mkv")
+YOUTUBE_BEST_VIDEO_AUDIO_FORMAT = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
 
 ProgressCallback = Callable[[str], None]
 YoutubeDlFactory = Callable[[dict[str, Any]], Any]
@@ -92,11 +79,13 @@ def download_youtube_video(
     _emit(progress_callback, "يتم تنزيل أفضل جودة فيديو وأفضل جودة صوت")
     _emit(progress_callback, AR_YOUTUBE_READING_INFO)
 
-    # Keep high quality while allowing retries when YouTube does not expose one
-    # requested format. Later fallbacks may produce mp4, webm, or mkv.
-    base_options = {
+    # Keep the highest available video quality and highest available audio quality.
+    # The options below only improve download behavior; they do not reduce quality.
+    options = {
+        "format": YOUTUBE_BEST_VIDEO_AUDIO_FORMAT,
+        "merge_output_format": "mp4",
         "noplaylist": True,
-        "outtmpl": str(_download_output_template(destination_path)),
+        "outtmpl": str(destination_path),
         "overwrites": True,
         "quiet": True,
         "no_warnings": True,
@@ -114,95 +103,27 @@ def download_youtube_video(
 
     ffmpeg_location = ffmpeg_location_provider()
     if ffmpeg_location:
-        base_options["ffmpeg_location"] = ffmpeg_location
+        options["ffmpeg_location"] = ffmpeg_location
 
     if use_browser_cookies:
         selected_browser = normalize_browser_name(browser)
-        base_options["cookiesfrombrowser"] = (selected_browser,)
+        options["cookiesfrombrowser"] = (selected_browser,)
         _emit(progress_callback, f"{AR_USING_BROWSER_COOKIES}: {selected_browser}")
 
-    last_format_error: DownloadError | None = None
-    for index, selector in enumerate(YOUTUBE_FORMAT_FALLBACKS):
-        _cleanup_download_attempt_files(destination_path)
-        options = dict(base_options)
-        options["format"] = selector
-        if index == 0:
-            options["merge_output_format"] = "mp4"
-        _emit(progress_callback, f"{AR_YOUTUBE_FORMAT_ATTEMPT}: {selector}")
-        try:
-            with youtube_dl_factory(options) as ydl:
-                ydl.download([url])
-        except DownloadError as error:
-            if _is_format_unavailable_error(error):
-                last_format_error = error
-                continue
-            raise _translate_youtube_download_error(error, use_browser_cookies) from error
+    try:
+        with youtube_dl_factory(options) as ydl:
+            ydl.download([url])
+    except DownloadError as error:
+        error_text = str(error)
+        if use_browser_cookies and ("cookie" in error_text.lower() or "browser" in error_text.lower() or "database" in error_text.lower()):
+            raise YouTubeDownloadError(AR_BROWSER_COOKIES_FAILED) from error
+        if "sign in to confirm" in error_text.lower() or "not a bot" in error_text.lower():
+            raise YouTubeDownloadError(
+                "تعذر تنزيل الفيديو من يوتيوب بسبب تحقق يوتيوب. فعّل خيار استخدام تسجيل الدخول من المتصفح، أو اختر فيديو من الجهاز."
+            ) from error
+        raise
 
-        downloaded_path = _find_downloaded_video(destination_path)
-        _emit(progress_callback, f"{AR_YOUTUBE_FORMAT_SUCCESS}: {selector}")
-        return downloaded_path
-
-    if last_format_error is not None:
-        raise YouTubeDownloadError(AR_YOUTUBE_FORMAT_FALLBACK_FAILED) from last_format_error
-    raise YouTubeDownloadError(AR_YOUTUBE_FORMAT_FALLBACK_FAILED)
-
-
-def _download_output_template(destination_path: Path) -> Path:
-    return destination_path.with_suffix(".%(ext)s")
-
-
-def _cleanup_download_attempt_files(destination_path: Path) -> None:
-    for path in destination_path.parent.glob(f"{destination_path.stem}.*"):
-        if path.is_file():
-            try:
-                path.unlink()
-            except OSError:
-                pass
-
-
-def _find_downloaded_video(destination_path: Path) -> Path:
-    if destination_path.is_file():
-        return destination_path
-
-    candidates = [
-        path
-        for path in destination_path.parent.glob(f"{destination_path.stem}.*")
-        if path.is_file() and path.suffix.lower() in YOUTUBE_DOWNLOAD_SUFFIXES
-    ]
-    if not candidates:
-        return destination_path
-    return max(candidates, key=lambda path: path.stat().st_mtime)
-
-
-def _is_format_unavailable_error(error: DownloadError) -> bool:
-    message = str(error).lower()
-    return (
-        "requested format is not available" in message
-        or "format is not available" in message
-        or "requested format not available" in message
-    )
-
-
-def _translate_youtube_download_error(error: DownloadError, use_browser_cookies: bool) -> YouTubeDownloadError:
-    error_text = str(error)
-    lowered = error_text.lower()
-    if use_browser_cookies and ("cookie" in lowered or "browser" in lowered or "database" in lowered):
-        return YouTubeDownloadError(AR_BROWSER_COOKIES_FAILED)
-    if _looks_like_login_or_cookie_error(lowered):
-        return YouTubeDownloadError(
-            f"تعذر تنزيل الفيديو من يوتيوب بسبب تحقق يوتيوب. {AR_YOUTUBE_LOGIN_OR_COOKIES_NEEDED}"
-        )
-    return YouTubeDownloadError(f"{AR_YOUTUBE_DOWNLOAD_FAILED}: {error_text}")
-
-
-def _looks_like_login_or_cookie_error(lowered_error_text: str) -> bool:
-    return (
-        "sign in to confirm" in lowered_error_text
-        or "not a bot" in lowered_error_text
-        or "login" in lowered_error_text
-        or "cookies" in lowered_error_text
-        or "cookie" in lowered_error_text
-    )
+    return destination_path
 
 
 def _build_youtube_progress_hook(progress_callback: ProgressCallback | None) -> Callable[[dict[str, Any]], None]:
