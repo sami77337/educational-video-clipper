@@ -32,12 +32,14 @@ def _capture_youtube_options(tmp_path, **download_kwargs) -> tuple[dict, list[st
             hook({"status": "finished"})
             destination.write_bytes(b"video")
 
+    deno_location_provider = download_kwargs.pop("deno_location_provider", lambda: None)
     download_youtube_video(
         "https://youtu.be/example",
         destination,
         FakeYoutubeDL,
         messages.append,
         ffmpeg_location_provider=lambda: None,
+        deno_location_provider=deno_location_provider,
         **download_kwargs,
     )
     return captured_options, messages
@@ -60,6 +62,18 @@ def test_download_youtube_video_keeps_best_video_best_audio_and_cookies_disabled
     assert options["fragment_retries"] == 10
     assert options["socket_timeout"] == 30
     assert options["concurrent_fragment_downloads"] == 8
+    assert options["js_runtimes"] == {"deno": {}}
+    assert options["remote_components"] == ["ejs:github"]
+
+
+def test_download_youtube_video_uses_bundled_deno_when_available(tmp_path) -> None:
+    deno_path = r"C:\AlmiqsAlBaseet\deno.exe"
+    options, _messages = _capture_youtube_options(
+        tmp_path,
+        deno_location_provider=lambda: deno_path,
+    )
+
+    assert options["js_runtimes"] == {"deno": {"path": deno_path}}
 
 
 @pytest.mark.parametrize(
@@ -104,6 +118,7 @@ def test_download_youtube_video_passes_ffmpeg_location_when_available(tmp_path) 
         destination,
         FakeYoutubeDL,
         ffmpeg_location_provider=lambda: str(tmp_path / "tools"),
+        deno_location_provider=lambda: None,
     )
 
     assert captured_options["ffmpeg_location"] == str(tmp_path / "tools")
@@ -139,6 +154,7 @@ def test_youtube_bot_sign_in_error_is_translated_to_arabic(tmp_path) -> None:
             destination,
             FakeYoutubeDL,
             ffmpeg_location_provider=lambda: None,
+            deno_location_provider=lambda: None,
         )
 
     assert "تعذر تنزيل الفيديو من يوتيوب بسبب تحقق يوتيوب" in str(error.value)
