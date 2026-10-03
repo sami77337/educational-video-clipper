@@ -11,7 +11,7 @@ from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
 from src.file_utils import ensure_directory
-from src.video.ffmpeg_runner import bundled_ffmpeg_location
+from src.video.ffmpeg_runner import bundled_ffmpeg_location, resolve_external_tool
 
 
 AR_EMPTY_YOUTUBE_URL = "خطأ: رابط يوتيوب فارغ"
@@ -25,6 +25,7 @@ YOUTUBE_BEST_VIDEO_AUDIO_FORMAT = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ex
 ProgressCallback = Callable[[str], None]
 YoutubeDlFactory = Callable[[dict[str, Any]], Any]
 FfmpegLocationProvider = Callable[[], str | None]
+DenoLocationProvider = Callable[[], str | None]
 
 
 class YouTubeDownloadError(ValueError):
@@ -55,6 +56,15 @@ def normalize_browser_name(browser: str | None) -> str:
     return aliases.get(value, "chrome")
 
 
+def bundled_deno_location() -> str | None:
+    """Return the bundled/system Deno executable used by yt-dlp EJS."""
+
+    try:
+        return resolve_external_tool("deno")
+    except FileNotFoundError:
+        return None
+
+
 def download_youtube_video(
     url: str,
     destination: str | Path,
@@ -64,6 +74,7 @@ def download_youtube_video(
     use_browser_cookies: bool = False,
     browser: str = "chrome",
     ffmpeg_location_provider: FfmpegLocationProvider = bundled_ffmpeg_location,
+    deno_location_provider: DenoLocationProvider = bundled_deno_location,
 ) -> Path:
     """Download a YouTube video to the given destination using yt-dlp's Python API.
 
@@ -94,6 +105,9 @@ def download_youtube_video(
         "fragment_retries": 10,
         "socket_timeout": 30,
         "continuedl": True,
+        # Allow yt-dlp to retrieve the exact EJS scripts required by its own
+        # version if packaged script data is unavailable or incomplete.
+        "remote_components": ["ejs:github"],
         # Speed up fragmented YouTube streams when available without changing
         # selected video/audio formats. This only downloads multiple fragments
         # at the same time; final quality remains bestvideo+bestaudio.
@@ -104,6 +118,13 @@ def download_youtube_video(
     ffmpeg_location = ffmpeg_location_provider()
     if ffmpeg_location:
         options["ffmpeg_location"] = ffmpeg_location
+
+    # Full YouTube extraction now depends on an external JavaScript runtime.
+    # Prefer the Deno executable bundled with the portable Windows build.
+    deno_location = deno_location_provider()
+    options["js_runtimes"] = {
+        "deno": {"path": deno_location} if deno_location else {}
+    }
 
     if use_browser_cookies:
         selected_browser = normalize_browser_name(browser)
