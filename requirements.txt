@@ -1,5 +1,5 @@
 PySide6
-yt-dlp
+yt-dlp[default]
 pytest
 openpyxl
 xlrd
