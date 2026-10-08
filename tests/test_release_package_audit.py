@@ -8,7 +8,11 @@ def _minimal_package(tmp_path):
     package_dir.mkdir()
     (package_dir / "AlmiqsAlBaseet.exe").write_bytes(b"exe")
     (package_dir / "README_AR.txt").write_text("تعليمات الاستخدام", encoding="utf-8")
-    (package_dir / "_internal").mkdir()
+    solver = package_dir / "_internal" / "yt_dlp_ejs" / "yt" / "solver"
+    solver.mkdir(parents=True)
+    (solver / "core.min.js").write_text("core")
+    (solver / "lib.min.js").write_text("lib")
+    (package_dir / "deno.exe").write_bytes(b"deno")
     (package_dir / "ffmpeg.exe").write_bytes(b"ffmpeg")
     return package_dir
 
@@ -119,3 +123,21 @@ def test_inno_setup_script_installs_built_dist_only() -> None:
     assert "app.py" not in script
     assert "src\\*" not in script
     assert "tests\\*" not in script
+
+
+def test_release_audit_rejects_missing_deno(tmp_path) -> None:
+    package_dir = _minimal_package(tmp_path)
+    (package_dir / "deno.exe").unlink()
+    assert not audit_release_package(package_dir).passed
+
+
+def test_release_audit_rejects_missing_ejs_script(tmp_path) -> None:
+    package_dir = _minimal_package(tmp_path)
+    (package_dir / "_internal/yt_dlp_ejs/yt/solver/core.min.js").unlink()
+    assert not audit_release_package(package_dir).passed
+
+
+def test_release_audit_rejects_empty_ejs_script(tmp_path) -> None:
+    package_dir = _minimal_package(tmp_path)
+    (package_dir / "_internal/yt_dlp_ejs/yt/solver/lib.min.js").write_bytes(b"")
+    assert not audit_release_package(package_dir).passed

@@ -141,3 +141,22 @@ def test_hidden_subprocess_kwargs_use_create_no_window_when_available(monkeypatc
     monkeypatch.setattr(ffmpeg_runner.subprocess, "CREATE_NO_WINDOW", 12345, raising=False)
 
     assert _hidden_subprocess_kwargs() == {"creationflags": 12345}
+
+
+def test_windows_source_build_finds_ffmpeg_in_tools(tmp_path, monkeypatch) -> None:
+    executable = tmp_path / "tools" / "ffmpeg.exe"
+    executable.parent.mkdir()
+    executable.write_bytes(b"exe")
+    monkeypatch.setattr(ffmpeg_runner.sys, "platform", "win32")
+    monkeypatch.setattr(ffmpeg_runner, "_candidate_tool_roots", lambda: [tmp_path])
+    assert resolve_external_tool("ffmpeg") == str(executable)
+
+
+def test_linux_does_not_use_windows_tools_directory(tmp_path, monkeypatch) -> None:
+    executable = tmp_path / "tools" / "ffmpeg.exe"
+    executable.parent.mkdir()
+    executable.write_bytes(b"exe")
+    monkeypatch.setattr(ffmpeg_runner.sys, "platform", "linux")
+    monkeypatch.setattr(ffmpeg_runner, "_candidate_tool_roots", lambda: [tmp_path])
+    monkeypatch.setattr(ffmpeg_runner.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    assert resolve_external_tool("ffmpeg") == "/usr/bin/ffmpeg"
