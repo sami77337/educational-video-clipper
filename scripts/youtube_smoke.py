@@ -9,7 +9,7 @@ from src.video.ffmpeg_runner import probe_media_duration_seconds
 from yt_dlp.version import __version__
 
 report = {"status": "inconclusive", "yt_dlp_version": __version__,
-          "url": "https://www.youtube.com/watch?v=BaW_jenozKc"}
+          "url": "https://www.youtube.com/watch?v=f6HNySwZV4c"}
 try:
     target = download_youtube_video(report["url"], "smoke-output/input.mp4", progress_callback=print)
     report.update(status="passed", bytes=target.stat().st_size,
