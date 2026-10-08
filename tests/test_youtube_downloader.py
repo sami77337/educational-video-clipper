@@ -32,12 +32,14 @@ def _capture_youtube_options(tmp_path, **download_kwargs) -> tuple[dict, list[st
             hook({"status": "finished"})
             destination.write_bytes(b"video")
 
+    deno_location_provider = download_kwargs.pop("deno_location_provider", lambda: None)
     download_youtube_video(
         "https://youtu.be/example",
         destination,
         FakeYoutubeDL,
         messages.append,
         ffmpeg_location_provider=lambda: None,
+        deno_location_provider=deno_location_provider,
         **download_kwargs,
     )
     return captured_options, messages
@@ -60,6 +62,18 @@ def test_download_youtube_video_keeps_best_video_best_audio_and_cookies_disabled
     assert options["fragment_retries"] == 10
     assert options["socket_timeout"] == 30
     assert options["concurrent_fragment_downloads"] == 8
+    assert options["js_runtimes"] == {"deno": {}}
+    assert options["remote_components"] == ["ejs:github"]
+
+
+def test_download_youtube_video_uses_bundled_deno_when_available(tmp_path) -> None:
+    deno_path = r"C:\AlmiqsAlBaseet\deno.exe"
+    options, _messages = _capture_youtube_options(
+        tmp_path,
+        deno_location_provider=lambda: deno_path,
+    )
+
+    assert options["js_runtimes"] == {"deno": {"path": deno_path}}
 
 
 @pytest.mark.parametrize(
@@ -104,6 +118,7 @@ def test_download_youtube_video_passes_ffmpeg_location_when_available(tmp_path) 
         destination,
         FakeYoutubeDL,
         ffmpeg_location_provider=lambda: str(tmp_path / "tools"),
+        deno_location_provider=lambda: None,
     )
 
     assert captured_options["ffmpeg_location"] == str(tmp_path / "tools")
@@ -139,6 +154,63 @@ def test_youtube_bot_sign_in_error_is_translated_to_arabic(tmp_path) -> None:
             destination,
             FakeYoutubeDL,
             ffmpeg_location_provider=lambda: None,
+            deno_location_provider=lambda: None,
         )
 
     assert "تعذر تنزيل الفيديو من يوتيوب بسبب تحقق يوتيوب" in str(error.value)
+
+
+def test_download_keeps_high_resolution_and_normalizes_container(tmp_path) -> None:
+    options, _ = _capture_youtube_options(tmp_path)
+    assert options["format"] == "bestvideo+bestaudio/best"
+    assert options["format_sort"][0] == "res"
+    assert options["outtmpl"] == str(tmp_path / "input.%(ext)s")
+    assert options["postprocessors"] == [{"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"}]
+
+
+@pytest.mark.parametrize("return_code,content", [(1, b"video"), (0, None), (0, b"")])
+def test_download_does_not_report_missing_empty_or_failed_output_as_success(tmp_path, return_code, content) -> None:
+    destination = tmp_path / "input.mp4"
+
+    class FakeYoutubeDL:
+        def __init__(self, options):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def download(self, urls):
+            if content is not None:
+                destination.write_bytes(content)
+            return return_code
+
+    with pytest.raises(YouTubeDownloadError):
+        download_youtube_video("https://youtu.be/example", destination, FakeYoutubeDL,
+                               ffmpeg_location_provider=lambda: None,
+                               deno_location_provider=lambda: None)
+
+
+def test_actual_ytdlp_selector_prefers_4k_webm_over_1080p_mp4(tmp_path) -> None:
+    from yt_dlp import YoutubeDL
+    options, _ = _capture_youtube_options(tmp_path)
+    with YoutubeDL(options) as ydl:
+        info = ydl.process_ie_result({
+            "id": "test", "title": "test", "extractor": "test", "webpage_url": "https://example.com",
+            "formats": [
+                {"format_id": "1080", "ext": "mp4", "height": 1080, "width": 1920,
+                 "vcodec": "avc1", "acodec": "none", "url": "https://example.com/1080.mp4"},
+                {"format_id": "2160", "ext": "webm", "height": 2160, "width": 3840,
+                 "vcodec": "vp9", "acodec": "none", "url": "https://example.com/2160.webm"},
+                {"format_id": "audio", "ext": "webm", "vcodec": "none", "acodec": "opus",
+                 "abr": 160, "url": "https://example.com/audio.webm"},
+            ],
+        }, download=False)
+    assert info["height"] == 2160
+    assert info["requested_formats"][0]["format_id"] == "2160"
+    assert info["requested_formats"][1]["format_id"] == "audio"
+
+
+def test_output_template_escapes_percent_in_project_name(tmp_path) -> None:
+    folder = tmp_path / "100% lesson"
+    options, _ = _capture_youtube_options(folder)
+    assert options["outtmpl"] % {"ext": "mp4"} == str(folder / "input.mp4")

@@ -58,6 +58,10 @@ def resolve_external_tool(tool_name: str) -> str:
         names = [f"{tool_name}.exe", f"{tool_name}.cmd", f"{tool_name}.bat", tool_name]
 
     subfolders = [Path(""), Path("bin"), Path("_internal"), Path("_internal") / "bin"]
+    # Source builds keep Windows runtimes in tools; do not try to execute
+    # those PE binaries during Linux development/testing.
+    if sys.platform == "win32":
+        subfolders.append(Path("tools"))
     for root in _candidate_tool_roots():
         for subfolder in subfolders:
             folder = root / subfolder

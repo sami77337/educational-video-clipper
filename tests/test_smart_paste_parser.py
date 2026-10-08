@@ -265,14 +265,11 @@ def test_smart_paste_parses_english_plus_joined_multi_part_clip() -> None:
     assert result.unparsed_lines == []
     assert len(result.clips) == 1
     clip = result.clips[0]
-    assert clip.multi_part
+    assert not clip.multi_part
     assert clip.title == "title"
-    assert [(part.start, part.end) for part in clip.parts] == [
-        ("00:10:12", "00:11:35"),
-        ("00:12:33", "00:17:51"),
-    ]
-    assert any("تم العثور على مقطع مركب من أكثر من جزء" in warning.message_ar for warning in result.warnings)
-    assert any("هذا المقطع يحتوي على أكثر من جزء. سيتم دعمه في القص لاحقًا." in warning.message_ar for warning in result.warnings)
+    assert (clip.start, clip.end) == ("00:10:12", "00:17:51")
+    assert clip.exclusions_text == "00:11:35-00:12:33"
+    assert any("تم اكتشاف مقطع مركب مع حذف داخلي" in warning.message_ar for warning in result.warnings)
 
 
 def test_smart_paste_parses_arabic_numeral_plus_joined_multi_part_clip() -> None:
@@ -280,29 +277,24 @@ def test_smart_paste_parses_arabic_numeral_plus_joined_multi_part_clip() -> None
 
     assert len(result.clips) == 1
     clip = result.clips[0]
-    assert clip.multi_part
+    assert not clip.multi_part
     assert clip.title == "العنوان"
-    assert [(part.start, part.end) for part in clip.parts] == [
-        ("00:10:12", "00:11:35"),
-        ("00:12:33", "00:17:51"),
-    ]
+    assert (clip.start, clip.end) == ("00:10:12", "00:17:51")
+    assert clip.exclusions_text == "00:11:35-00:12:33"
 
 
 def test_smart_paste_parses_compact_plus_joined_separator() -> None:
     result = parse_smart_paste_message("10:12-11:35 + 12:33-17:51")
 
-    assert result.clips[0].multi_part
-    assert result.clips[0].parts_text == "الجزء 1: 00:10:12 - 00:11:35 | الجزء 2: 00:12:33 - 00:17:51"
+    assert not result.clips[0].multi_part
+    assert result.clips[0].exclusions_text == "00:11:35-00:12:33"
 
 
 def test_smart_paste_parses_arabic_plus_joined_separator() -> None:
     result = parse_smart_paste_message("10:12 إلى 11:35 + 12:33 إلى 17:51")
 
-    assert result.clips[0].multi_part
-    assert [(part.start, part.end) for part in result.clips[0].parts] == [
-        ("00:10:12", "00:11:35"),
-        ("00:12:33", "00:17:51"),
-    ]
+    assert not result.clips[0].multi_part
+    assert result.clips[0].exclusions_text == "00:11:35-00:12:33"
 
 
 def test_smart_paste_warns_about_invalid_multi_part_second_part() -> None:

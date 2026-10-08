@@ -1,7 +1,7 @@
 """Application metadata."""
 
 APP_NAME = "المقص البسيط"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 APP_SUBTITLE = "تطبيق بسيط لقص المقاطع التعليمية"
 APP_DESCRIPTION = (
     "تطبيق لقص المقاطع من الفيديوهات المحلية أو من روابط يوتيوب، "

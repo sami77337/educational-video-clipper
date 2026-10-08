@@ -7,7 +7,7 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt, QThread
-from PySide6.QtWidgets import QApplication, QDialog, QGroupBox, QLabel, QPushButton, QScrollArea
+from PySide6.QtWidgets import QApplication, QDialog, QGroupBox, QLabel, QMessageBox, QPushButton, QScrollArea
 
 from src.main_window import (
     END_COLUMN,
@@ -3092,11 +3092,30 @@ def test_smart_paste_preview_dialog_generates_summary_and_clip_table() -> None:
     assert [
         dialog.clips_preview_table.horizontalHeaderItem(column).text()
         for column in range(dialog.clips_preview_table.columnCount())
-    ] == ["الرقم", "العنوان", "البداية", "النهاية", "الاستثناءات", "الحالة / الملاحظات"]
+    ] == ["#", "العنوان", "البداية", "النهاية", "الاستثناءات", "الحالة", "الملاحظات"]
     assert dialog.clips_preview_table.item(0, 0).text() == "1"
     assert dialog.clips_preview_table.item(0, 1).text() == "اسم الله الوهاب"
     assert dialog.apply_button.isEnabled()
     assert dialog.copy_debug_button.isEnabled()
+
+    dialog.close()
+    app.processEvents()
+
+
+def test_smart_paste_preview_dialog_keeps_footer_buttons_outside_scroll_area() -> None:
+    app = _app()
+    dialog = SmartPasteImportDialog()
+    available = (dialog.screen() or app.primaryScreen()).availableGeometry()
+    expected_max_height = max(520, min(760, int(available.height() * 0.88)))
+
+    assert dialog.maximumHeight() == expected_max_height
+    assert dialog.height() <= expected_max_height
+    assert dialog.body_scroll_area.widget() is not None
+    assert dialog.footer_widget.objectName() == "smartImportFooter"
+    assert dialog.apply_button.parent() is dialog.footer_widget
+    assert dialog.cancel_button.parent() is dialog.footer_widget
+    assert dialog.copy_debug_button.parent() is dialog.footer_widget
+    assert dialog.layout().indexOf(dialog.footer_widget) > dialog.layout().indexOf(dialog.body_scroll_area)
 
     dialog.close()
     app.processEvents()
@@ -3110,15 +3129,16 @@ def test_smart_paste_preview_dialog_shows_exclusions_and_notes() -> None:
     preview = dialog.generate_preview()
 
     assert len(preview.clips) == 1
-    assert dialog.clips_preview_table.item(0, 4).text() == "00:27:40-00:28:20"
-    assert "ملاحظة بداية المقطع" in dialog.clips_preview_table.item(0, 5).text()
-    assert "ملاحظة نهاية المقطع" in dialog.clips_preview_table.item(0, 5).text()
+    assert dialog.clips_preview_table.item(0, 4).text() == "00:27:40 - 00:28:20"
+    assert dialog.clips_preview_table.item(0, 5).text() == "صالح مع تحذير"
+    assert "ملاحظة بداية المقطع" in dialog.clips_preview_table.item(0, 6).text()
+    assert "ملاحظة نهاية المقطع" in dialog.clips_preview_table.item(0, 6).text()
 
     dialog.close()
     app.processEvents()
 
 
-def test_smart_paste_preview_dialog_shows_multi_part_clips() -> None:
+def test_smart_paste_preview_dialog_shows_compound_internal_exclusion() -> None:
     app = _app()
     dialog = SmartPasteImportDialog()
     dialog.message_input.setPlainText("10:12 - 11:35 + 12:33 - 17:51 (title)")
@@ -3126,11 +3146,10 @@ def test_smart_paste_preview_dialog_shows_multi_part_clips() -> None:
     preview = dialog.generate_preview()
 
     assert len(preview.clips) == 1
-    assert preview.clips[0].multi_part
-    assert "00:10:12 - 00:11:35" in dialog.clips_preview_table.item(0, 5).text()
-    assert "00:12:33 - 00:17:51" in dialog.clips_preview_table.item(0, 5).text()
+    assert not preview.clips[0].multi_part
+    assert dialog.clips_preview_table.item(0, 4).text() == "00:11:35 - 00:12:33"
     assert "مقطع مركب" in dialog.warnings_area.toPlainText()
-    assert "توجد تحذيرات، راجعها قبل الاستيراد" in dialog.review_status_label.text()
+    assert "توجد تحذيرات، لكن يمكن تطبيق النتائج." in dialog.review_status_label.text()
 
     dialog.close()
     app.processEvents()
@@ -3143,11 +3162,14 @@ def test_smart_paste_preview_dialog_blocks_end_before_start_error() -> None:
 
     preview = dialog.generate_preview()
 
-    assert len(preview.clips) == 1
+    assert preview.clips == []
     assert "عدد الأخطاء: 1" in dialog.summary_label.text()
     assert "توجد أخطاء تحتاج مراجعة قبل الاستيراد" in dialog.review_status_label.text()
     assert "نهاية المقطع قبل بدايته" in dialog.warnings_area.toPlainText()
     assert not dialog.apply_button.isEnabled()
+    dialog.copy_debug_report()
+    assert "الأخطاء:" in QApplication.clipboard().text()
+    assert "السطر 1: نهاية المقطع قبل بدايته" in QApplication.clipboard().text()
 
     dialog.close()
     app.processEvents()
@@ -3175,6 +3197,139 @@ def test_smart_paste_preview_dialog_shows_unparsed_lines_and_debug_copy() -> Non
     assert "secret" not in dialog.detected_url_label.text()
     assert "secret" not in QApplication.clipboard().text()
     assert dialog.apply_button.isEnabled()
+
+    dialog.close()
+    app.processEvents()
+
+
+def test_smart_paste_preview_phase4_real_world_summary_counts_and_exclusion() -> None:
+    app = _app()
+    dialog = SmartPasteImportDialog(
+        initial_text=(
+            "https://www.youtube.com/watch?v=ZmvFF2XN4lA&list=PLooSZvOk5-rcxSjdgK9I5AK0_UdZwhW_d&index=9\n"
+            "تاسيس اسألة دروس تأسيس ١:\n"
+            "(المجلس الثامن و الاربعون)\n"
+            "١- ٠:٥٢ - ٣:٢٠ (متى يبدأ طالب العلم كتب الحديث)\n"
+            "٢- ٩:٠٣ - ٩:٥١ (حكم قراءة الفلسفة و المنطق)\n"
+            "٣- ٩:٥٢ - ١١:٤٦ (متى يجوز نقل الفتوى)\n"
+            "٤- ١١:٤٧ - ١٢:٤٠ (تعظيم الله سبب ام نتيجة)\n"
+            "٥- ١٩:٥٤ - ٢١:٠٤ (حكم اكل جوزة الطيب)\n"
+            "٦- ٢١:٠٥ - ٢٣:٢٣ (حكم اداء صلاة الظهر احتياطا بعد اداء الجمعة)\n"
+            "٧- ٢٣:٢٤ - ٢٤:٥٣ (حكم رفع الصوت جماعة في الاذكار بعد الصلاة)\n"
+            "٨- ٢٧:٠٥ - ٣١:٠١ (النصح للقريب)\n"
+            "- ارى حذف الدقيقة ٢٩-٣٠ لتكون الفائدة افضل و يقصر المقطع\n"
+            "٩- ٣١:٣٠ - ٣٦:٠٠ (التدرج في قراءة التفسير لطالب العلم)\n"
+            "١٠- ٣٦:١٠ - ٣٨:٠٠ (اتقان فن الفتوى)"
+        ),
+        auto_generate=True,
+    )
+
+    assert dialog.preview is not None
+    assert dialog.clips_preview_table.rowCount() == 10
+    assert "عدد المقاطع المكتشفة: 10" in dialog.summary_label.text()
+    assert "المقاطع الصالحة: 10" in dialog.summary_label.text()
+    assert "الأخطاء المانعة: 0" in dialog.summary_label.text()
+    assert "الاستثناءات المكتشفة: 1" in dialog.summary_label.text()
+    assert "جاهز للتطبيق" in dialog.summary_label.text()
+    assert dialog.clips_preview_table.item(7, 1).text() == "النصح للقريب"
+    assert dialog.clips_preview_table.item(7, 4).text() == "00:29:00 - 00:30:00"
+    assert dialog.clips_preview_table.item(7, 5).text() == "صالح"
+    assert "استثناء مكتشف من ملاحظة تالية" in dialog.clips_preview_table.item(7, 6).text()
+    assert dialog.apply_button.isEnabled()
+
+    dialog.close()
+    app.processEvents()
+
+
+def test_smart_paste_preview_warning_only_note_keeps_apply_enabled() -> None:
+    app = _app()
+    dialog = SmartPasteImportDialog(
+        initial_text=(
+            "1) 00:10:00 - 00:20:00 | عنوان\n"
+            "- يحتاج الفيديو الاول الى بعض الاقتصاصات في اثنائه"
+        ),
+        auto_generate=True,
+    )
+
+    assert dialog.preview is not None
+    assert dialog.clips_preview_table.rowCount() == 1
+    assert dialog.clips_preview_table.item(0, 5).text() == "صالح مع تحذير"
+    assert "توجد ملاحظة عن قص داخلي بدون وقت محدد" in dialog.clips_preview_table.item(0, 6).text()
+    assert "توجد تحذيرات، لكن يمكن تطبيق النتائج." in dialog.review_status_label.text()
+    assert dialog.apply_button.isEnabled()
+
+    dialog.close()
+    app.processEvents()
+
+
+def test_smart_paste_preview_partial_apply_requires_confirmation(monkeypatch) -> None:
+    app = _app()
+    dialog = SmartPasteImportDialog()
+    preview = SmartPastePreview(
+        video_urls=[],
+        project_title="",
+        clips=[SmartPasteClip(1, "صالح", "00:01:00", "00:02:00", 1, "1:00 - 2:00 صالح")],
+        warnings=[SmartPasteWarning(4, "نهاية المقطع قبل بدايته", "4:00 - 3:00 خاطئ")],
+        unparsed_lines=[],
+    )
+    dialog.preview = preview
+    dialog._show_preview(preview)
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.Yes)
+
+    dialog._accept_preview()
+
+    assert dialog.apply_button.text() == "تطبيق المقاطع الصالحة"
+    assert dialog.result() == QDialog.Accepted
+
+    dialog.close()
+    app.processEvents()
+
+
+def test_smart_paste_apply_filters_blocking_error_clip() -> None:
+    app = _app()
+    window = MainWindow()
+    window._ask_smart_paste_apply_mode = lambda preview: "replace"
+    preview = SmartPastePreview(
+        video_urls=[],
+        project_title="",
+        clips=[
+            SmartPasteClip(1, "صالح", "00:01:00", "00:02:00", 1, "1:00 - 2:00 صالح"),
+            SmartPasteClip(2, "خاطئ", "00:04:00", "00:03:00", 2, "4:00 - 3:00 خاطئ"),
+        ],
+        warnings=[SmartPasteWarning(2, "نهاية المقطع قبل بدايته", "4:00 - 3:00 خاطئ")],
+        unparsed_lines=[],
+    )
+
+    assert window._apply_smart_paste_preview(preview) is True
+    assert window.clips_table.rowCount() == 1
+    assert window.clips_table.item(0, TITLE_COLUMN).text() == "صالح"
+    assert "تم تجاهل 1 مقطع فيه أخطاء مانعة." in window.log_area.toPlainText()
+
+    window.close()
+    app.processEvents()
+
+
+def test_smart_paste_copy_report_contains_phase4_counts() -> None:
+    app = _app()
+    dialog = SmartPasteImportDialog(
+        initial_text=(
+            "عنوان المشروع\n"
+            "https://youtu.be/abc123\n"
+            "1) 00:10:00 - 00:20:00 | عنوان\n"
+            "- حذف 12-13"
+        ),
+        auto_generate=True,
+    )
+
+    dialog.copy_debug_report()
+    report = QApplication.clipboard().text()
+
+    assert "الرابط: https://youtu.be/abc123" in report
+    assert "عنوان المشروع: عنوان المشروع" in report
+    assert "عدد المقاطع: 1" in report
+    assert "عدد الاستثناءات: 1" in report
+    assert "العنوان | البداية | النهاية | الاستثناءات | الحالة" in report
+    assert "عنوان | 00:10:00 | 00:20:00 | 00:12:00 - 00:13:00 | صالح" in report
 
     dialog.close()
     app.processEvents()
@@ -3462,7 +3617,7 @@ def test_smart_paste_preview_real_world_evidence_samples_show_review_metadata() 
         for row, exclusions in sample["expected_exclusions"].items():
             exclusions_text = dialog.clips_preview_table.item(row, 4).text()
             for exclusion_start, exclusion_end in exclusions:
-                assert f"{exclusion_start}-{exclusion_end}" in exclusions_text
+                assert f"{exclusion_start} - {exclusion_end}" in exclusions_text
         for expected_warning in sample["expected_warnings"]:
             assert expected_warning in dialog.warnings_area.toPlainText()
         assert "عدد المقاطع المكتشفة" in dialog.summary_label.text()
@@ -3471,17 +3626,17 @@ def test_smart_paste_preview_real_world_evidence_samples_show_review_metadata() 
         app.processEvents()
 
 
-def test_smart_paste_preview_marks_multi_part_sample_for_review_without_splitting() -> None:
+def test_smart_paste_preview_marks_compound_sample_as_internal_exclusion() -> None:
     app = _app()
     sample = _smart_import_fixture("plus_joined_multi_part_one_clip_candidate")
     dialog = SmartPasteImportDialog(initial_text=sample["input_text"], auto_generate=True)
 
     assert dialog.preview is not None
     assert len(dialog.preview.clips) == 1
-    assert dialog.preview.clips[0].multi_part
-    assert "تم اكتشاف مقطع متعدد الأجزاء، قد يحتاج مراجعة قبل القص" in dialog.warnings_area.toPlainText()
-    assert "مقطع مركب" in dialog.clips_preview_table.item(0, 5).text()
-    assert "توجد تحذيرات، راجعها قبل الاستيراد" in dialog.review_status_label.text()
+    assert not dialog.preview.clips[0].multi_part
+    assert dialog.preview.clips[0].exclusions_text == "00:11:35-00:12:33"
+    assert "تم اكتشاف مقطع مركب مع حذف داخلي" in dialog.warnings_area.toPlainText()
+    assert "توجد تحذيرات، لكن يمكن تطبيق النتائج." in dialog.review_status_label.text()
 
     dialog.close()
     app.processEvents()
