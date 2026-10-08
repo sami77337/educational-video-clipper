@@ -10,6 +10,7 @@ set "YOUTUBE_RUNTIME_DIR=%VENV_DIR%\youtube-runtime"
 set "PYTHON_CMD=python"
 where py >nul 2>nul
 if not errorlevel 1 set "PYTHON_CMD=py -3"
+if defined ALMIQS_PYTHON set PYTHON_CMD="%ALMIQS_PYTHON%"
 
 if not exist "%VENV_DIR%\Scripts\python.exe" (
     echo Creating build virtual environment in: %VENV_DIR%
@@ -40,6 +41,7 @@ rmdir /s /q dist 2>nul
   --name "AlmiqsAlBaseet" ^
   --icon "%~dp0assets\icon.ico" ^
   --add-data "%~dp0assets;assets" ^
+  --collect-all "yt_dlp" ^
   --collect-all "yt_dlp_ejs" ^
   --workpath "build" ^
   --specpath "build" ^
@@ -48,17 +50,15 @@ rmdir /s /q dist 2>nul
 
 if errorlevel 1 goto build_failed
 
-mkdir "%~dp0dist\AlmiqsAlBaseet\bin" 2>nul
 if exist "%~dp0tools\ffmpeg.exe" (
     copy /y "%~dp0tools\ffmpeg.exe" "%~dp0dist\AlmiqsAlBaseet\ffmpeg.exe" >nul
-    copy /y "%~dp0tools\ffmpeg.exe" "%~dp0dist\AlmiqsAlBaseet\bin\ffmpeg.exe" >nul
 ) else (
-    echo WARNING: tools\ffmpeg.exe was not found. YouTube best-quality merge may fail on team devices.
+    echo ERROR: tools\ffmpeg.exe was not found.
+    goto build_failed
 )
 
 if exist "%YOUTUBE_RUNTIME_DIR%\deno.exe" (
     copy /y "%YOUTUBE_RUNTIME_DIR%\deno.exe" "%~dp0dist\AlmiqsAlBaseet\deno.exe" >nul
-    copy /y "%YOUTUBE_RUNTIME_DIR%\deno.exe" "%~dp0dist\AlmiqsAlBaseet\bin\deno.exe" >nul
 ) else (
     echo deno.exe was not prepared.
     goto build_failed
@@ -70,6 +70,9 @@ if errorlevel 1 goto build_failed
 
 if not exist "%~dp0dist\AlmiqsAlBaseet\AlmiqsAlBaseet.exe" goto build_failed
 if not exist "%~dp0dist\AlmiqsAlBaseet\deno.exe" goto build_failed
+
+"%VENV_DIR%\Scripts\python.exe" -X utf8 scripts\check_release_package.py
+if errorlevel 1 goto build_failed
 
 echo تم بناء النسخة بنجاح
 echo Build output: dist\AlmiqsAlBaseet

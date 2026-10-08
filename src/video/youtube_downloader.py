@@ -20,7 +20,7 @@ AR_YOUTUBE_DOWNLOAD_PROGRESS = "جاري تنزيل الفيديو"
 AR_YOUTUBE_DOWNLOAD_FINISHING = "اكتمل تنزيل الفيديو، جاري تجهيز الملف"
 AR_USING_BROWSER_COOKIES = "سيتم استخدام تسجيل الدخول من المتصفح لتنزيل يوتيوب"
 AR_BROWSER_COOKIES_FAILED = "تعذر قراءة تسجيل الدخول من المتصفح. أغلق المتصفح ثم حاول مرة أخرى، أو اختر فيديو من الجهاز."
-YOUTUBE_BEST_VIDEO_AUDIO_FORMAT = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+YOUTUBE_BEST_VIDEO_AUDIO_FORMAT = "bestvideo+bestaudio/best"
 
 ProgressCallback = Callable[[str], None]
 YoutubeDlFactory = Callable[[dict[str, Any]], Any]
@@ -83,6 +83,7 @@ def download_youtube_video(
     not look frozen while the worker is still active.
     """
 
+    url = validate_youtube_url(url)
     destination_path = Path(destination)
     ensure_directory(destination_path.parent)
 
@@ -94,9 +95,13 @@ def download_youtube_video(
     # The options below only improve download behavior; they do not reduce quality.
     options = {
         "format": YOUTUBE_BEST_VIDEO_AUDIO_FORMAT,
+        "format_sort": ["res", "fps", "br"],
         "merge_output_format": "mp4",
+        # Preserve the best streams without re-encoding; normalize a WebM
+        # fallback to the MP4 input path expected by the rest of the app.
+        "postprocessors": [{"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"}],
         "noplaylist": True,
-        "outtmpl": str(destination_path),
+        "outtmpl": str(destination_path.with_suffix("")).replace("%", "%%") + ".%(ext)s",
         "overwrites": True,
         "quiet": True,
         "no_warnings": True,
@@ -133,7 +138,9 @@ def download_youtube_video(
 
     try:
         with youtube_dl_factory(options) as ydl:
-            ydl.download([url])
+            result = ydl.download([url])
+            if result not in (None, 0):
+                raise YouTubeDownloadError("تعذر إكمال تنزيل الفيديو من يوتيوب")
     except DownloadError as error:
         error_text = str(error)
         if use_browser_cookies and ("cookie" in error_text.lower() or "browser" in error_text.lower() or "database" in error_text.lower()):
@@ -144,6 +151,8 @@ def download_youtube_video(
             ) from error
         raise
 
+    if not destination_path.is_file() or destination_path.stat().st_size == 0:
+        raise YouTubeDownloadError("لم يتم إنشاء ملف الفيديو بعد التنزيل. حاول مرة أخرى.")
     return destination_path
 
 

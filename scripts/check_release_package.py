@@ -8,7 +8,11 @@ from pathlib import Path
 
 
 DEFAULT_PACKAGE_DIR = Path("dist") / "AlmiqsAlBaseet"
-REQUIRED_FILES = ("AlmiqsAlBaseet.exe", "README_AR.txt")
+REQUIRED_FILES = (
+    "AlmiqsAlBaseet.exe", "README_AR.txt", "deno.exe",
+    "_internal/yt_dlp_ejs/yt/solver/core.min.js",
+    "_internal/yt_dlp_ejs/yt/solver/lib.min.js",
+)
 REQUIRED_FOLDERS = ("_internal",)
 FORBIDDEN_ROOT_ENTRIES = {
     ".git",
@@ -141,7 +145,7 @@ def _check_required_file(
     messages: list[str],
 ) -> None:
     path = package_path / relative_file
-    if path.is_file():
+    if path.is_file() and path.stat().st_size > 0:
         messages.append(f"الملف موجود: {relative_file}")
     else:
         errors.append(f"الملف غير موجود: {relative_file}")
