@@ -1,45 +1,55 @@
-name: Check live YouTube on Windows
+name: Verify Windows package restore helper
 on:
   push:
     branches: ["test/windows-youtube-smoke-20261008"]
 permissions:
   contents: read
 jobs:
-  youtube-smoke:
+  restore-helper:
     runs-on: windows-latest
-    timeout-minutes: 8
-    env:
-      PYTHONIOENCODING: utf-8
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: '3.12'
-      - name: Install current downloader and Deno
+      - name: Test restore, missing part, and no-overwrite safeguards
         shell: pwsh
         run: |
-          python -m pip install --upgrade --pre "yt-dlp[default]"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & .\scripts\prepare_youtube_runtime.ps1 -DestinationDir "$pwd\tools"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Attempt public test-video download with TLS verification
-        shell: pwsh
-        run: |
-          $process = Start-Process python -ArgumentList @('-u', 'scripts/youtube_smoke.py') -PassThru -RedirectStandardOutput 'youtube-smoke.stdout.log' -RedirectStandardError 'youtube-smoke.stderr.log'
-          if (-not $process.WaitForExit(150000)) {
-            $process.Kill()
-            '{"status":"inconclusive","reason":"live download timed out after 150 seconds"}' | Set-Content -Encoding utf8 youtube-smoke.json
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'restore-helper-test'
+          New-Item -ItemType Directory -Path "$root\fixture\AlmiqsAlBaseet" -Force | Out-Null
+          Set-Content -Path "$root\fixture\AlmiqsAlBaseet\AlmiqsAlBaseet.exe" -Value 'Synthetic test placeholder - never executed'
+          Compress-Archive -Path "$root\fixture\AlmiqsAlBaseet" -DestinationPath "$root\fixture.zip"
+          $expected = (Get-FileHash "$root\fixture.zip" -Algorithm SHA256).Hash
+          $helper = [Text.Encoding]::ASCII.GetString([Convert]::FromBase64String('QGVjaG8gb2ZmDQpzZXRsb2NhbA0KY2QgL2QgIiV+ZHAwIg0KZWNobyBBbG1pcXMgQWxCYXNlZXQgMS4wLjEgLSBSZXN0b3JlIHRoZSB2ZXJpZmllZCBXaW5kb3dzIHBhY2thZ2UNCmlmIG5vdCBleGlzdCAiQWxtaXFzQWxCYXNlZXQtV2luZG93cy14NjQtMS4wLjEuemlwLjAwMSIgZ290byBtaXNzaW5nDQppZiBub3QgZXhpc3QgIkFsbWlxc0FsQmFzZWV0LVdpbmRvd3MteDY0LTEuMC4xLnppcC4wMDIiIGdvdG8gbWlzc2luZw0KaWYgbm90IGV4aXN0ICJBbG1pcXNBbEJhc2VldC1XaW5kb3dzLXg2NC0xLjAuMS56aXAuMDAzIiBnb3RvIG1pc3NpbmcNCmlmIG5vdCBleGlzdCAiQWxtaXFzQWxCYXNlZXQtV2luZG93cy14NjQtMS4wLjEuemlwLjAwNCIgZ290byBtaXNzaW5nDQppZiBub3QgZXhpc3QgIkFsbWlxc0FsQmFzZWV0LVdpbmRvd3MteDY0LTEuMC4xLnppcC4wMDUiIGdvdG8gbWlzc2luZw0KaWYgbm90IGV4aXN0ICJBbG1pcXNBbEJhc2VldC1XaW5kb3dzLXg2NC0xLjAuMS56aXAuMDA2IiBnb3RvIG1pc3NpbmcNCnNldCAiQUxNSVFTX1pJUD0lfmRwMEFsbWlxc0FsQmFzZWV0LVdpbmRvd3MteDY0LTEuMC4xLnppcCINCnNldCAiQUxNSVFTX0RFU1Q9JX5kcDBBbG1pcXNBbEJhc2VldC1maXhlZC0xLjAuMSINCmlmIGV4aXN0ICIlQUxNSVFTX1pJUCUiIGdvdG8gZXhpc3RzDQppZiBleGlzdCAiJUFMTUlRU19ERVNUJSIgZ290byBleGlzdHMNCmVjaG8gQ29tYmluaW5nIHRoZSBzaXggZG93bmxvYWRlZCBwYXJ0cy4uLg0KY29weSAvYiAiQWxtaXFzQWxCYXNlZXQtV2luZG93cy14NjQtMS4wLjEuemlwLjAwMSIrIkFsbWlxc0FsQmFzZWV0LVdpbmRvd3MteDY0LTEuMC4xLnppcC4wMDIiKyJBbG1pcXNBbEJhc2VldC1XaW5kb3dzLXg2NC0xLjAuMS56aXAuMDAzIisiQWxtaXFzQWxCYXNlZXQtV2luZG93cy14NjQtMS4wLjEuemlwLjAwNCIrIkFsbWlxc0FsQmFzZWV0LVdpbmRvd3MteDY0LTEuMC4xLnppcC4wMDUiKyJBbG1pcXNBbEJhc2VldC1XaW5kb3dzLXg2NC0xLjAuMS56aXAuMDA2IiAiJUFMTUlRU19aSVAlIiA+bnVsDQppZiBlcnJvcmxldmVsIDEgZ290byBmYWlsZWQNCmVjaG8gQ2hlY2tpbmcgcGFja2FnZSBpbnRlZ3JpdHkgYW5kIGV4dHJhY3RpbmcuLi4NCnBvd2Vyc2hlbGwgLU5vUHJvZmlsZSAtQ29tbWFuZCAiJEVycm9yQWN0aW9uUHJlZmVyZW5jZT0nU3RvcCc7ICRoYXNoPShHZXQtRmlsZUhhc2ggLUxpdGVyYWxQYXRoICRlbnY6QUxNSVFTX1pJUCAtQWxnb3JpdGhtIFNIQTI1NikuSGFzaDsgaWYgKCRoYXNoIC1uZSAnMjJjOTUwYjQwZDA1ZDhjYmFhMWJlZTc4YzBiOTE1NDExYjdiNTM4M2UyN2FhNjU4ZmM1MTkyYTgxMjA3NjI0OCcpIHsgdGhyb3cgJ1RoZSBkb3dubG9hZGVkIHBhcnRzIGRvIG5vdCBtYXRjaC4gRG93bmxvYWQgYWxsIHNpeCBwYXJ0cyBhZ2Fpbi4nIH07IEV4cGFuZC1BcmNoaXZlIC1MaXRlcmFsUGF0aCAkZW52OkFMTUlRU19aSVAgLURlc3RpbmF0aW9uUGF0aCAkZW52OkFMTUlRU19ERVNUOyBpZiAoLW5vdCAoVGVzdC1QYXRoIC1MaXRlcmFsUGF0aCAoSm9pbi1QYXRoICRlbnY6QUxNSVFTX0RFU1QgJ0FsbWlxc0FsQmFzZWV0XEFsbWlxc0FsQmFzZWV0LmV4ZScpKSkgeyB0aHJvdyAnQXBwbGljYXRpb24gZXh0cmFjdGlvbiBmYWlsZWQnIH0iDQppZiBlcnJvcmxldmVsIDEgZ290byBmYWlsZWQNCmVjaG8gUmVhZHkuIE9wZW4gQWxtaXFzQWxCYXNlZXQuZXhlIGluIHRoZSBmb2xkZXIgdGhhdCBhcHBlYXJzLg0Kc3RhcnQgIiIgZXhwbG9yZXIuZXhlICIlQUxNSVFTX0RFU1QlXEFsbWlxc0FsQmFzZWV0Ig0KcGF1c2UNCmV4aXQgL2IgMA0KOm1pc3NpbmcNCmVjaG8gQSBwYXJ0IGlzIG1pc3NpbmcuIFB1dCBhbGwgc2l4IC4wMDEgdG8gLjAwNiBmaWxlcyBhbmQgdGhpcyBDTUQgZmlsZSBpbiB0aGUgc2FtZSBmb2xkZXIuDQpwYXVzZQ0KZXhpdCAvYiAxDQo6ZXhpc3RzDQplY2hvIEEgcmVzdG9yZWQgWklQIG9yIGFwcCBmb2xkZXIgYWxyZWFkeSBleGlzdHMgaGVyZS4gVXNlIGEgbmV3IGVtcHR5IGZvbGRlciBmb3IgdGhlIHNldmVuIGRvd25sb2FkZWQgZmlsZXMuDQpwYXVzZQ0KZXhpdCAvYiAxDQo6ZmFpbGVkDQplY2hvIFJlc3RvcmUgZmFpbGVkLiBUaGUgZXJyb3IgYWJvdmUgZXhwbGFpbnMgd2hhdCBuZWVkcyBhdHRlbnRpb24uIEtlZXAgdGhlIHNpeCBvcmlnaW5hbCBwYXJ0cy4NCnBhdXNlDQpleGl0IC9iIDENCg=='))
+          $helper = $helper.Replace('22c950b40d05d8cbaa1bee78c0b915411b7b5383e27aa658fc5192a812076248', $expected)
+          $bytes = [IO.File]::ReadAllBytes("$root\fixture.zip")
+          $chunkSize = [int][Math]::Ceiling($bytes.Length / 6.0)
+          foreach ($case in @('success', 'missing', 'existing')) {
+            $folder = Join-Path $root $case
+            New-Item -ItemType Directory -Path $folder | Out-Null
+            [IO.File]::WriteAllText("$folder\START-RESTORE.cmd", $helper, [Text.Encoding]::ASCII)
+            for ($i = 0; $i -lt 6; $i++) {
+              if ($case -eq 'missing' -and $i -eq 5) { continue }
+              $offset = $i * $chunkSize
+              $length = [Math]::Min($chunkSize, $bytes.Length - $offset)
+              $part = New-Object byte[] $length
+              [Array]::Copy($bytes, $offset, $part, 0, $length)
+              $name = 'AlmiqsAlBaseet-Windows-x64-1.0.1.zip.{0:D3}' -f ($i + 1)
+              [IO.File]::WriteAllBytes((Join-Path $folder $name), $part)
+            }
+            $zip = "$folder\AlmiqsAlBaseet-Windows-x64-1.0.1.zip"
+            if ($case -eq 'existing') { Set-Content $zip 'Existing user file sentinel' }
+            Push-Location $folder
+            & $env:ComSpec /d /c 'echo. | START-RESTORE.cmd'
+            $result = $LASTEXITCODE
+            Pop-Location
+            if ($case -eq 'success') {
+              if ($result -ne 0) { throw 'Success fixture failed' }
+              if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $expected) { throw 'Restored ZIP differs' }
+              if (-not (Test-Path "$folder\AlmiqsAlBaseet-fixed-1.0.1\AlmiqsAlBaseet\AlmiqsAlBaseet.exe")) { throw 'Not extracted' }
+            } else {
+              if ($result -eq 0) { throw 'Failure fixture unexpectedly succeeded' }
+              if ($case -eq 'missing' -and (Test-Path $zip)) { throw 'Missing-part case created output' }
+              if ($case -eq 'existing' -and (Get-Content $zip -Raw).Trim() -ne 'Existing user file sentinel') { throw 'Existing output changed' }
+            }
+            Write-Host "PASS: $case"
           }
-          if (Test-Path youtube-smoke.json) { Get-Content youtube-smoke.json } else { throw 'Smoke report missing' }
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: Windows-YouTube-live-smoke
-          path: |
-            youtube-smoke.json
-            youtube-smoke.stdout.log
-            youtube-smoke.stderr.log
-          if-no-files-found: error
-          retention-days: 7
+          $global:LASTEXITCODE = 0
