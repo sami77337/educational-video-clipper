@@ -892,7 +892,12 @@ def cut_clip(
     try:
         _run_ffmpeg_command(command, output_path, runner)
         if _should_validate_media_duration(runner):
-            verify_output_duration(output_path, speed_adjusted_duration(duration_seconds, normalized_speed))
+            precise = (float(start_seconds) % 1 != 0) or (float(duration_seconds) % 1 != 0)
+            verify_output_duration(
+                output_path,
+                speed_adjusted_duration(duration_seconds, normalized_speed),
+                tolerance_seconds=0.5 if precise else OUTPUT_DURATION_TOLERANCE_SECONDS,
+            )
     except FileNotFoundError as error:
         raise FfmpegNotFoundError(AR_FFMPEG_NOT_FOUND) from error
 
