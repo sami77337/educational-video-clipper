@@ -65,7 +65,7 @@ def normalize_timestamp_text(value: str) -> str:
         raise ValueError(AR_INVALID_TIME_FORMAT)
     if not re.fullmatch(r"\d{1,3}", parts[0]):
         raise ValueError(AR_INVALID_TIME_FORMAT)
-    if not re.fullmatch(r"\d{1,2}", parts[1]):
+    if len(parts) == 3 and not re.fullmatch(r"\d{1,2}", parts[1]):
         raise ValueError(AR_INVALID_TIME_FORMAT)
 
     if len(parts) == 2:
