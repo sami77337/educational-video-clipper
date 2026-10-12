@@ -74,7 +74,11 @@ def test_local_gemini_video_pipeline_exports_real_mp4_and_handoff(
 
     processor = VideoProcessor(output_root=tmp_path / "outputs")
     result = processor.process_project(
-        VideoSourceRequest(VideoSourceType.LOCAL_FILE, str(sample_media)),
+        VideoSourceRequest(
+            VideoSourceType.LOCAL_FILE,
+            str(sample_media),
+            source_reference="https://www.youtube.com/watch?v=abcDEF12345",
+        ),
         "حزمة تجربة فتوى",
         clips,
         clip_padding=ClipPadding(pre_seconds=0.25, post_seconds=0.25),
@@ -97,6 +101,8 @@ def test_local_gemini_video_pipeline_exports_real_mp4_and_handoff(
     root = result.project_output_folder
     manifest = json.loads((root / "clip_manifest.json").read_text(encoding="utf-8"))
     assert manifest["clip_count"] == 2
+    assert manifest["source_reference"] == "https://www.youtube.com/watch?v=abcDEF12345"
+    assert manifest["clips"][0]["source_reference"] == "https://www.youtube.com/watch?v=abcDEF12345"
     assert manifest["clips"][0]["title"] == "هل يجوز الجمع في السفر؟"
     assert manifest["clips"][0]["source_start"] == "00:00:01.250"
     assert manifest["clips"][0]["source_end"] == "00:00:03.750"
