@@ -123,7 +123,7 @@ def normalize_imported_time(value: Any) -> str:
     if isinstance(value, datetime):
         return _seconds_to_timestamp(value.hour * 3600 + value.minute * 60 + value.second + value.microsecond / 1_000_000)
     if isinstance(value, time):
-        return _seconds_to_timestamp(value.hour * 3600 + value.minute * 60 + value.second)
+        return _seconds_to_timestamp(value.hour * 3600 + value.minute * 60 + value.second + value.microsecond / 1_000_000)
     if isinstance(value, timedelta):
         return _seconds_to_timestamp(value.total_seconds())
     if isinstance(value, (int, float)) and not isinstance(value, bool):
