@@ -854,13 +854,18 @@ class QueueProcessingWorker(QObject):
 
     def _source_request_from_job(self, job: VideoJob) -> VideoSourceRequest:
         if job.source_type == QueueVideoSourceType.LOCAL:
-            return VideoSourceRequest(VideoSourceType.LOCAL_FILE, job.source)
+            return VideoSourceRequest(
+                VideoSourceType.LOCAL_FILE,
+                job.source,
+                source_reference=job.settings.gemini_source_url,
+            )
         if job.source_type == QueueVideoSourceType.YOUTUBE:
             return VideoSourceRequest(
                 VideoSourceType.YOUTUBE,
                 job.source,
                 use_browser_cookies=job.settings.use_browser_login,
                 browser=job.settings.browser_name,
+                source_reference=job.source,
             )
         raise VideoProcessingError(AR_URL_QUEUE_PROCESSING_LATER)
 
@@ -935,6 +940,7 @@ class MainWindow(QMainWindow):
         self._queue_processing_worker: QueueProcessingWorker | None = None
         self._queue_auto_continue_after_worker = False
         self._editing_queue_job: VideoJob | None = None
+        self._gemini_source_url = ""
         self._last_output_folder: Path | None = None
 
         self.setWindowTitle(APP_NAME)
@@ -2434,6 +2440,7 @@ class MainWindow(QMainWindow):
             pre_roll_seconds=self.pre_padding_input.value(),
             post_roll_seconds=self.post_padding_input.value(),
             create_handoff_package=self.handoff_package_checkbox.isChecked(),
+            gemini_source_url=self._gemini_source_url,
             speed_adjustment_enabled=self.video_speed_enabled_checkbox.isChecked(),
             speed=self._collect_video_speed(),
             volume_adjustment_enabled=self.volume_enabled_checkbox.isChecked(),
@@ -2633,6 +2640,7 @@ class MainWindow(QMainWindow):
                 self.project_name_input.text().strip(),
                 self.paste_message_input.toPlainText().strip(),
                 self.handoff_package_checkbox.isChecked(),
+                bool(self._gemini_source_url),
                 self._table_has_clip_data(),
                 self.pre_padding_input.value() != 0,
                 self.post_padding_input.value() != 0,
@@ -2655,6 +2663,7 @@ class MainWindow(QMainWindow):
         self.project_name_input.clear()
         self.paste_message_input.clear()
         self.handoff_package_checkbox.setChecked(False)
+        self._gemini_source_url = ""
         self.clips_table.setRowCount(0)
         self.pre_padding_input.setValue(0)
         self.post_padding_input.setValue(0)
@@ -2739,6 +2748,7 @@ class MainWindow(QMainWindow):
         self.pre_padding_input.setValue(max(0.0, settings.pre_roll_seconds))
         self.post_padding_input.setValue(max(0.0, settings.post_roll_seconds))
         self.handoff_package_checkbox.setChecked(settings.create_handoff_package)
+        self._gemini_source_url = settings.gemini_source_url
         self.use_browser_cookies_checkbox.setChecked(settings.use_browser_login)
         self._set_browser_combo_from_identifier(settings.browser_name)
         self.video_speed_enabled_checkbox.setChecked(settings.speed_adjustment_enabled)
@@ -3336,7 +3346,19 @@ class MainWindow(QMainWindow):
             ImportedClipRow(number=item.number, title=item.title, start=item.start, end=item.end)
             for item in preview.clips
         ]
+        if (import_mode == "append" and preview.source_url and self._gemini_source_url
+                and preview.source_url != self._gemini_source_url):
+            QMessageBox.warning(
+                self, "استيراد Gemini",
+                "مصدر Gemini الجديد يختلف عن الفيديو السابق؛ استخدم الاستبدال بدل الإضافة.",
+            )
+            return
+
         self._insert_clip_lines(imported, append=import_mode == "append")
+        if import_mode == "replace":
+            self._gemini_source_url = preview.source_url or ""
+        elif preview.source_url:
+            self._gemini_source_url = preview.source_url
         self.handoff_package_checkbox.setChecked(True)
         if preview.source_url and self.youtube_radio.isChecked() and not self.youtube_input.text().strip():
             self.youtube_input.setText(preview.source_url)
@@ -3795,9 +3817,14 @@ class MainWindow(QMainWindow):
                 self.youtube_input.text(),
                 use_browser_cookies=self.use_browser_cookies_checkbox.isChecked(),
                 browser=self._selected_browser_identifier(),
+                source_reference=self.youtube_input.text().strip(),
             )
 
-        return VideoSourceRequest(VideoSourceType.LOCAL_FILE, self.local_file_input.text())
+        return VideoSourceRequest(
+            VideoSourceType.LOCAL_FILE,
+            self.local_file_input.text(),
+            source_reference=self._gemini_source_url,
+        )
 
     def _known_video_duration_for_smart_validation(self) -> float | None:
         if not self.local_file_radio.isChecked():
