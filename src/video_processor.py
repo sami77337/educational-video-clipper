@@ -21,6 +21,7 @@ from src.classification import (
     get_default_classification_rules,
     validate_classification_rules,
 )
+from src.clip_index_export import create_handoff_package as write_team_handoff_package
 from src.clip_padding import ClipPadding, calculate_effective_clip_range
 from src.export_utils import (
     AR_PROCESSING_SUCCESS,
@@ -180,12 +181,12 @@ class ClipDefinition:
 
     number: int
     title: str
-    start_seconds: int
-    end_seconds: int
+    start_seconds: int | float
+    end_seconds: int | float
     exclusions: str = ""
 
     @property
-    def duration_seconds(self) -> int:
+    def duration_seconds(self) -> int | float:
         return calculate_clip_duration(self.start_seconds, self.end_seconds)
 
     @property
@@ -208,6 +209,8 @@ class CutClipResult:
     clip: ClipDefinition
     output_path: Path
     destination_folder_name: str
+    effective_start_seconds: float | None = None
+    effective_end_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -406,6 +409,7 @@ class VideoProcessor:
         clip_fade: ClipFade | None = None,
         clip_black_flash: ClipBlackFlash | None = None,
         export_quality: ExportQualitySettings | None = None,
+        create_handoff_package: bool = False,
     ) -> ProcessingResult:
         """Prepare, cut, sort, and report one project."""
 
@@ -473,6 +477,8 @@ class VideoProcessor:
             clip_fade=active_fade,
             clip_black_flash=active_black_flash,
             export_quality=active_export_quality,
+            create_handoff_package=create_handoff_package,
+            source_reference=source_request.value,
         )
         _emit(progress_callback, AR_PROCESSING_SUCCESS)
 
@@ -499,6 +505,8 @@ class VideoProcessor:
         clip_fade: ClipFade | None = None,
         clip_black_flash: ClipBlackFlash | None = None,
         export_quality: ExportQualitySettings | None = None,
+        create_handoff_package: bool = False,
+        source_reference: str = "",
     ) -> ExportArtifacts:
         """Create result folders and a final report after successful clipping."""
 
@@ -543,6 +551,13 @@ class VideoProcessor:
         )
         report_path = write_processing_report(project_folder, report_data)
         _emit(progress_callback, AR_REPORT_CREATED)
+        if create_handoff_package:
+            package = write_team_handoff_package(
+                project_folder, cut_results, source_reference=source_reference,
+                report_path=report_path,
+            )
+            zip_files.append(package.zip_path)
+            _emit(progress_callback, f"تم إنشاء حزمة الفريق: {package.zip_path}")
 
         return ExportArtifacts(
             zip_folder=project_folder / "ZIP",
@@ -652,7 +667,7 @@ def build_clip_definition(row: ClipRowInput) -> ClipDefinition:
     )
 
 
-def calculate_clip_duration(start_seconds: int, end_seconds: int) -> int:
+def calculate_clip_duration(start_seconds: int | float, end_seconds: int | float) -> int | float:
     """Return clip duration in seconds."""
 
     duration = end_seconds - start_seconds
@@ -1261,6 +1276,8 @@ def cut_clips(
                 clip=clip,
                 output_path=output_path,
                 destination_folder_name=destination_folder_name,
+                effective_start_seconds=effective_range.start_seconds,
+                effective_end_seconds=effective_range.end_seconds,
             )
         )
 
