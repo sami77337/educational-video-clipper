@@ -688,6 +688,7 @@ class ProcessingWorker(QObject):
         clip_fade: ClipFade | None = None,
         clip_black_flash: ClipBlackFlash | None = None,
         export_quality: ExportQualitySettings | None = None,
+        create_handoff_package: bool = False,
     ) -> None:
         super().__init__()
         self.video_processor = video_processor
@@ -701,6 +702,7 @@ class ProcessingWorker(QObject):
         self.clip_fade = clip_fade or ClipFade()
         self.clip_black_flash = clip_black_flash or ClipBlackFlash()
         self.export_quality = export_quality or ExportQualitySettings()
+        self.create_handoff_package = create_handoff_package
 
     @Slot()
     def run(self) -> None:
@@ -717,6 +719,7 @@ class ProcessingWorker(QObject):
                 clip_fade=self.clip_fade,
                 clip_black_flash=self.clip_black_flash,
                 export_quality=self.export_quality,
+                create_handoff_package=self.create_handoff_package,
             )
         except (VideoSourceError, VideoProcessingError, ExportError) as error:
             self.failed.emit(str(error))
@@ -790,6 +793,7 @@ class QueueProcessingWorker(QObject):
                 clip_fade=self._effective_job_clip_fade(job),
                 clip_black_flash=self._effective_job_clip_black_flash(job),
                 export_quality=self._effective_job_export_quality(job),
+                create_handoff_package=job.settings.create_handoff_package,
             )
         except Exception as error:
             if str(error).strip() == AR_OUTPUT_CREATE_FAILED:
@@ -950,6 +954,7 @@ class MainWindow(QMainWindow):
         self.paste_message_input = QTextEdit()
         self.smart_paste_button = QPushButton("استيراد ذكي")
         self.gemini_import_button = QPushButton("استيراد Gemini")
+        self.handoff_package_checkbox = QCheckBox("إنشاء حزمة الفريق (MP4 + Excel + JSON + ZIP)")
         self.parse_message_button = QPushButton("تحويل بسيط إلى جدول")
         self.queue_table = QTableWidget(0, 6)
         self.add_current_work_to_queue_button = QPushButton("إضافة العمل الحالي إلى قائمة الانتظار")
@@ -1381,6 +1386,7 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.gemini_import_button)
 
         layout.addWidget(self.paste_message_input)
+        layout.addWidget(self.handoff_package_checkbox)
         layout.addLayout(button_row)
 
         return group
@@ -2427,6 +2433,7 @@ class MainWindow(QMainWindow):
         return JobSettings(
             pre_roll_seconds=self.pre_padding_input.value(),
             post_roll_seconds=self.post_padding_input.value(),
+            create_handoff_package=self.handoff_package_checkbox.isChecked(),
             speed_adjustment_enabled=self.video_speed_enabled_checkbox.isChecked(),
             speed=self._collect_video_speed(),
             volume_adjustment_enabled=self.volume_enabled_checkbox.isChecked(),
@@ -2625,6 +2632,7 @@ class MainWindow(QMainWindow):
                 self.local_file_input.text().strip(),
                 self.project_name_input.text().strip(),
                 self.paste_message_input.toPlainText().strip(),
+                self.handoff_package_checkbox.isChecked(),
                 self._table_has_clip_data(),
                 self.pre_padding_input.value() != 0,
                 self.post_padding_input.value() != 0,
@@ -2646,6 +2654,7 @@ class MainWindow(QMainWindow):
         self.local_file_input.clear()
         self.project_name_input.clear()
         self.paste_message_input.clear()
+        self.handoff_package_checkbox.setChecked(False)
         self.clips_table.setRowCount(0)
         self.pre_padding_input.setValue(0)
         self.post_padding_input.setValue(0)
@@ -2729,6 +2738,7 @@ class MainWindow(QMainWindow):
     def _apply_queue_job_settings_to_workspace(self, settings: JobSettings) -> None:
         self.pre_padding_input.setValue(max(0.0, settings.pre_roll_seconds))
         self.post_padding_input.setValue(max(0.0, settings.post_roll_seconds))
+        self.handoff_package_checkbox.setChecked(settings.create_handoff_package)
         self.use_browser_cookies_checkbox.setChecked(settings.use_browser_login)
         self._set_browser_combo_from_identifier(settings.browser_name)
         self.video_speed_enabled_checkbox.setChecked(settings.speed_adjustment_enabled)
@@ -3327,6 +3337,7 @@ class MainWindow(QMainWindow):
             for item in preview.clips
         ]
         self._insert_clip_lines(imported, append=import_mode == "append")
+        self.handoff_package_checkbox.setChecked(True)
         if preview.source_url and self.youtube_radio.isChecked() and not self.youtube_input.text().strip():
             self.youtube_input.setText(preview.source_url)
         self._append_log(f"تم استيراد {len(imported)} مقطعًا من Gemini؛ راجع الحدود قبل القص.")
@@ -3462,6 +3473,7 @@ class MainWindow(QMainWindow):
             clip_fade=clip_fade,
             clip_black_flash=clip_black_flash,
             export_quality=export_quality,
+            create_handoff_package=self.handoff_package_checkbox.isChecked(),
         )
 
     def start_direct_processing_with_confirmation(self) -> None:
@@ -4104,6 +4116,7 @@ class MainWindow(QMainWindow):
         clip_fade: ClipFade | None = None,
         clip_black_flash: ClipBlackFlash | None = None,
         export_quality: ExportQualitySettings | None = None,
+        create_handoff_package: bool = False,
     ) -> None:
         thread = QThread(self)
         worker = ProcessingWorker(
@@ -4118,6 +4131,7 @@ class MainWindow(QMainWindow):
             clip_fade=clip_fade,
             clip_black_flash=clip_black_flash,
             export_quality=export_quality,
+            create_handoff_package=create_handoff_package,
         )
         worker.moveToThread(thread)
 
@@ -4172,6 +4186,7 @@ class MainWindow(QMainWindow):
             self.paste_message_input,
             self.smart_paste_button,
             self.gemini_import_button,
+            self.handoff_package_checkbox,
             self.parse_message_button,
             self.queue_table,
             self.add_current_work_to_queue_button,
