@@ -132,3 +132,15 @@ def test_local_gemini_video_pipeline_exports_real_mp4_and_handoff(
         assert len([path for path in contents if path.endswith(".txt")]) >= 1
         assert archive.testzip() is None
     assert before_hash == _sha256(sample_media), "The original source must stay unchanged."
+
+
+
+def test_gemini_team_package_rejects_times_beyond_source(tmp_path: Path, sample_media: Path):
+    processor = VideoProcessor(output_root=tmp_path / "outputs")
+    with pytest.raises(Exception, match="يتجاوز مدة الفيديو"):
+        processor.process_project(
+            VideoSourceRequest(VideoSourceType.LOCAL_FILE, str(sample_media)),
+            "خارج حدود المصدر",
+            [ClipRowInput(row_number=1, title="سؤال زائد", start="00:07", end="00:09")],
+            create_handoff_package=True,
+        )

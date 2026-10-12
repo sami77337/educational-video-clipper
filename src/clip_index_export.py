@@ -180,6 +180,8 @@ def _safe_cell(value: Any) -> Any:
     """Avoid spreadsheet formula injection from untrusted AI titles."""
     if not isinstance(value, str):
         return value
-    if value.startswith(("=", "+", "-", "@", "\t", "\r")):
+    # Spreadsheet clients may ignore leading whitespace or bidi controls.
+    stripped = value.lstrip(" \t\r\n\ufeff\u200b\u200e\u200f\u2066\u2067\u2068\u2069")
+    if stripped.startswith(("=", "+", "-", "@")) or value.startswith(("\t", "\r", "\n")):
         return "'" + value
     return value

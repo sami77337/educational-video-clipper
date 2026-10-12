@@ -39,9 +39,9 @@ class GeminiImportPreview:
 
 _HEADER_ALIASES = {
     "number": {"number", "id", "#", "م", "رقم", "الرقم", "رقم المقطع", "المقطع"},
-    "title": {"title", "question", "عنوان", "عنوان السؤال", "السؤال", "نص السؤال", "اسم المقطع"},
-    "start": {"start", "start time", "بداية", "البداية", "وقت البداية", "وقت بدء السؤال", "بداية السؤال", "من"},
-    "end": {"end", "end time", "نهاية", "النهاية", "وقت النهاية", "نهاية الجواب", "نهاية الاجابة", "الى"},
+    "title": {"title", "question", "عنوان", "العنوان", "عنوان السؤال", "السؤال", "نص السؤال", "اسم السؤال", "سؤال السائل", "اسم المقطع"},
+    "start": {"start", "start time", "بداية", "البداية", "وقت البداية", "وقت بدء السؤال", "وقت بداية السؤال", "بداية السؤال", "من"},
+    "end": {"end", "end time", "نهاية", "النهاية", "وقت النهاية", "وقت نهاية جواب الشيخ", "وقت نهاية الجواب", "وقت نهاية الإجابة", "نهاية الجواب", "نهاية الاجابة", "الى"},
     "url": {"url", "link", "video url", "source url", "الرابط", "رابط الفيديو", "رابط", "رابط المقطع"},
 }
 _REVERSE_HEADERS = {alias: name for name, aliases in _HEADER_ALIASES.items() for alias in aliases}
@@ -229,7 +229,7 @@ def _map_headers(row: dict[str, Any]) -> dict[str, Any]:
 def _header_name(value: str) -> str:
     value = unicodedata.normalize("NFKC", value)
     value = re.sub(r"[\u064b-\u065f\u0670\u200b-\u200f]", "", value)
-    return re.sub(r"\s+", " ", value.replace("*", "").replace("_", "").strip(" :؟")).strip().lower()
+    return re.sub(r"\s+", " ", value.replace("*", "").replace("_", "").replace("\ufeff", "").strip(" :؟")).strip().lower()
 
 
 def _clip_from_row(row: dict[str, Any], index: int) -> GeminiClip:
@@ -265,6 +265,8 @@ def _time_value(value: Any, name: str) -> str:
             raise ValueError(f"وقت {name} غير صالح.")
         return format_seconds(value)
     content = str(value).strip()
+    if any(marker in content.lower() for marker in ("غير مؤكد", "غير معروف", "not sure", "uncertain")):
+        raise ValueError(f"وقت {name} غير مؤكد ويحتاج إلى مراجعة.")
     markdown_link = re.match(r"^\[([^\]]+)\]\([^)]+\)$", content)
     if markdown_link:
         content = markdown_link.group(1)

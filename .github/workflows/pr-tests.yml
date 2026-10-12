@@ -3,6 +3,8 @@ name: Python regression tests
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -115,19 +117,20 @@ jobs:
         run: |
           $exe = Get-FileHash 'dist/AlmiqsAlBaseet/AlmiqsAlBaseet.exe' -Algorithm SHA256
           $info = @(
-            'INTERNAL PREVIEW ONLY - NOT FINAL RELEASE',
-            "Head commit: ${{ github.event.pull_request.head.sha }}",
+            'RELEASE CANDIDATE - test on real workstation before team distribution',
+            "Head commit: ${{ github.event.pull_request.head.sha || github.sha }}",
+            "Build event: ${{ github.event_name }}",
             "Executable SHA256: $($exe.Hash)",
             'Tests: Ubuntu + Windows + real FFmpeg test required',
             'Transcription: External Telegram bot (not bundled)',
             'Install: keep the entire AlmiqsAlBaseet folder',
-            'Source: Pull Request #56'
+            'Source: Gemini integration reviewed in PR #56'
           )
           $info | Out-File -FilePath 'dist/AlmiqsAlBaseet/PREVIEW_BUILD_INFO.txt' -Encoding utf8
       - name: Upload Windows portable preview
         uses: actions/upload-artifact@v4
         with:
-          name: AlmiqsAlBaseet-Windows-Preview-PR56
+          name: AlmiqsAlBaseet-Windows-Candidate-${{ github.run_id }}
           path: dist/AlmiqsAlBaseet/
           retention-days: 7
           compression-level: 0

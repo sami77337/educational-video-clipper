@@ -99,3 +99,17 @@ def test_gemini_tab_separated_clipboard_table():
     parsed = parse_gemini_response(copied)
     assert len(parsed.clips) == 2
     assert parsed.clips[0].end == "00:00:37.500"
+
+
+
+def test_gemini_alternate_arabic_headings_and_bom():
+    table = "\ufeffالعنوان,وقت بداية السؤال,وقت نهاية جواب الشيخ\nهل يجوز الجمع؟,00:19,00:37.500\n"
+    preview = parse_gemini_response(table)
+    assert len(preview.clips) == 1
+    assert preview.clips[0].end == "00:00:37.500"
+
+
+def test_gemini_uncertain_time_does_not_hide_behind_valid_number():
+    text = "| م | عنوان السؤال | وقت البداية | وقت النهاية |\n|---|---|---|---|\n| 1 | صلاة الجماعة | غير مؤكد 00:19 | 00:37 |"
+    with pytest.raises(GeminiImportError, match="غير مؤكد"):
+        parse_gemini_response(text)

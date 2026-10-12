@@ -450,6 +450,22 @@ class VideoProcessor:
         _emit(progress_callback, AR_PREPARING_VIDEO)
         prepared_video = self.prepare_source(source_request, project_name, progress_callback)
         video_duration_seconds = _probe_video_duration_if_needed(prepared_video.input_video_path, active_padding)
+        if create_handoff_package:
+            # Team deliveries must never silently accept timestamps beyond the source.
+            # Probing remains opt-in so historical workflows keep their old behavior.
+            try:
+                video_duration_seconds = probe_media_duration_seconds(prepared_video.input_video_path)
+            except Exception as error:
+                raise VideoProcessingError("تعذر التحقق من مدة الفيديو الأصلي قبل قص الحزمة.") from error
+            for clip in clips:
+                if (
+                    clip.start_seconds >= video_duration_seconds
+                    or clip.end_seconds > video_duration_seconds + 0.1
+                ):
+                    raise VideoProcessingError(
+                        f"المقطع {clip.number} يتجاوز مدة الفيديو الأصلي "
+                        f"({format_seconds(video_duration_seconds)}). صحح أوقات Gemini."
+                    )
         cut_results = self.cut_clips(
             prepared_video,
             clips,

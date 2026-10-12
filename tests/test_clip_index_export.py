@@ -103,3 +103,16 @@ def test_local_source_path_not_persisted_into_handoff(tmp_path: Path):
     contents = package.manifest_path.read_text(encoding="utf-8")
     assert "input.mp4" in contents
     assert "Users\\SomeName" not in contents
+
+
+
+def test_untrusted_title_with_leading_bidi_and_whitespace_is_not_formula(tmp_path: Path):
+    result = _result(tmp_path, title="\u200e  =HYPERLINK(\"http://example.com\")")
+    package = create_handoff_package(tmp_path, [result])
+    workbook = load_workbook(package.index_path, read_only=True, data_only=False)
+    try:
+        cell = workbook.active.cell(2, 2)
+        assert cell.data_type != "f"
+        assert cell.value.startswith("'")
+    finally:
+        workbook.close()
