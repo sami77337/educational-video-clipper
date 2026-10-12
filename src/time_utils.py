@@ -43,34 +43,50 @@ _SEPARATOR_TRANSLATION = str.maketrans(
 )
 
 
-def parse_timestamp(value: str) -> int:
-    """Parse a flexible timestamp into total seconds.
-
-    Raises:
-        ValueError: If the timestamp is empty or not in a supported format.
-    """
-
-    normalized = normalize_timestamp_text(value)
-    hours, minutes, seconds = (int(part) for part in normalized.split(":"))
-    return hours * 3600 + minutes * 60 + seconds
+def parse_timestamp(value: str) -> int | float:
+    """Parse HH:MM:SS or MM:SS, optionally with millisecond precision."""
+    hours, minutes, seconds = normalize_timestamp_text(value).split(":")
+    total_ms = (int(hours) * 3600 + int(minutes) * 60) * 1000
+    if "." in seconds:
+        whole, fractional = seconds.split(".")
+        total_ms += int(whole) * 1000 + int(fractional)
+    else:
+        total_ms += int(seconds) * 1000
+    if total_ms % 1000 == 0:
+        return total_ms // 1000
+    return total_ms / 1000
 
 
 def normalize_timestamp_text(value: str) -> str:
-    """Normalize natural timestamp input to HH:MM:SS."""
-
+    """Normalize Arabic/Western digits and preserve optional milliseconds."""
     text = normalize_time_symbols(value)
     parts = text.split(":")
+    if len(parts) not in (2, 3):
+        raise ValueError(AR_INVALID_TIME_FORMAT)
+    if not re.fullmatch(r"\d{1,3}", parts[0]):
+        raise ValueError(AR_INVALID_TIME_FORMAT)
+    if len(parts) == 3 and not re.fullmatch(r"\d{1,2}", parts[1]):
+        raise ValueError(AR_INVALID_TIME_FORMAT)
+
     if len(parts) == 2:
-        minutes, seconds = _parse_parts(parts)
-        _validate_seconds(seconds)
-        return format_seconds(minutes * 60 + seconds)
-
-    if len(parts) == 3:
-        hours, minutes, seconds = _parse_parts(parts)
-        _validate_minute_second_parts(minutes, seconds)
-        return f"{hours:02}:{minutes:02}:{seconds:02}"
-
-    raise ValueError(AR_INVALID_TIME_FORMAT)
+        minutes = int(parts[0])
+        seconds_part = parts[1]
+        hours = 0
+    else:
+        hours, minutes = int(parts[0]), int(parts[1])
+        seconds_part = parts[2]
+        if minutes > 59:
+            raise ValueError(AR_INVALID_TIME_FORMAT)
+    if not re.fullmatch(r"\d{1,2}(?:\.\d{1,3})?", seconds_part):
+        raise ValueError(AR_INVALID_TIME_FORMAT)
+    whole, _, fraction = seconds_part.partition(".")
+    seconds = int(whole)
+    if seconds > 59:
+        raise ValueError(AR_INVALID_TIME_FORMAT)
+    total_ms = ((hours * 60 + minutes) * 60 + seconds) * 1000
+    if fraction:
+        total_ms += int(fraction.ljust(3, "0"))
+    return format_seconds(total_ms / 1000)
 
 
 def normalize_time_symbols(value: str) -> str:
@@ -90,15 +106,19 @@ def normalize_digits(text: str) -> str:
     return str(text).translate(_DIGIT_TRANSLATION)
 
 
-def format_seconds(total_seconds: int) -> str:
-    """Format seconds as HH:MM:SS."""
+def format_seconds(total_seconds: int | float) -> str:
+    """Format seconds, preserving non-zero fractions to three decimals."""
+    import math
 
-    if total_seconds < 0:
-        raise ValueError("Seconds cannot be negative.")
-
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    return f"{hours:02}:{minutes:02}:{seconds:02}"
+    value = float(total_seconds)
+    if not math.isfinite(value) or value < 0:
+        raise ValueError("Seconds must be finite and non-negative.")
+    total_ms = round(value * 1000)
+    hours, rem = divmod(total_ms, 3600000)
+    minutes, rem = divmod(rem, 60000)
+    seconds, ms = divmod(rem, 1000)
+    basic = f"{hours:02}:{minutes:02}:{seconds:02}"
+    return f"{basic}.{ms:03}" if ms else basic
 
 
 def _validate_minute_second_parts(minutes: int, seconds: int) -> None:

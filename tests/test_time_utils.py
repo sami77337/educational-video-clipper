@@ -53,3 +53,29 @@ def test_normalize_digits_supports_arabic_indic_digits() -> None:
 
 def test_format_seconds_returns_hh_mm_ss() -> None:
     assert format_seconds(3723) == "01:02:03"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("00:37.5", 37.5),
+        ("00:00:37.500", 37.5),
+        ("01:02:03.125", 3723.125),
+        ("٠٠:٣٧.٥", 37.5),
+    ],
+)
+def test_subsecond_timestamps(value: str, expected: float) -> None:
+    assert parse_timestamp(value) == expected
+    assert parse_timestamp(normalize_timestamp_text(value)) == expected
+
+
+def test_subsecond_formatter() -> None:
+    assert format_seconds(37.5) == "00:00:37.500"
+    assert format_seconds(59.999) == "00:00:59.999"
+    assert format_seconds(60.0) == "00:01:00"
+
+
+@pytest.mark.parametrize("invalid", ["00:12.1234", "00:61.25", "00:10.abc", "NaN"])
+def test_invalid_fractions_rejected(invalid: str) -> None:
+    with pytest.raises(ValueError):
+        parse_timestamp(invalid)

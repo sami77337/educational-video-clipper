@@ -43,6 +43,8 @@ class JobSettings:
 
     pre_roll_seconds: float = 0.0
     post_roll_seconds: float = 0.0
+    create_handoff_package: bool = False
+    gemini_source_url: str = ""
     export_quality_enabled: bool = False
     quality_preset: str = "default"
     resolution_limit: str = "original"

@@ -121,14 +121,14 @@ def normalize_imported_time(value: Any) -> str:
     """Normalize spreadsheet time values into HH:MM:SS text."""
 
     if isinstance(value, datetime):
-        return _seconds_to_timestamp(value.hour * 3600 + value.minute * 60 + value.second)
+        return _seconds_to_timestamp(value.hour * 3600 + value.minute * 60 + value.second + value.microsecond / 1_000_000)
     if isinstance(value, time):
-        return _seconds_to_timestamp(value.hour * 3600 + value.minute * 60 + value.second)
+        return _seconds_to_timestamp(value.hour * 3600 + value.minute * 60 + value.second + value.microsecond / 1_000_000)
     if isinstance(value, timedelta):
-        return _seconds_to_timestamp(round(value.total_seconds()))
+        return _seconds_to_timestamp(value.total_seconds())
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         if 0 <= value < 1:
-            return _seconds_to_timestamp(round(value * 24 * 60 * 60))
+            return _seconds_to_timestamp(value * 24 * 60 * 60)
         if float(value).is_integer():
             return normalize_timestamp_text(str(int(value)))
 
@@ -189,7 +189,7 @@ def _parse_number(value: Any) -> int:
     return int(float(text))
 
 
-def _seconds_to_timestamp(total_seconds: int) -> str:
+def _seconds_to_timestamp(total_seconds: int | float) -> str:
     if total_seconds < 0:
         raise ValueError("Invalid time")
 

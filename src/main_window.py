@@ -65,6 +65,7 @@ from src.clip_preview import (
     create_preview_clip,
 )
 from src.export_utils import ExportError, validate_output_folder_path
+from src.gemini_import import GeminiImportError, normalize_youtube_video_url, parse_gemini_response
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.job_queue import ClipJob, JobSettings, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
 from src.job_queue_processor import (
@@ -687,6 +688,7 @@ class ProcessingWorker(QObject):
         clip_fade: ClipFade | None = None,
         clip_black_flash: ClipBlackFlash | None = None,
         export_quality: ExportQualitySettings | None = None,
+        create_handoff_package: bool = False,
     ) -> None:
         super().__init__()
         self.video_processor = video_processor
@@ -700,6 +702,7 @@ class ProcessingWorker(QObject):
         self.clip_fade = clip_fade or ClipFade()
         self.clip_black_flash = clip_black_flash or ClipBlackFlash()
         self.export_quality = export_quality or ExportQualitySettings()
+        self.create_handoff_package = create_handoff_package
 
     @Slot()
     def run(self) -> None:
@@ -716,6 +719,7 @@ class ProcessingWorker(QObject):
                 clip_fade=self.clip_fade,
                 clip_black_flash=self.clip_black_flash,
                 export_quality=self.export_quality,
+                create_handoff_package=self.create_handoff_package,
             )
         except (VideoSourceError, VideoProcessingError, ExportError) as error:
             self.failed.emit(str(error))
@@ -789,6 +793,7 @@ class QueueProcessingWorker(QObject):
                 clip_fade=self._effective_job_clip_fade(job),
                 clip_black_flash=self._effective_job_clip_black_flash(job),
                 export_quality=self._effective_job_export_quality(job),
+                create_handoff_package=job.settings.create_handoff_package,
             )
         except Exception as error:
             if str(error).strip() == AR_OUTPUT_CREATE_FAILED:
@@ -849,13 +854,18 @@ class QueueProcessingWorker(QObject):
 
     def _source_request_from_job(self, job: VideoJob) -> VideoSourceRequest:
         if job.source_type == QueueVideoSourceType.LOCAL:
-            return VideoSourceRequest(VideoSourceType.LOCAL_FILE, job.source)
+            return VideoSourceRequest(
+                VideoSourceType.LOCAL_FILE,
+                job.source,
+                source_reference=job.settings.gemini_source_url,
+            )
         if job.source_type == QueueVideoSourceType.YOUTUBE:
             return VideoSourceRequest(
                 VideoSourceType.YOUTUBE,
                 job.source,
                 use_browser_cookies=job.settings.use_browser_login,
                 browser=job.settings.browser_name,
+                source_reference=job.source,
             )
         raise VideoProcessingError(AR_URL_QUEUE_PROCESSING_LATER)
 
@@ -930,6 +940,7 @@ class MainWindow(QMainWindow):
         self._queue_processing_worker: QueueProcessingWorker | None = None
         self._queue_auto_continue_after_worker = False
         self._editing_queue_job: VideoJob | None = None
+        self._gemini_source_url = ""
         self._last_output_folder: Path | None = None
 
         self.setWindowTitle(APP_NAME)
@@ -948,6 +959,8 @@ class MainWindow(QMainWindow):
         self.project_name_input = QLineEdit()
         self.paste_message_input = QTextEdit()
         self.smart_paste_button = QPushButton("استيراد ذكي")
+        self.gemini_import_button = QPushButton("استيراد Gemini")
+        self.handoff_package_checkbox = QCheckBox("إنشاء حزمة الفريق (MP4 + Excel + JSON + ZIP)")
         self.parse_message_button = QPushButton("تحويل بسيط إلى جدول")
         self.queue_table = QTableWidget(0, 6)
         self.add_current_work_to_queue_button = QPushButton("إضافة العمل الحالي إلى قائمة الانتظار")
@@ -1376,8 +1389,10 @@ class MainWindow(QMainWindow):
         button_row = QHBoxLayout()
         button_row.addStretch(1)
         button_row.addWidget(self.smart_paste_button)
+        button_row.addWidget(self.gemini_import_button)
 
         layout.addWidget(self.paste_message_input)
+        layout.addWidget(self.handoff_package_checkbox)
         layout.addLayout(button_row)
 
         return group
@@ -1768,6 +1783,7 @@ class MainWindow(QMainWindow):
         self.queue_table.itemSelectionChanged.connect(self._handle_queue_selection_changed)
         self.queue_table.currentCellChanged.connect(self._handle_queue_selection_changed)
         self.smart_paste_button.clicked.connect(self.import_smart_paste_message)
+        self.gemini_import_button.clicked.connect(self.import_gemini_message)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
         self.show_global_log_button.clicked.connect(self.show_global_log)
         self.copy_queue_job_details_button.clicked.connect(self.copy_selected_queue_job_details)
@@ -2423,6 +2439,8 @@ class MainWindow(QMainWindow):
         return JobSettings(
             pre_roll_seconds=self.pre_padding_input.value(),
             post_roll_seconds=self.post_padding_input.value(),
+            create_handoff_package=self.handoff_package_checkbox.isChecked(),
+            gemini_source_url=self._gemini_source_url,
             speed_adjustment_enabled=self.video_speed_enabled_checkbox.isChecked(),
             speed=self._collect_video_speed(),
             volume_adjustment_enabled=self.volume_enabled_checkbox.isChecked(),
@@ -2621,6 +2639,8 @@ class MainWindow(QMainWindow):
                 self.local_file_input.text().strip(),
                 self.project_name_input.text().strip(),
                 self.paste_message_input.toPlainText().strip(),
+                self.handoff_package_checkbox.isChecked(),
+                bool(self._gemini_source_url),
                 self._table_has_clip_data(),
                 self.pre_padding_input.value() != 0,
                 self.post_padding_input.value() != 0,
@@ -2642,6 +2662,8 @@ class MainWindow(QMainWindow):
         self.local_file_input.clear()
         self.project_name_input.clear()
         self.paste_message_input.clear()
+        self.handoff_package_checkbox.setChecked(False)
+        self._gemini_source_url = ""
         self.clips_table.setRowCount(0)
         self.pre_padding_input.setValue(0)
         self.post_padding_input.setValue(0)
@@ -2725,6 +2747,8 @@ class MainWindow(QMainWindow):
     def _apply_queue_job_settings_to_workspace(self, settings: JobSettings) -> None:
         self.pre_padding_input.setValue(max(0.0, settings.pre_roll_seconds))
         self.post_padding_input.setValue(max(0.0, settings.post_roll_seconds))
+        self.handoff_package_checkbox.setChecked(settings.create_handoff_package)
+        self._gemini_source_url = settings.gemini_source_url
         self.use_browser_cookies_checkbox.setChecked(settings.use_browser_login)
         self._set_browser_combo_from_identifier(settings.browser_name)
         self.video_speed_enabled_checkbox.setChecked(settings.speed_adjustment_enabled)
@@ -3290,6 +3314,76 @@ class MainWindow(QMainWindow):
 
         self._apply_smart_paste_preview(dialog.preview)
 
+    def import_gemini_message(self) -> None:
+        """Import a full Gemini clip list without initiating any download or cut."""
+        try:
+            preview = parse_gemini_response(self.paste_message_input.toPlainText())
+        except GeminiImportError as error:
+            QMessageBox.warning(self, "استيراد Gemini", str(error))
+            return
+
+        warning_lines = "\n".join(f"• {item}" for item in preview.warnings[:8])
+        summary = f"اكتُشف {len(preview.clips)} مقطعًا من Gemini.\n"
+        if preview.source_url:
+            summary += f"الرابط: {preview.source_url}\n"
+        if preview.warnings:
+            summary += f"\nتنبيهات المراجعة ({len(preview.warnings)}):\n{warning_lines}\n"
+            if len(preview.warnings) > 8:
+                summary += "وهناك تنبيهات إضافية في سجل البرنامج.\n"
+        summary += "\nهل تريد استيراد الأوقات والعناوين إلى الجدول؟\nلن يبدأ القص تلقائيًا."
+        if QMessageBox.question(
+            self, "معاينة استيراد Gemini", summary, QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+
+        import_mode = "replace"
+        if self._table_has_clip_data():
+            import_mode = self._ask_table_import_mode("استيراد Gemini")
+            if import_mode is None:
+                return
+
+        imported = [
+            ImportedClipRow(number=item.number, title=item.title, start=item.start, end=item.end)
+            for item in preview.clips
+        ]
+        if (import_mode == "append" and preview.source_url and self._gemini_source_url
+                and preview.source_url != self._gemini_source_url):
+            QMessageBox.warning(
+                self, "استيراد Gemini",
+                "مصدر Gemini الجديد يختلف عن الفيديو السابق؛ استخدم الاستبدال بدل الإضافة.",
+            )
+            return
+
+        current_source = normalize_youtube_video_url(self.youtube_input.text().strip())
+        if (
+            import_mode == "append"
+            and self.youtube_radio.isChecked()
+            and preview.source_url
+            and current_source
+            and current_source != preview.source_url
+        ):
+            QMessageBox.warning(
+                self, "استيراد Gemini",
+                "رابط يوتيوب المحدد يختلف عن رابط Gemini. استبدل البيانات أو اختر المصدر الصحيح.",
+            )
+            return
+
+        self._insert_clip_lines(imported, append=import_mode == "append")
+        if import_mode == "replace":
+            self._gemini_source_url = preview.source_url or ""
+        elif preview.source_url:
+            self._gemini_source_url = preview.source_url
+        self.handoff_package_checkbox.setChecked(True)
+        if (
+            preview.source_url
+            and self.youtube_radio.isChecked()
+            and (import_mode == "replace" or not self.youtube_input.text().strip())
+        ):
+            self.youtube_input.setText(preview.source_url)
+        self._append_log(f"تم استيراد {len(imported)} مقطعًا من Gemini؛ راجع الحدود قبل القص.")
+        for warning in preview.warnings:
+            self._append_log(warning)
+
     def import_from_excel(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -3419,6 +3513,7 @@ class MainWindow(QMainWindow):
             clip_fade=clip_fade,
             clip_black_flash=clip_black_flash,
             export_quality=export_quality,
+            create_handoff_package=self.handoff_package_checkbox.isChecked(),
         )
 
     def start_direct_processing_with_confirmation(self) -> None:
@@ -3740,9 +3835,14 @@ class MainWindow(QMainWindow):
                 self.youtube_input.text(),
                 use_browser_cookies=self.use_browser_cookies_checkbox.isChecked(),
                 browser=self._selected_browser_identifier(),
+                source_reference=self.youtube_input.text().strip(),
             )
 
-        return VideoSourceRequest(VideoSourceType.LOCAL_FILE, self.local_file_input.text())
+        return VideoSourceRequest(
+            VideoSourceType.LOCAL_FILE,
+            self.local_file_input.text(),
+            source_reference=self._gemini_source_url,
+        )
 
     def _known_video_duration_for_smart_validation(self) -> float | None:
         if not self.local_file_radio.isChecked():
@@ -4061,6 +4161,7 @@ class MainWindow(QMainWindow):
         clip_fade: ClipFade | None = None,
         clip_black_flash: ClipBlackFlash | None = None,
         export_quality: ExportQualitySettings | None = None,
+        create_handoff_package: bool = False,
     ) -> None:
         thread = QThread(self)
         worker = ProcessingWorker(
@@ -4075,6 +4176,7 @@ class MainWindow(QMainWindow):
             clip_fade=clip_fade,
             clip_black_flash=clip_black_flash,
             export_quality=export_quality,
+            create_handoff_package=create_handoff_package,
         )
         worker.moveToThread(thread)
 
@@ -4128,6 +4230,8 @@ class MainWindow(QMainWindow):
             self.project_name_input,
             self.paste_message_input,
             self.smart_paste_button,
+            self.gemini_import_button,
+            self.handoff_package_checkbox,
             self.parse_message_button,
             self.queue_table,
             self.add_current_work_to_queue_button,

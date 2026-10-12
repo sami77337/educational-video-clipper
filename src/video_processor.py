@@ -21,6 +21,8 @@ from src.classification import (
     get_default_classification_rules,
     validate_classification_rules,
 )
+from src.clip_index_export import ZIP_FILENAME as HANDOFF_ZIP_FILENAME
+from src.clip_index_export import create_handoff_package as write_team_handoff_package
 from src.clip_padding import ClipPadding, calculate_effective_clip_range
 from src.export_utils import (
     AR_PROCESSING_SUCCESS,
@@ -163,6 +165,7 @@ class VideoSourceRequest:
     value: str
     use_browser_cookies: bool = False
     browser: str = "chrome"
+    source_reference: str = ""
 
 
 @dataclass(frozen=True)
@@ -180,12 +183,12 @@ class ClipDefinition:
 
     number: int
     title: str
-    start_seconds: int
-    end_seconds: int
+    start_seconds: int | float
+    end_seconds: int | float
     exclusions: str = ""
 
     @property
-    def duration_seconds(self) -> int:
+    def duration_seconds(self) -> int | float:
         return calculate_clip_duration(self.start_seconds, self.end_seconds)
 
     @property
@@ -208,6 +211,8 @@ class CutClipResult:
     clip: ClipDefinition
     output_path: Path
     destination_folder_name: str
+    effective_start_seconds: float | None = None
+    effective_end_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -406,6 +411,7 @@ class VideoProcessor:
         clip_fade: ClipFade | None = None,
         clip_black_flash: ClipBlackFlash | None = None,
         export_quality: ExportQualitySettings | None = None,
+        create_handoff_package: bool = False,
     ) -> ProcessingResult:
         """Prepare, cut, sort, and report one project."""
 
@@ -444,6 +450,22 @@ class VideoProcessor:
         _emit(progress_callback, AR_PREPARING_VIDEO)
         prepared_video = self.prepare_source(source_request, project_name, progress_callback)
         video_duration_seconds = _probe_video_duration_if_needed(prepared_video.input_video_path, active_padding)
+        if create_handoff_package:
+            # Team deliveries must never silently accept timestamps beyond the source.
+            # Probing remains opt-in so historical workflows keep their old behavior.
+            try:
+                video_duration_seconds = probe_media_duration_seconds(prepared_video.input_video_path)
+            except Exception as error:
+                raise VideoProcessingError("تعذر التحقق من مدة الفيديو الأصلي قبل قص الحزمة.") from error
+            for clip in clips:
+                if (
+                    clip.start_seconds >= video_duration_seconds
+                    or clip.end_seconds > video_duration_seconds + 0.1
+                ):
+                    raise VideoProcessingError(
+                        f"المقطع {clip.number} يتجاوز مدة الفيديو الأصلي "
+                        f"({format_seconds(video_duration_seconds)}). صحح أوقات Gemini."
+                    )
         cut_results = self.cut_clips(
             prepared_video,
             clips,
@@ -473,6 +495,13 @@ class VideoProcessor:
             clip_fade=active_fade,
             clip_black_flash=active_black_flash,
             export_quality=active_export_quality,
+            create_handoff_package=create_handoff_package,
+            source_reference=(
+                source_request.source_reference or (
+                    source_request.value if source_request.source_type is VideoSourceType.YOUTUBE
+                    else Path(source_request.value).name
+                )
+            ),
         )
         _emit(progress_callback, AR_PROCESSING_SUCCESS)
 
@@ -499,6 +528,8 @@ class VideoProcessor:
         clip_fade: ClipFade | None = None,
         clip_black_flash: ClipBlackFlash | None = None,
         export_quality: ExportQualitySettings | None = None,
+        create_handoff_package: bool = False,
+        source_reference: str = "",
     ) -> ExportArtifacts:
         """Create result folders and a final report after successful clipping."""
 
@@ -512,7 +543,9 @@ class VideoProcessor:
         active_export_quality = _normalize_export_quality(export_quality)
         folder_names = classification_folder_names(active_rules)
         output_folders = list(ensure_result_folders(project_folder, folder_names))
-        zip_files: list[Path] = []
+        zip_files: list[Path] = (
+            [project_folder / HANDOFF_ZIP_FILENAME] if create_handoff_package else []
+        )
         clip_counts = count_results_by_folder(cut_results, folder_names)
         report_data = ProcessingReportData(
             project_name=project_name,
@@ -543,9 +576,15 @@ class VideoProcessor:
         )
         report_path = write_processing_report(project_folder, report_data)
         _emit(progress_callback, AR_REPORT_CREATED)
+        if create_handoff_package:
+            package = write_team_handoff_package(
+                project_folder, cut_results, source_reference=source_reference,
+                report_path=report_path,
+            )
+            _emit(progress_callback, f"تم إنشاء حزمة الفريق: {package.zip_path}")
 
         return ExportArtifacts(
-            zip_folder=project_folder / "ZIP",
+            zip_folder=project_folder if create_handoff_package else project_folder / "ZIP",
             zip_files=zip_files,
             report_path=report_path,
         )
@@ -652,7 +691,7 @@ def build_clip_definition(row: ClipRowInput) -> ClipDefinition:
     )
 
 
-def calculate_clip_duration(start_seconds: int, end_seconds: int) -> int:
+def calculate_clip_duration(start_seconds: int | float, end_seconds: int | float) -> int | float:
     """Return clip duration in seconds."""
 
     duration = end_seconds - start_seconds
@@ -874,7 +913,12 @@ def cut_clip(
     try:
         _run_ffmpeg_command(command, output_path, runner)
         if _should_validate_media_duration(runner):
-            verify_output_duration(output_path, speed_adjusted_duration(duration_seconds, normalized_speed))
+            precise = (float(start_seconds) % 1 != 0) or (float(duration_seconds) % 1 != 0)
+            verify_output_duration(
+                output_path,
+                speed_adjusted_duration(duration_seconds, normalized_speed),
+                tolerance_seconds=0.5 if precise else OUTPUT_DURATION_TOLERANCE_SECONDS,
+            )
     except FileNotFoundError as error:
         raise FfmpegNotFoundError(AR_FFMPEG_NOT_FOUND) from error
 
@@ -1261,6 +1305,8 @@ def cut_clips(
                 clip=clip,
                 output_path=output_path,
                 destination_folder_name=destination_folder_name,
+                effective_start_seconds=effective_range.start_seconds,
+                effective_end_seconds=effective_range.end_seconds,
             )
         )
 

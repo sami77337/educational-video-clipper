@@ -179,3 +179,19 @@ def test_append_and_replace_table_behavior_is_practical() -> None:
     assert window.clips_table.item(0, END_COLUMN).text() == "00:06"
     window.close()
     app.processEvents()
+
+
+def test_import_xlsx_preserves_milliseconds(tmp_path) -> None:
+    file_path = tmp_path / "precise.xlsx"
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["number", "title", "start", "end"])
+    worksheet.append([1, "وقت دقيق", "00:00:19.250", "00:00:37.500"])
+    workbook.save(file_path)
+    rows = import_clip_rows(file_path)
+    assert rows[0].start == "00:00:19.250"
+    assert rows[0].end == "00:00:37.500"
+
+
+def test_excel_time_object_preserves_microseconds() -> None:
+    assert normalize_imported_time(time(0, 0, 37, 500000)) == "00:00:37.500"

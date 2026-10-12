@@ -467,3 +467,21 @@ def test_save_and_load_queue_file_roundtrip(tmp_path) -> None:
     assert loaded[0].title == "درس"
     assert loaded[0].clip_count == 1
     assert loaded[0].settings.high_priority is True
+
+
+
+def test_gemini_source_url_and_team_handoff_survive_queue_round_trip() -> None:
+    url = "https://www.youtube.com/watch?v=abcDEF12345"
+    job = VideoJob(
+        source_type=VideoSourceType.LOCAL,
+        source="C:/videos/lesson.mp4",
+        title="فتاوى",
+        settings=JobSettings(
+            create_handoff_package=True,
+            gemini_source_url=url,
+        ),
+    )
+    loaded = queue_jobs_from_data(json.loads(queue_jobs_to_json([job])))
+    assert len(loaded) == 1
+    assert loaded[0].settings.create_handoff_package is True
+    assert loaded[0].settings.gemini_source_url == url
