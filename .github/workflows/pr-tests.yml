@@ -82,13 +82,33 @@ jobs:
       - name: Audit contents (must include FFmpeg)
         shell: pwsh
         run: |
-          python scripts/check_release_package.py
+          python -X utf8 scripts/check_release_package.py
           if ($LASTEXITCODE -ne 0) { throw 'Release package audit failed' }
           if (-not (Test-Path 'dist/AlmiqsAlBaseet/AlmiqsAlBaseet.exe')) {
             throw 'Windows executable missing'
           }
           if (-not (Test-Path 'dist/AlmiqsAlBaseet/ffmpeg.exe')) {
             throw 'Bundled FFmpeg missing'
+          }
+      - name: Smoke-test bundled GUI executable
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONIOENCODING: utf-8
+        run: |
+          $exe = (Resolve-Path 'dist/AlmiqsAlBaseet/AlmiqsAlBaseet.exe').Path
+          $proc = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru
+          try {
+            Start-Sleep -Seconds 7
+            $proc.Refresh()
+            if ($proc.HasExited) {
+              throw "Preview executable exited unexpectedly with code $($proc.ExitCode)"
+            }
+            Write-Output 'Bundled GUI stayed running for 7 seconds'
+          } finally {
+            if (-not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force
+            }
           }
       - name: Save build manifest
         shell: pwsh
