@@ -7,8 +7,12 @@ echo بدء بناء النسخة
 
 set "VENV_DIR=%USERPROFILE%\almiqs-albaseet-build-venv"
 set "PYTHON_CMD=python"
-where py >nul 2>nul
-if not errorlevel 1 set "PYTHON_CMD=py -3"
+if /I "%GITHUB_ACTIONS%"=="true" (
+    set "VENV_DIR=%RUNNER_TEMP%\almiqs-albaseet-build-venv"
+) else (
+    where py >nul 2>nul
+    if not errorlevel 1 set "PYTHON_CMD=py -3"
+)
 
 if not exist "%VENV_DIR%\Scripts\python.exe" (
     echo Creating build virtual environment in: %VENV_DIR%
