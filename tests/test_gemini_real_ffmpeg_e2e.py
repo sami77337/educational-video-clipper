@@ -99,6 +99,10 @@ def test_local_gemini_video_pipeline_exports_real_mp4_and_handoff(
         assert decoded.returncode == 0, decoded.stderr[-1000:]
 
     root = result.project_output_folder
+    assert result.export_artifacts.zip_files == [root / "FATWA_TEAM_PACKAGE.zip"]
+    assert result.export_artifacts.zip_folder == root
+    report_text = result.export_artifacts.report_path.read_text(encoding="utf-8")
+    assert "FATWA_TEAM_PACKAGE.zip" in report_text
     manifest = json.loads((root / "clip_manifest.json").read_text(encoding="utf-8"))
     assert manifest["clip_count"] == 2
     assert manifest["source_reference"] == "https://www.youtube.com/watch?v=abcDEF12345"
