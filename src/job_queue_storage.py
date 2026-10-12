@@ -181,6 +181,7 @@ def _settings_to_data(settings: JobSettings) -> dict[str, Any]:
     return {
         "pre_roll_seconds": settings.pre_roll_seconds,
         "post_roll_seconds": settings.post_roll_seconds,
+        "create_handoff_package": settings.create_handoff_package,
         "export_quality_enabled": settings.export_quality_enabled,
         "quality_preset": settings.quality_preset,
         "resolution_limit": settings.resolution_limit,
@@ -245,6 +246,7 @@ def _settings_from_data(data: Any, *, high_priority: Any = None) -> JobSettings:
     return JobSettings(
         pre_roll_seconds=_float_or_default(data.get("pre_roll_seconds"), 0.0),
         post_roll_seconds=_float_or_default(data.get("post_roll_seconds"), 0.0),
+        create_handoff_package=bool(data.get("create_handoff_package", False)),
         export_quality_enabled=export_quality_enabled,
         quality_preset=quality_preset,
         resolution_limit=resolution_limit,
