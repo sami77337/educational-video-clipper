@@ -478,7 +478,10 @@ class VideoProcessor:
             clip_black_flash=active_black_flash,
             export_quality=active_export_quality,
             create_handoff_package=create_handoff_package,
-            source_reference=source_request.value,
+            source_reference=(
+                source_request.value if source_request.source_type is VideoSourceType.YOUTUBE
+                else Path(source_request.value).name
+            ),
         )
         _emit(progress_callback, AR_PROCESSING_SUCCESS)
 
