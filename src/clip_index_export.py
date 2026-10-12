@@ -55,6 +55,7 @@ def create_handoff_package(
     results: Sequence[Any],
     *,
     source_reference: str = "",
+    report_path: str | Path | None = None,
 ) -> HandoffPackage:
     """Export XLSX/CSV/JSON and a ZIP containing validated MP4 results.
 
@@ -155,8 +156,10 @@ def create_handoff_package(
     temp_zip = zip_path.with_suffix(".zip.partial")
     try:
         with ZipFile(temp_zip, "w") as archive:
-            for file_path in (xlsx_path, csv_path, json_path):
-                archive.write(file_path, arcname=file_path.name, compress_type=ZIP_DEFLATED)
+            report = Path(report_path).resolve() if report_path is not None else None
+            extra = [report] if report is not None and report.is_file() and report.is_relative_to(root) else []
+            for file_path in (xlsx_path, csv_path, json_path, *extra):
+                archive.write(file_path, arcname=file_path.relative_to(root).as_posix(), compress_type=ZIP_DEFLATED)
             for media_path in paths:
                 archive.write(
                     media_path,
