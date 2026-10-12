@@ -88,3 +88,14 @@ def test_gemini_no_partial_success_on_unparseable_row():
 """
     with pytest.raises(GeminiImportError):
         parse_gemini_response(message)
+
+
+def test_gemini_tab_separated_clipboard_table():
+    copied = (
+        "م\tعنوان السؤال\tوقت البداية\tوقت النهاية\n"
+        "1\tهل يجوز جمع الصلاة؟\t00:19\t00:37.500\n"
+        "2\tسؤال ثانٍ\t00:38\t01:03\n"
+    )
+    parsed = parse_gemini_response(copied)
+    assert len(parsed.clips) == 2
+    assert parsed.clips[0].end == "00:00:37.500"
