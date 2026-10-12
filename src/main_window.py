@@ -65,6 +65,7 @@ from src.clip_preview import (
     create_preview_clip,
 )
 from src.export_utils import ExportError, validate_output_folder_path
+from src.gemini_import import GeminiImportError, parse_gemini_response
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.job_queue import ClipJob, JobSettings, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
 from src.job_queue_processor import (
@@ -948,6 +949,7 @@ class MainWindow(QMainWindow):
         self.project_name_input = QLineEdit()
         self.paste_message_input = QTextEdit()
         self.smart_paste_button = QPushButton("استيراد ذكي")
+        self.gemini_import_button = QPushButton("استيراد Gemini")
         self.parse_message_button = QPushButton("تحويل بسيط إلى جدول")
         self.queue_table = QTableWidget(0, 6)
         self.add_current_work_to_queue_button = QPushButton("إضافة العمل الحالي إلى قائمة الانتظار")
@@ -1376,6 +1378,7 @@ class MainWindow(QMainWindow):
         button_row = QHBoxLayout()
         button_row.addStretch(1)
         button_row.addWidget(self.smart_paste_button)
+        button_row.addWidget(self.gemini_import_button)
 
         layout.addWidget(self.paste_message_input)
         layout.addLayout(button_row)
@@ -1768,6 +1771,7 @@ class MainWindow(QMainWindow):
         self.queue_table.itemSelectionChanged.connect(self._handle_queue_selection_changed)
         self.queue_table.currentCellChanged.connect(self._handle_queue_selection_changed)
         self.smart_paste_button.clicked.connect(self.import_smart_paste_message)
+        self.gemini_import_button.clicked.connect(self.import_gemini_message)
         self.parse_message_button.clicked.connect(self.convert_pasted_text_to_table)
         self.show_global_log_button.clicked.connect(self.show_global_log)
         self.copy_queue_job_details_button.clicked.connect(self.copy_selected_queue_job_details)
@@ -3290,6 +3294,45 @@ class MainWindow(QMainWindow):
 
         self._apply_smart_paste_preview(dialog.preview)
 
+    def import_gemini_message(self) -> None:
+        """Import a full Gemini clip list without initiating any download or cut."""
+        try:
+            preview = parse_gemini_response(self.paste_message_input.toPlainText())
+        except GeminiImportError as error:
+            QMessageBox.warning(self, "استيراد Gemini", str(error))
+            return
+
+        warning_lines = "\n".join(f"• {item}" for item in preview.warnings[:8])
+        summary = f"اكتُشف {len(preview.clips)} مقطعًا من Gemini.\n"
+        if preview.source_url:
+            summary += f"الرابط: {preview.source_url}\n"
+        if preview.warnings:
+            summary += f"\nتنبيهات المراجعة ({len(preview.warnings)}):\n{warning_lines}\n"
+            if len(preview.warnings) > 8:
+                summary += "وهناك تنبيهات إضافية في سجل البرنامج.\n"
+        summary += "\nهل تريد استيراد الأوقات والعناوين إلى الجدول؟\nلن يبدأ القص تلقائيًا."
+        if QMessageBox.question(
+            self, "معاينة استيراد Gemini", summary, QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+
+        import_mode = "replace"
+        if self._table_has_clip_data():
+            import_mode = self._ask_table_import_mode("استيراد Gemini")
+            if import_mode is None:
+                return
+
+        imported = [
+            ImportedClipRow(number=item.number, title=item.title, start=item.start, end=item.end)
+            for item in preview.clips
+        ]
+        self._insert_clip_lines(imported, append=import_mode == "append")
+        if preview.source_url and self.youtube_radio.isChecked() and not self.youtube_input.text().strip():
+            self.youtube_input.setText(preview.source_url)
+        self._append_log(f"تم استيراد {len(imported)} مقطعًا من Gemini؛ راجع الحدود قبل القص.")
+        for warning in preview.warnings:
+            self._append_log(warning)
+
     def import_from_excel(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -4128,6 +4171,7 @@ class MainWindow(QMainWindow):
             self.project_name_input,
             self.paste_message_input,
             self.smart_paste_button,
+            self.gemini_import_button,
             self.parse_message_button,
             self.queue_table,
             self.add_current_work_to_queue_button,
