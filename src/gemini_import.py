@@ -191,7 +191,9 @@ def _csv_rows(text: str) -> list[dict[str, Any]] | None:
     plain = re.sub(r"^```(?:csv)?\s*|\s*```$", "", text.strip(), flags=re.IGNORECASE)
     stream = io.StringIO(plain)
     try:
-        reader = csv.DictReader(stream)
+        header_line = plain.splitlines()[0] if plain.splitlines() else ""
+        delimiter = "\t" if "\t" in header_line else ","
+        reader = csv.DictReader(stream, delimiter=delimiter)
         if not reader.fieldnames:
             return None
         column_map = _column_positions(reader.fieldnames)
