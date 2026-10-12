@@ -21,6 +21,7 @@ from src.classification import (
     get_default_classification_rules,
     validate_classification_rules,
 )
+from src.clip_index_export import ZIP_FILENAME as HANDOFF_ZIP_FILENAME
 from src.clip_index_export import create_handoff_package as write_team_handoff_package
 from src.clip_padding import ClipPadding, calculate_effective_clip_range
 from src.export_utils import (
@@ -526,7 +527,9 @@ class VideoProcessor:
         active_export_quality = _normalize_export_quality(export_quality)
         folder_names = classification_folder_names(active_rules)
         output_folders = list(ensure_result_folders(project_folder, folder_names))
-        zip_files: list[Path] = []
+        zip_files: list[Path] = (
+            [project_folder / HANDOFF_ZIP_FILENAME] if create_handoff_package else []
+        )
         clip_counts = count_results_by_folder(cut_results, folder_names)
         report_data = ProcessingReportData(
             project_name=project_name,
@@ -562,11 +565,10 @@ class VideoProcessor:
                 project_folder, cut_results, source_reference=source_reference,
                 report_path=report_path,
             )
-            zip_files.append(package.zip_path)
             _emit(progress_callback, f"تم إنشاء حزمة الفريق: {package.zip_path}")
 
         return ExportArtifacts(
-            zip_folder=project_folder / "ZIP",
+            zip_folder=project_folder if create_handoff_package else project_folder / "ZIP",
             zip_files=zip_files,
             report_path=report_path,
         )
