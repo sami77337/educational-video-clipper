@@ -32,3 +32,46 @@ def test_gemini_paste_updates_clip_table_and_auto_enables_team_package(monkeypat
     assert not window._gemini_source_url
     window.close()
     app.processEvents()
+
+
+def test_gemini_replace_updates_old_youtube_source(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.Yes)
+    window.youtube_radio.setChecked(True)
+    window.youtube_input.setText("https://www.youtube.com/watch?v=oldVideo123")
+    window.paste_message_input.setPlainText(
+        "https://youtu.be/newVideo123\n"
+        "| م | عنوان السؤال | وقت البداية | وقت النهاية |\n"
+        "|---|---|---|---|\n"
+        "| 1 | هل يجب الوضوء؟ | 00:02 | 00:37 |\n"
+    )
+    window.import_gemini_message()
+    assert window.youtube_input.text() == "https://www.youtube.com/watch?v=newVideo123"
+    assert window.clips_table.rowCount() == 1
+    window.close()
+    app.processEvents()
+
+
+def test_gemini_append_rejects_mismatched_active_youtube_source(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.Yes)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: warnings.append(str(args[2])))
+    window.youtube_radio.setChecked(True)
+    window.youtube_input.setText("https://www.youtube.com/watch?v=oldVideo123")
+    window._insert_clip_row(1, "سؤال أول", "00:01", "00:04")
+    monkeypatch.setattr(window, "_ask_table_import_mode", lambda *args: "append")
+    window.paste_message_input.setPlainText(
+        "https://www.youtube.com/watch?v=newVideo123\n"
+        "| م | عنوان السؤال | وقت البداية | وقت النهاية |\n"
+        "|---|---|---|---|\n"
+        "| 1 | سؤال آخر | 00:06 | 00:10 |\n"
+    )
+    window.import_gemini_message()
+    assert window.clips_table.rowCount() == 1
+    assert window.youtube_input.text() == "https://www.youtube.com/watch?v=oldVideo123"
+    assert warnings and "يختلف" in warnings[0]
+    window.close()
+    app.processEvents()

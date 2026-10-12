@@ -65,7 +65,7 @@ from src.clip_preview import (
     create_preview_clip,
 )
 from src.export_utils import ExportError, validate_output_folder_path
-from src.gemini_import import GeminiImportError, parse_gemini_response
+from src.gemini_import import GeminiImportError, normalize_youtube_video_url, parse_gemini_response
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.job_queue import ClipJob, JobSettings, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
 from src.job_queue_processor import (
@@ -3354,13 +3354,31 @@ class MainWindow(QMainWindow):
             )
             return
 
+        current_source = normalize_youtube_video_url(self.youtube_input.text().strip())
+        if (
+            import_mode == "append"
+            and self.youtube_radio.isChecked()
+            and preview.source_url
+            and current_source
+            and current_source != preview.source_url
+        ):
+            QMessageBox.warning(
+                self, "استيراد Gemini",
+                "رابط يوتيوب المحدد يختلف عن رابط Gemini. استبدل البيانات أو اختر المصدر الصحيح.",
+            )
+            return
+
         self._insert_clip_lines(imported, append=import_mode == "append")
         if import_mode == "replace":
             self._gemini_source_url = preview.source_url or ""
         elif preview.source_url:
             self._gemini_source_url = preview.source_url
         self.handoff_package_checkbox.setChecked(True)
-        if preview.source_url and self.youtube_radio.isChecked() and not self.youtube_input.text().strip():
+        if (
+            preview.source_url
+            and self.youtube_radio.isChecked()
+            and (import_mode == "replace" or not self.youtube_input.text().strip())
+        ):
             self.youtube_input.setText(preview.source_url)
         self._append_log(f"تم استيراد {len(imported)} مقطعًا من Gemini؛ راجع الحدود قبل القص.")
         for warning in preview.warnings:

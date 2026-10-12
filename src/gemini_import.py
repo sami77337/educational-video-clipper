@@ -285,3 +285,8 @@ def _video_identity(url: str) -> str:
     # Two different timestamp links to the same YouTube video are one source.
     id_match = re.search(r"(?:[?&]v=|youtu\.be/|/live/|/shorts/)([\w-]{6,})", url)
     return f"https://www.youtube.com/watch?v={id_match.group(1)}" if id_match else url.split("&t=")[0]
+
+def normalize_youtube_video_url(url: str) -> str | None:
+    """Canonicalize the video's identity, dropping timestamps and tracking parameters."""
+    found = _youtube_url(url)
+    return _video_identity(found) if found else None
