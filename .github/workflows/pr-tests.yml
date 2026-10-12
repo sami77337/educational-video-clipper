@@ -62,3 +62,53 @@ jobs:
         run: ffmpeg -version
       - name: Run Windows regression suite
         run: python -m pytest -q -rs
+
+  windows-preview-build:
+    name: Build Windows preview (review only)
+    runs-on: windows-latest
+    needs: [pytest, windows-pytest]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build portable EXE and package
+        shell: cmd
+        run: call build_app_ci.bat
+      - name: Audit contents (must include FFmpeg)
+        shell: pwsh
+        run: |
+          python scripts/check_release_package.py
+          if ($LASTEXITCODE -ne 0) { throw 'Release package audit failed' }
+          if (-not (Test-Path 'dist/AlmiqsAlBaseet/AlmiqsAlBaseet.exe')) {
+            throw 'Windows executable missing'
+          }
+          if (-not (Test-Path 'dist/AlmiqsAlBaseet/ffmpeg.exe')) {
+            throw 'Bundled FFmpeg missing'
+          }
+      - name: Save build manifest
+        shell: pwsh
+        run: |
+          $exe = Get-FileHash 'dist/AlmiqsAlBaseet/AlmiqsAlBaseet.exe' -Algorithm SHA256
+          $info = @(
+            'INTERNAL PREVIEW ONLY - NOT FINAL RELEASE',
+            "Head commit: ${{ github.event.pull_request.head.sha }}",
+            "Executable SHA256: $($exe.Hash)",
+            'Tests: Ubuntu + Windows + real FFmpeg test required',
+            'Transcription: External Telegram bot (not bundled)',
+            'Install: keep the entire AlmiqsAlBaseet folder',
+            'Source: Pull Request #56'
+          )
+          $info | Out-File -FilePath 'dist/AlmiqsAlBaseet/PREVIEW_BUILD_INFO.txt' -Encoding utf8
+      - name: Upload Windows portable preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: AlmiqsAlBaseet-Windows-Preview-PR56
+          path: dist/AlmiqsAlBaseet/
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
