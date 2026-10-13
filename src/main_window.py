@@ -58,6 +58,8 @@ from src.classification import (
 )
 from src.clip_padding import ClipPadding
 from src.clip_review import ReviewedClip
+from src.youtube_preview_source import cached_youtube_video
+from src.youtube_preview_worker import YoutubePreviewWorker
 from src.clip_preview import (
     MAX_FULL_CLIP_PREVIEW_SECONDS,
     ClipPreviewError,
@@ -944,6 +946,9 @@ class MainWindow(QMainWindow):
         self._queue_processing_worker: QueueProcessingWorker | None = None
         self._queue_auto_continue_after_worker = False
         self._editing_queue_job: VideoJob | None = None
+        self._youtube_preview_thread: QThread | None = None
+        self._youtube_preview_worker: YoutubePreviewWorker | None = None
+        self._youtube_preview_pending = False
         self._gemini_source_url = ""
         self._last_output_folder: Path | None = None
 
@@ -1056,6 +1061,7 @@ class MainWindow(QMainWindow):
             is_processing=lambda: (
                 self._processing_thread is not None
                 or self._queue_processing_thread is not None
+                or self._youtube_preview_thread is not None
             ),
         )
         QTimer.singleShot(4500, self._github_updates.check_on_startup)
@@ -3607,6 +3613,8 @@ class MainWindow(QMainWindow):
             return
         source = self._current_preview_video_path()
         if source is None:
+            if self.youtube_radio.isChecked():
+                self._offer_youtube_download_for_preview()
             return
 
         clips: list[ReviewedClip] = []
@@ -3728,6 +3736,81 @@ class MainWindow(QMainWindow):
         else:
             self._append_log("فشل إنشاء المعاينة: تعذر فتح ملف المعاينة")
 
+    def _offer_youtube_download_for_preview(self) -> None:
+        """Request consent once, then download source without blocking the GUI."""
+        if self._youtube_preview_thread is not None:
+            self._append_log("يجري تجهيز مصدر يوتيوب للمعاينة بالفعل.")
+            return
+        if self._processing_thread is not None or self._queue_processing_thread is not None:
+            QMessageBox.information(
+                self, "المعاينة مؤجلة",
+                "أكمل مهام القص والتنزيل الجارية قبل تجهيز فيديو المعاينة.",
+            )
+            return
+        try:
+            url = validate_youtube_url(self.youtube_input.text().strip())
+            project = validate_required_text(self.project_name_input.text(), "Project name")
+        except ValueError as error:
+            QMessageBox.warning(
+                self, "معلومات المعاينة ناقصة",
+                f"{error}\nتأكد من وجود رابط يوتيوب واسم للمشروع.",
+            )
+            return
+        answer = QMessageBox.question(
+            self, "تنزيل فيديو للمعاينة",
+            "للسماع حول بداية السؤال ونهاية الجواب يجب تجهيز نسخة محلية من فيديو يوتيوب.\n"
+            "سيُنزل البرنامج الفيديو إلى مجلد المشروع، ويعيد استخدامه عند القص بدل تنزيله مرتين.\n"
+            "هل تريد بدء التنزيل الآن؟",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        thread = QThread(self)
+        worker = YoutubePreviewWorker(
+            self.video_processor, url=url, project_name=project,
+            use_browser_cookies=self.use_browser_cookies_checkbox.isChecked(),
+            browser=self._selected_browser_identifier(),
+        )
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._append_log)
+        worker.succeeded.connect(self._youtube_preview_succeeded)
+        worker.failed.connect(self._youtube_preview_failed)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._youtube_preview_finished)
+        self._youtube_preview_thread = thread
+        self._youtube_preview_worker = worker
+        self._youtube_preview_pending = False
+        self._set_processing_enabled(False)
+        self.processing_status_label.setText("الحالة: تنزيل فيديو المعاينة...")
+        thread.start()
+
+    @Slot(str)
+    def _youtube_preview_succeeded(self, video_path: str) -> None:
+        self._append_log(f"أصبح مصدر المعاينة جاهزًا: {video_path}")
+        self._youtube_preview_pending = True
+
+    @Slot(str)
+    def _youtube_preview_failed(self, reason: str) -> None:
+        self._youtube_preview_pending = False
+        self._append_log(reason)
+        QMessageBox.warning(self, "فشل تحضير فيديو المعاينة", reason)
+
+    @Slot()
+    def _youtube_preview_finished(self) -> None:
+        self._youtube_preview_thread = None
+        self._youtube_preview_worker = None
+        self._set_processing_enabled(True)
+        if self._youtube_preview_pending:
+            self._youtube_preview_pending = False
+            self.processing_status_label.setText("الحالة: جاهز للمعاينة")
+            QTimer.singleShot(0, self.review_clips_before_cutting)
+        else:
+            self.processing_status_label.setText("الحالة: فشل تجهيز فيديو المعاينة")
+
     def _current_preview_video_path(self) -> Path | None:
         if self.local_file_radio.isChecked():
             try:
@@ -3738,10 +3821,10 @@ class MainWindow(QMainWindow):
 
         project_folder = self.output_root / sanitize_project_name(self.project_name_input.text())
         input_video_path = project_folder / INPUT_VIDEO_NAME
-        if input_video_path.is_file():
+        if cached_youtube_video(input_video_path, self.youtube_input.text().strip()):
             return input_video_path
 
-        self._write_log("يجب تنزيل الفيديو أولًا قبل المعاينة")
+        self._write_log("يجب تجهيز فيديو يوتيوب المصدر للمعاينة أولًا.")
         return None
 
     def _preview_video_duration(self, input_video_path: Path) -> float | None:
