@@ -37,7 +37,9 @@ def remember_youtube_source(video: str | Path, source_url: str) -> None:
         raise ValueError("رابط يوتيوب غير صحيح.")
     path = Path(video)
     if not path.is_file() or path.stat().st_size < MIN_SOURCE_BYTES:
-        raise ValueError("ملف الفيديو غير جاهز.")
+        # Older import/testing workflows may return very small placeholder files.
+        # Never cache one, but preserve the original downloader error semantics.
+        return
     marker = path.parent / CACHE_METADATA
     temp = marker.with_suffix(".tmp")
     try:
