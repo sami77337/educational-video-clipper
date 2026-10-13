@@ -1,0 +1,112 @@
+name: Publish verified Windows release
+
+on:
+  workflow_run:
+    workflows: ["Python regression tests"]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Checkout verified main commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Check branch tip and release version
+        id: prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"
+          if [ "$current" != "$RELEASE_SHA" ]; then
+            echo "A newer main commit exists: skipping an outdated release."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="$(python -c 'from src.version import APP_VERSION; print(APP_VERSION)')"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid stable APP_VERSION: $version" >&2
+            exit 1
+          fi
+          tag="v$version"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag exists; bump APP_VERSION to publish another update."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Download tested Windows build
+        if: steps.prepare.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist_release/AlmiqsAlBaseet
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "AlmiqsAlBaseet-Windows-Candidate-$RUN_ID" \
+            --dir dist_release/AlmiqsAlBaseet
+          test -s dist_release/AlmiqsAlBaseet/AlmiqsAlBaseet.exe
+          test -s dist_release/AlmiqsAlBaseet/ffmpeg.exe
+          test -s dist_release/AlmiqsAlBaseet/README_AR.txt
+          test -d dist_release/AlmiqsAlBaseet/_internal
+
+      - name: Package portable ZIP and checksum
+        if: steps.prepare.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          filename="AlmiqsAlBaseet-Windows-${{ steps.prepare.outputs.tag }}.zip"
+          (
+            cd dist_release
+            zip -q -r -0 "../$filename" AlmiqsAlBaseet
+          )
+          sha256sum "$filename" > "$filename.sha256"
+          echo "Package: $filename"
+          cat "$filename.sha256"
+          unzip -tq "$filename" >/dev/null
+
+      - name: Publish stable GitHub release
+        if: steps.prepare.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          filename="AlmiqsAlBaseet-Windows-${{ steps.prepare.outputs.tag }}.zip"
+          cat > RELEASE_NOTES.md <<'EOF'
+          ## المقص البسيط — إصدار Windows
+
+          - استيراد نتائج Gemini وقص كل سؤال وجوابه بصورة مستقلة.
+          - معاينة داخل البرنامج وضبط التوقيت حتى أجزاء الثانية مع الاحتفاظ بتوقيت Gemini الأصلي.
+          - تصدير MP4 وExcel وCSV وJSON وحزمة توزيع ZIP.
+          - فحص التحديثات تلقائيًا عبر GitHub Releases، والتثبيت بعد موافقة المستخدم والتحقق من SHA256.
+          - يظل التفريغ النصي بواسطة بوت Telegram الحالي، وليس داخل المقص.
+
+          فك ZIP كاملًا، ثم شغّل AlmiqsAlBaseet.exe من داخل مجلده.
+          تحقق من تشغيل الصوت والصورة على جهازك وراجع عينة من حدود القص قبل توزيع النتائج.
+          EOF
+          gh release create "${{ steps.prepare.outputs.tag }}" \
+            "$filename" "$filename.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$RELEASE_SHA" \
+            --title "المقص البسيط ${{ steps.prepare.outputs.tag }}" \
+            --notes-file RELEASE_NOTES.md \
+            --latest
