@@ -3824,7 +3824,7 @@ class MainWindow(QMainWindow):
         if cached_youtube_video(input_video_path, self.youtube_input.text().strip()):
             return input_video_path
 
-        self._write_log("يجب تجهيز فيديو يوتيوب المصدر للمعاينة أولًا.")
+        self._write_log("يجب تنزيل الفيديو أولًا قبل المعاينة؛ يمكنك تجهيز نسخة المصدر من زر المراجعة.")
         return None
 
     def _preview_video_duration(self, input_video_path: Path) -> float | None:
