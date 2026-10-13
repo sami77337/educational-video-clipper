@@ -144,3 +144,48 @@ def test_gemini_team_package_rejects_times_beyond_source(tmp_path: Path, sample_
             [ClipRowInput(row_number=1, title="سؤال زائد", start="00:07", end="00:09")],
             create_handoff_package=True,
         )
+
+
+
+def test_reviewed_gemini_times_are_distinct_from_original_in_excel_and_zip(
+    tmp_path: Path, sample_media: Path
+):
+    processor = VideoProcessor(output_root=tmp_path / "outputs")
+    source_hash = _sha256(sample_media)
+    result = processor.process_project(
+        VideoSourceRequest(VideoSourceType.LOCAL_FILE, str(sample_media)),
+        "مراجعة الزمن الأصلي",
+        [
+            ClipRowInput(
+                row_number=1,
+                title="سؤال مراجَع",
+                start="00:01.250",
+                end="00:04.500",
+                original_start="00:01",
+                original_end="00:04",
+            ),
+        ],
+        create_handoff_package=True,
+    )
+    root = result.project_output_folder
+    manifest = json.loads((root / "clip_manifest.json").read_text(encoding="utf-8"))
+    clip = manifest["clips"][0]
+    assert clip["source_start"] == "00:00:01"
+    assert clip["source_end"] == "00:00:04"
+    assert clip["reviewed_start"] == "00:00:01.250"
+    assert clip["reviewed_end"] == "00:00:04.500"
+    assert clip["review_modified"] is True
+    assert clip["actual_cut_start"] == "00:00:01.250"
+    assert clip["actual_cut_end"] == "00:00:04.500"
+    assert probe_media_duration_seconds(result.cut_results[0].output_path) == pytest.approx(3.25, abs=0.25)
+    wb = load_workbook(root / "FATWA_CLIPS_INDEX.xlsx", read_only=True, data_only=True)
+    try:
+        ws = wb.active
+        assert ws.cell(2, 3).value == "00:00:01"
+        assert ws.cell(2, 4).value == "00:00:04"
+        assert ws.cell(2, 13).value == "00:00:01.250"
+        assert ws.cell(2, 14).value == "00:00:04.500"
+        assert ws.cell(2, 15).value is True
+    finally:
+        wb.close()
+    assert source_hash == _sha256(sample_media)

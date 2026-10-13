@@ -124,7 +124,7 @@ jobs:
             'Tests: Ubuntu + Windows + real FFmpeg test required',
             'Transcription: External Telegram bot (not bundled)',
             'Install: keep the entire AlmiqsAlBaseet folder',
-            'Source: Gemini integration reviewed in PR #56'
+            'Source: in-app Q&A clip review PR #57, based on Gemini PR #56'
           )
           $info | Out-File -FilePath 'dist/AlmiqsAlBaseet/PREVIEW_BUILD_INFO.txt' -Encoding utf8
       - name: Upload Windows portable preview
