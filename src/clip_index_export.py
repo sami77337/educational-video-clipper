@@ -87,22 +87,24 @@ def create_handoff_package(
         if end is None:
             end = clip.end_seconds
 
+        original_start = getattr(clip, "original_start_seconds", None)
+        original_end = getattr(clip, "original_end_seconds", None)
         entries.append({
             "number": clip.number,
             "title": clip.title,
             "source_start": format_seconds(
-                clip.original_start_seconds if clip.original_start_seconds is not None
+                original_start if original_start is not None
                 else clip.start_seconds
             ),
             "source_end": format_seconds(
-                clip.original_end_seconds if clip.original_end_seconds is not None
+                original_end if original_end is not None
                 else clip.end_seconds
             ),
             "reviewed_start": format_seconds(clip.start_seconds),
             "reviewed_end": format_seconds(clip.end_seconds),
             "review_modified": (
-                (clip.original_start_seconds is not None and clip.original_start_seconds != clip.start_seconds)
-                or (clip.original_end_seconds is not None and clip.original_end_seconds != clip.end_seconds)
+                (original_start is not None and original_start != clip.start_seconds)
+                or (original_end is not None and original_end != clip.end_seconds)
             ),
             "actual_cut_start": format_seconds(start),
             "actual_cut_end": format_seconds(end),
