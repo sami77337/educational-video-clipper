@@ -20,6 +20,8 @@ class ClipRowInput:
     start: str
     end: str
     exclusions: str = ""
+    original_start: str = ""
+    original_end: str = ""
 
 
 @dataclass(frozen=True)

@@ -72,6 +72,8 @@ class ClipJob:
     start: str
     end: str
     exclusions: str = ""
+    original_start: str = ""
+    original_end: str = ""
     notes: list[str] = field(default_factory=list)
     status: JobStatus = JobStatus.DRAFT
     warnings: list[str] = field(default_factory=list)

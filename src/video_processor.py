@@ -186,6 +186,8 @@ class ClipDefinition:
     start_seconds: int | float
     end_seconds: int | float
     exclusions: str = ""
+    original_start_seconds: int | float | None = None
+    original_end_seconds: int | float | None = None
 
     @property
     def duration_seconds(self) -> int | float:
@@ -688,6 +690,8 @@ def build_clip_definition(row: ClipRowInput) -> ClipDefinition:
         start_seconds=parse_timestamp(row.start),
         end_seconds=parse_timestamp(row.end),
         exclusions=row.exclusions.strip() if row.exclusions else "",
+        original_start_seconds=parse_timestamp(row.original_start) if row.original_start else None,
+        original_end_seconds=parse_timestamp(row.original_end) if row.original_end else None,
     )
 
 
