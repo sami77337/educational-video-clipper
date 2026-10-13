@@ -57,6 +57,7 @@ from src.classification import (
     validate_classification_rules,
 )
 from src.clip_padding import ClipPadding
+from src.clip_review import ReviewedClip
 from src.clip_preview import (
     MAX_FULL_CLIP_PREVIEW_SECONDS,
     ClipPreviewError,
@@ -908,6 +909,8 @@ class QueueProcessingWorker(QObject):
                 start=clip.start,
                 end=clip.end,
                 exclusions=clip.exclusions,
+                original_start=clip.original_start,
+                original_end=clip.original_end,
             )
             for index, clip in enumerate(job.clips, start=1)
         ]
@@ -999,6 +1002,7 @@ class MainWindow(QMainWindow):
         self.preview_clip_start_button = QPushButton("معاينة بداية المقطع")
         self.preview_clip_end_button = QPushButton("معاينة نهاية المقطع")
         self.preview_selected_clip_button = QPushButton("معاينة المقطع المحدد")
+        self.review_clips_button = QPushButton("مراجعة وضبط الأوقات قبل القص")
         self.add_classification_button = QPushButton("إضافة تصنيف")
         self.delete_classification_button = QPushButton("حذف التصنيف المحدد")
         self.reset_classification_button = QPushButton("استعادة الافتراضي")
@@ -1690,6 +1694,7 @@ class MainWindow(QMainWindow):
         preview_buttons.addWidget(self.preview_clip_start_button)
         preview_buttons.addWidget(self.preview_clip_end_button)
         preview_buttons.addWidget(self.preview_selected_clip_button)
+        preview_buttons.addWidget(self.review_clips_button)
         preview_buttons.addStretch(1)
 
         layout.addWidget(self.clips_table)
@@ -1743,6 +1748,7 @@ class MainWindow(QMainWindow):
         self.preview_clip_start_button.clicked.connect(self.preview_selected_clip_start)
         self.preview_clip_end_button.clicked.connect(self.preview_selected_clip_end)
         self.preview_selected_clip_button.clicked.connect(self.preview_selected_clip)
+        self.review_clips_button.clicked.connect(self.review_clips_before_cutting)
         self.add_classification_button.clicked.connect(self.add_classification_rule)
         self.delete_classification_button.clicked.connect(self.delete_selected_classification_rule)
         self.reset_classification_button.clicked.connect(self.reset_classification_rules)
@@ -1806,7 +1812,16 @@ class MainWindow(QMainWindow):
         )
         self.clips_table.setCurrentCell(self.clips_table.rowCount() - 1, TITLE_COLUMN)
 
-    def _insert_clip_row(self, number: int, title: str, start: str, end: str, exclusions: str = "") -> None:
+    def _insert_clip_row(
+        self,
+        number: int,
+        title: str,
+        start: str,
+        end: str,
+        exclusions: str = "",
+        original_start: str = "",
+        original_end: str = "",
+    ) -> None:
         row = self.clips_table.rowCount()
         self.clips_table.insertRow(row)
 
@@ -1816,8 +1831,14 @@ class MainWindow(QMainWindow):
 
         self.clips_table.setItem(row, NUMBER_COLUMN, number_item)
         self.clips_table.setItem(row, TITLE_COLUMN, QTableWidgetItem(title))
-        self.clips_table.setItem(row, START_COLUMN, QTableWidgetItem(start))
-        self.clips_table.setItem(row, END_COLUMN, QTableWidgetItem(end))
+        start_item = QTableWidgetItem(start)
+        end_item = QTableWidgetItem(end)
+        if original_start:
+            start_item.setData(Qt.ItemDataRole.UserRole, original_start)
+        if original_end:
+            end_item.setData(Qt.ItemDataRole.UserRole, original_end)
+        self.clips_table.setItem(row, START_COLUMN, start_item)
+        self.clips_table.setItem(row, END_COLUMN, end_item)
         self.clips_table.setItem(row, EXCLUSIONS_COLUMN, QTableWidgetItem(exclusions))
 
     def preview_selected_clip_start(self) -> None:
@@ -2431,6 +2452,8 @@ class MainWindow(QMainWindow):
                 start=self._cell_text(row, START_COLUMN),
                 end=self._cell_text(row, END_COLUMN),
                 exclusions=self._cell_text(row, EXCLUSIONS_COLUMN),
+                original_start=self._original_clip_time(row, START_COLUMN),
+                original_end=self._original_clip_time(row, END_COLUMN),
             )
             for row in range(self.clips_table.rowCount())
         ]
@@ -2726,6 +2749,8 @@ class MainWindow(QMainWindow):
                 clip.start,
                 clip.end,
                 clip.exclusions,
+                clip.original_start,
+                clip.original_end,
             )
 
     def _workspace_source_has_data(self, job: VideoJob) -> bool:
@@ -3343,7 +3368,14 @@ class MainWindow(QMainWindow):
                 return
 
         imported = [
-            ImportedClipRow(number=item.number, title=item.title, start=item.start, end=item.end)
+            ImportedClipRow(
+                number=item.number,
+                title=item.title,
+                start=item.start,
+                end=item.end,
+                original_start=item.start,
+                original_end=item.end,
+            )
             for item in preview.clips
         ]
         if (import_mode == "append" and preview.source_url and self._gemini_source_url
@@ -3546,6 +3578,79 @@ class MainWindow(QMainWindow):
 
         self._append_log(f"تم فتح مجلد الإخراج: {output_dir}")
 
+    def review_clips_before_cutting(self) -> None:
+        """Review every question's source boundaries without editing the source."""
+        if not self.clips_table.rowCount():
+            self._write_log("أضف المقاطع أو استورد نتائج Gemini قبل المعاينة.")
+            return
+        source = self._current_preview_video_path()
+        if source is None:
+            return
+
+        clips: list[ReviewedClip] = []
+        try:
+            for row in range(self.clips_table.rowCount()):
+                start = self._cell_text(row, START_COLUMN)
+                end = self._cell_text(row, END_COLUMN)
+                if parse_timestamp(end) <= parse_timestamp(start):
+                    raise ValueError(f"نهاية المقطع رقم {row + 1} يجب أن تأتي بعد البداية.")
+                clips.append(
+                    ReviewedClip(
+                        number=self._row_number(row),
+                        title=self._cell_text(row, TITLE_COLUMN),
+                        start=start,
+                        end=end,
+                        original_start=self._original_clip_time(row, START_COLUMN),
+                        original_end=self._original_clip_time(row, END_COLUMN),
+                    )
+                )
+        except ValueError as error:
+            QMessageBox.warning(self, "تعذر بدء المراجعة", str(error))
+            return
+
+        try:
+            from src.clip_review_dialog import ClipReviewDialog
+        except (ImportError, OSError) as error:
+            QMessageBox.warning(
+                self, "مشكلة مشغل الفيديو",
+                f"تعذر تحميل مشغل الوسائط داخل البرنامج: {error}",
+            )
+            return
+
+        initial_row = self._selected_clip_row()
+        padding = self._collect_clip_padding()
+        dialog = ClipReviewDialog(
+            source,
+            clips,
+            initial_index=initial_row if initial_row is not None else 0,
+            source_duration=self._preview_video_duration(source),
+            pre_padding=padding.pre_seconds,
+            post_padding=padding.post_seconds,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            self._append_log("تم إلغاء مراجعة الأوقات دون حفظ أي تعديل.")
+            return
+
+        modified_count = 0
+        for row, clip in enumerate(dialog.reviewed_clips):
+            start_item = self.clips_table.item(row, START_COLUMN)
+            end_item = self.clips_table.item(row, END_COLUMN)
+            if start_item is None or end_item is None:
+                continue
+            if not start_item.data(Qt.ItemDataRole.UserRole):
+                start_item.setData(Qt.ItemDataRole.UserRole, clip.original_start or clip.start)
+            if not end_item.data(Qt.ItemDataRole.UserRole):
+                end_item.setData(Qt.ItemDataRole.UserRole, clip.original_end or clip.end)
+            if start_item.text() != clip.start or end_item.text() != clip.end:
+                modified_count += 1
+            start_item.setText(clip.start)
+            end_item.setText(clip.end)
+        self._append_log(
+            f"اكتملت المراجعة. تم تعديل {modified_count} مقطعًا، "
+            "وحُفظ توقيت Gemini الأصلي منفصلًا عن الأوقات النهائية."
+        )
+
     def _preview_selected_clip(self, preview_kind: ClipPreviewKind) -> None:
         row = self._selected_clip_row()
         if row is None:
@@ -3687,6 +3792,8 @@ class MainWindow(QMainWindow):
                     start=self._cell_text(row, START_COLUMN),
                     end=self._cell_text(row, END_COLUMN),
                     exclusions=self._cell_text(row, EXCLUSIONS_COLUMN),
+                    original_start=self._original_clip_time(row, START_COLUMN),
+                    original_end=self._original_clip_time(row, END_COLUMN),
                 )
             )
 
@@ -3866,6 +3973,13 @@ class MainWindow(QMainWindow):
         item = self.clips_table.item(row, column)
         return item.text().strip() if item is not None else ""
 
+    def _original_clip_time(self, row: int, column: int) -> str:
+        item = self.clips_table.item(row, column)
+        if item is None:
+            return ""
+        original = item.data(Qt.ItemDataRole.UserRole)
+        return str(original).strip() if original else item.text().strip()
+
     def _classification_cell_text(self, row: int, column: int) -> str:
         item = self.classification_rules_table.item(row, column)
         return item.text().strip() if item is not None else ""
@@ -3899,6 +4013,8 @@ class MainWindow(QMainWindow):
                 start=clip.start,
                 end=clip.end,
                 exclusions=clip.exclusions,
+                original_start=getattr(clip, "original_start", ""),
+                original_end=getattr(clip, "original_end", ""),
             )
 
     def _apply_smart_paste_preview(self, preview: SmartPastePreview) -> bool:
@@ -4270,6 +4386,7 @@ class MainWindow(QMainWindow):
             self.preview_clip_start_button,
             self.preview_clip_end_button,
             self.preview_selected_clip_button,
+            self.review_clips_button,
             self.add_classification_button,
             self.delete_classification_button,
             self.reset_classification_button,
