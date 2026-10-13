@@ -44,6 +44,7 @@ from src.exclusions import (
 from src.file_utils import ensure_directory, sanitize_filename
 from src.models import ClipRequest
 from src.time_utils import format_seconds, parse_timestamp
+from src.youtube_preview_source import cached_youtube_video, remember_youtube_source
 from src.validation import ClipRowInput
 from src.video_speed import (
     AR_VIDEO_SPEED_APPLIED,
@@ -186,6 +187,8 @@ class ClipDefinition:
     start_seconds: int | float
     end_seconds: int | float
     exclusions: str = ""
+    original_start_seconds: int | float | None = None
+    original_end_seconds: int | float | None = None
 
     @property
     def duration_seconds(self) -> int | float:
@@ -313,6 +316,13 @@ class VideoProcessor:
             raise VideoSourceError(str(error)) from error
         _emit(progress_callback, f"{AR_OUTPUT_FOLDER_USED}: {project_output_folder}")
         input_video_path = project_output_folder / INPUT_VIDEO_NAME
+        if cached_youtube_video(input_video_path, clean_url):
+            _emit(progress_callback, "إعادة استخدام نسخة الفيديو الجاهزة للمعاينة؛ لا حاجة لتنزيلها مرة أخرى.")
+            return PreparedVideoSource(
+                source_type=VideoSourceType.YOUTUBE,
+                project_output_folder=project_output_folder,
+                input_video_path=input_video_path,
+            )
 
         _emit(progress_callback, AR_DOWNLOADING_YOUTUBE)
         download_youtube_video(
@@ -323,6 +333,7 @@ class VideoProcessor:
             use_browser_cookies=use_browser_cookies,
             browser=browser,
         )
+        remember_youtube_source(input_video_path, clean_url)
         _emit(progress_callback, AR_YOUTUBE_DOWNLOADED)
 
         return PreparedVideoSource(
@@ -688,6 +699,8 @@ def build_clip_definition(row: ClipRowInput) -> ClipDefinition:
         start_seconds=parse_timestamp(row.start),
         end_seconds=parse_timestamp(row.end),
         exclusions=row.exclusions.strip() if row.exclusions else "",
+        original_start_seconds=parse_timestamp(row.original_start) if row.original_start else None,
+        original_end_seconds=parse_timestamp(row.original_end) if row.original_end else None,
     )
 
 

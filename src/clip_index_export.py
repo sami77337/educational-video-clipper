@@ -39,6 +39,9 @@ _HEADERS = (
     "الاستثناءات",
     "مصدر الفيديو",
     "حالة التفريغ",
+    "البداية بعد المراجعة",
+    "النهاية بعد المراجعة",
+    "هل تم تعديل توقيت Gemini؟",
 )
 
 
@@ -84,11 +87,25 @@ def create_handoff_package(
         if end is None:
             end = clip.end_seconds
 
+        original_start = getattr(clip, "original_start_seconds", None)
+        original_end = getattr(clip, "original_end_seconds", None)
         entries.append({
             "number": clip.number,
             "title": clip.title,
-            "source_start": format_seconds(clip.start_seconds),
-            "source_end": format_seconds(clip.end_seconds),
+            "source_start": format_seconds(
+                original_start if original_start is not None
+                else clip.start_seconds
+            ),
+            "source_end": format_seconds(
+                original_end if original_end is not None
+                else clip.end_seconds
+            ),
+            "reviewed_start": format_seconds(clip.start_seconds),
+            "reviewed_end": format_seconds(clip.end_seconds),
+            "review_modified": (
+                (original_start is not None and original_start != clip.start_seconds)
+                or (original_end is not None and original_end != clip.end_seconds)
+            ),
             "actual_cut_start": format_seconds(start),
             "actual_cut_end": format_seconds(end),
             "source_span_seconds": round(float(end) - float(start), 3),
@@ -119,12 +136,13 @@ def create_handoff_package(
             "actual_cut_start", "actual_cut_end", "source_span_seconds",
             "video_filename", "relative_path", "exclusions", "source_reference",
             "transcription_status",
+            "reviewed_start", "reviewed_end", "review_modified",
         )])
     for cell in sheet[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="1F497D")
         cell.alignment = Alignment(horizontal="center")
-    widths = [14, 56, 22, 22, 22, 22, 24, 55, 72, 30, 66, 34]
+    widths = [14, 56, 22, 22, 22, 22, 24, 55, 72, 30, 66, 34, 23, 23, 30]
     for index, width in enumerate(widths, 1):
         sheet.column_dimensions[get_column_letter(index)].width = width
     sheet.freeze_panes = "A2"
@@ -141,6 +159,7 @@ def create_handoff_package(
                 "actual_cut_start", "actual_cut_end", "source_span_seconds",
                 "video_filename", "relative_path", "exclusions", "source_reference",
                 "transcription_status",
+                "reviewed_start", "reviewed_end", "review_modified",
             )])
     json_path.write_text(
         json.dumps({

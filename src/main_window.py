@@ -8,7 +8,7 @@ import re
 import sys
 from urllib.parse import parse_qs, urlsplit
 
-from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -57,6 +57,9 @@ from src.classification import (
     validate_classification_rules,
 )
 from src.clip_padding import ClipPadding
+from src.clip_review import ReviewedClip
+from src.youtube_preview_source import cached_youtube_video
+from src.youtube_preview_worker import YoutubePreviewWorker
 from src.clip_preview import (
     MAX_FULL_CLIP_PREVIEW_SECONDS,
     ClipPreviewError,
@@ -66,6 +69,7 @@ from src.clip_preview import (
 )
 from src.export_utils import ExportError, validate_output_folder_path
 from src.gemini_import import GeminiImportError, normalize_youtube_video_url, parse_gemini_response
+from src.github_update_ui import GithubUpdateController
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.job_queue import ClipJob, JobSettings, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
 from src.job_queue_processor import (
@@ -95,7 +99,7 @@ from src.smart_paste_parser import (
 )
 from src.smart_validation import format_smart_validation_report_ar, validate_clips_before_cutting
 from src.time_utils import normalize_timestamp_text, parse_timestamp
-from src.version import APP_NAME, APP_SUBTITLE
+from src.version import APP_NAME, APP_SUBTITLE, APP_VERSION
 from src.validation import ClipRowInput, normalize_clip_exclusions, validate_clip_rows, validate_required_text
 from src.video_speed import AR_INVALID_VIDEO_SPEED, DEFAULT_VIDEO_SPEED, VideoSpeedError, normalize_video_speed
 from src.video_volume import (
@@ -908,6 +912,8 @@ class QueueProcessingWorker(QObject):
                 start=clip.start,
                 end=clip.end,
                 exclusions=clip.exclusions,
+                original_start=clip.original_start,
+                original_end=clip.original_end,
             )
             for index, clip in enumerate(job.clips, start=1)
         ]
@@ -940,6 +946,9 @@ class MainWindow(QMainWindow):
         self._queue_processing_worker: QueueProcessingWorker | None = None
         self._queue_auto_continue_after_worker = False
         self._editing_queue_job: VideoJob | None = None
+        self._youtube_preview_thread: QThread | None = None
+        self._youtube_preview_worker: YoutubePreviewWorker | None = None
+        self._youtube_preview_pending = False
         self._gemini_source_url = ""
         self._last_output_folder: Path | None = None
 
@@ -999,6 +1008,7 @@ class MainWindow(QMainWindow):
         self.preview_clip_start_button = QPushButton("معاينة بداية المقطع")
         self.preview_clip_end_button = QPushButton("معاينة نهاية المقطع")
         self.preview_selected_clip_button = QPushButton("معاينة المقطع المحدد")
+        self.review_clips_button = QPushButton("مراجعة وضبط الأوقات قبل القص")
         self.add_classification_button = QPushButton("إضافة تصنيف")
         self.delete_classification_button = QPushButton("حذف التصنيف المحدد")
         self.reset_classification_button = QPushButton("استعادة الافتراضي")
@@ -1030,6 +1040,8 @@ class MainWindow(QMainWindow):
         self.new_work_button = QPushButton("عمل جديد")
         self.direct_cut_button = QPushButton("بدء القص المباشر - وضع قديم")
         self.open_output_button = QPushButton("فتح مجلد النتائج")
+        self.github_update_button = QPushButton("فحص تحديثات GitHub")
+        self.github_update_status_label = QLabel(f"الإصدار {APP_VERSION}")
         self.processing_status_label = QLabel("الحالة: جاهز")
         self.show_global_log_button = QPushButton("عرض السجل العام")
         self.log_header_label = QLabel("سجل عام")
@@ -1042,6 +1054,17 @@ class MainWindow(QMainWindow):
         self._apply_visual_polish()
         self.setCentralWidget(self._build_scrollable_ui())
         self._connect_signals()
+        self._github_updates = GithubUpdateController(
+            self,
+            self.github_update_button,
+            self.github_update_status_label,
+            is_processing=lambda: (
+                self._processing_thread is not None
+                or self._queue_processing_thread is not None
+                or self._youtube_preview_thread is not None
+            ),
+        )
+        QTimer.singleShot(4500, self._github_updates.check_on_startup)
         self._reset_classification_rules(log=False)
         self._update_source_inputs()
         self._update_speed_volume_controls()
@@ -1177,8 +1200,17 @@ class MainWindow(QMainWindow):
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
 
+        update_layout = QVBoxLayout()
+        self.github_update_status_label.setWordWrap(True)
+        self.github_update_button.setToolTip(
+            "يبحث عن إصدار أحدث منشور رسميًا على GitHub؛ التثبيت يتطلب موافقتك."
+        )
+        update_layout.addWidget(self.github_update_status_label)
+        update_layout.addWidget(self.github_update_button)
+
         layout.addWidget(logo)
         layout.addLayout(title_layout, stretch=1)
+        layout.addLayout(update_layout)
 
         return frame
 
@@ -1690,6 +1722,7 @@ class MainWindow(QMainWindow):
         preview_buttons.addWidget(self.preview_clip_start_button)
         preview_buttons.addWidget(self.preview_clip_end_button)
         preview_buttons.addWidget(self.preview_selected_clip_button)
+        preview_buttons.addWidget(self.review_clips_button)
         preview_buttons.addStretch(1)
 
         layout.addWidget(self.clips_table)
@@ -1743,6 +1776,7 @@ class MainWindow(QMainWindow):
         self.preview_clip_start_button.clicked.connect(self.preview_selected_clip_start)
         self.preview_clip_end_button.clicked.connect(self.preview_selected_clip_end)
         self.preview_selected_clip_button.clicked.connect(self.preview_selected_clip)
+        self.review_clips_button.clicked.connect(self.review_clips_before_cutting)
         self.add_classification_button.clicked.connect(self.add_classification_rule)
         self.delete_classification_button.clicked.connect(self.delete_selected_classification_rule)
         self.reset_classification_button.clicked.connect(self.reset_classification_rules)
@@ -1806,7 +1840,16 @@ class MainWindow(QMainWindow):
         )
         self.clips_table.setCurrentCell(self.clips_table.rowCount() - 1, TITLE_COLUMN)
 
-    def _insert_clip_row(self, number: int, title: str, start: str, end: str, exclusions: str = "") -> None:
+    def _insert_clip_row(
+        self,
+        number: int,
+        title: str,
+        start: str,
+        end: str,
+        exclusions: str = "",
+        original_start: str = "",
+        original_end: str = "",
+    ) -> None:
         row = self.clips_table.rowCount()
         self.clips_table.insertRow(row)
 
@@ -1816,8 +1859,14 @@ class MainWindow(QMainWindow):
 
         self.clips_table.setItem(row, NUMBER_COLUMN, number_item)
         self.clips_table.setItem(row, TITLE_COLUMN, QTableWidgetItem(title))
-        self.clips_table.setItem(row, START_COLUMN, QTableWidgetItem(start))
-        self.clips_table.setItem(row, END_COLUMN, QTableWidgetItem(end))
+        start_item = QTableWidgetItem(start)
+        end_item = QTableWidgetItem(end)
+        if original_start:
+            start_item.setData(Qt.ItemDataRole.UserRole, original_start)
+        if original_end:
+            end_item.setData(Qt.ItemDataRole.UserRole, original_end)
+        self.clips_table.setItem(row, START_COLUMN, start_item)
+        self.clips_table.setItem(row, END_COLUMN, end_item)
         self.clips_table.setItem(row, EXCLUSIONS_COLUMN, QTableWidgetItem(exclusions))
 
     def preview_selected_clip_start(self) -> None:
@@ -2431,6 +2480,8 @@ class MainWindow(QMainWindow):
                 start=self._cell_text(row, START_COLUMN),
                 end=self._cell_text(row, END_COLUMN),
                 exclusions=self._cell_text(row, EXCLUSIONS_COLUMN),
+                original_start=self._original_clip_time(row, START_COLUMN),
+                original_end=self._original_clip_time(row, END_COLUMN),
             )
             for row in range(self.clips_table.rowCount())
         ]
@@ -2726,6 +2777,8 @@ class MainWindow(QMainWindow):
                 clip.start,
                 clip.end,
                 clip.exclusions,
+                clip.original_start,
+                clip.original_end,
             )
 
     def _workspace_source_has_data(self, job: VideoJob) -> bool:
@@ -3343,7 +3396,14 @@ class MainWindow(QMainWindow):
                 return
 
         imported = [
-            ImportedClipRow(number=item.number, title=item.title, start=item.start, end=item.end)
+            ImportedClipRow(
+                number=item.number,
+                title=item.title,
+                start=item.start,
+                end=item.end,
+                original_start=item.start,
+                original_end=item.end,
+            )
             for item in preview.clips
         ]
         if (import_mode == "append" and preview.source_url and self._gemini_source_url
@@ -3546,6 +3606,81 @@ class MainWindow(QMainWindow):
 
         self._append_log(f"تم فتح مجلد الإخراج: {output_dir}")
 
+    def review_clips_before_cutting(self) -> None:
+        """Review every question's source boundaries without editing the source."""
+        if not self.clips_table.rowCount():
+            self._write_log("أضف المقاطع أو استورد نتائج Gemini قبل المعاينة.")
+            return
+        source = self._current_preview_video_path()
+        if source is None:
+            if self.youtube_radio.isChecked():
+                self._offer_youtube_download_for_preview()
+            return
+
+        clips: list[ReviewedClip] = []
+        try:
+            for row in range(self.clips_table.rowCount()):
+                start = self._cell_text(row, START_COLUMN)
+                end = self._cell_text(row, END_COLUMN)
+                if parse_timestamp(end) <= parse_timestamp(start):
+                    raise ValueError(f"نهاية المقطع رقم {row + 1} يجب أن تأتي بعد البداية.")
+                clips.append(
+                    ReviewedClip(
+                        number=self._row_number(row),
+                        title=self._cell_text(row, TITLE_COLUMN),
+                        start=start,
+                        end=end,
+                        original_start=self._original_clip_time(row, START_COLUMN),
+                        original_end=self._original_clip_time(row, END_COLUMN),
+                    )
+                )
+        except ValueError as error:
+            QMessageBox.warning(self, "تعذر بدء المراجعة", str(error))
+            return
+
+        try:
+            from src.clip_review_dialog import ClipReviewDialog
+        except (ImportError, OSError) as error:
+            QMessageBox.warning(
+                self, "مشكلة مشغل الفيديو",
+                f"تعذر تحميل مشغل الوسائط داخل البرنامج: {error}",
+            )
+            return
+
+        initial_row = self._selected_clip_row()
+        padding = self._collect_clip_padding()
+        dialog = ClipReviewDialog(
+            source,
+            clips,
+            initial_index=initial_row if initial_row is not None else 0,
+            source_duration=self._preview_video_duration(source),
+            pre_padding=padding.pre_seconds,
+            post_padding=padding.post_seconds,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.Accepted:
+            self._append_log("تم إلغاء مراجعة الأوقات دون حفظ أي تعديل.")
+            return
+
+        modified_count = 0
+        for row, clip in enumerate(dialog.reviewed_clips):
+            start_item = self.clips_table.item(row, START_COLUMN)
+            end_item = self.clips_table.item(row, END_COLUMN)
+            if start_item is None or end_item is None:
+                continue
+            if not start_item.data(Qt.ItemDataRole.UserRole):
+                start_item.setData(Qt.ItemDataRole.UserRole, clip.original_start or clip.start)
+            if not end_item.data(Qt.ItemDataRole.UserRole):
+                end_item.setData(Qt.ItemDataRole.UserRole, clip.original_end or clip.end)
+            if start_item.text() != clip.start or end_item.text() != clip.end:
+                modified_count += 1
+            start_item.setText(clip.start)
+            end_item.setText(clip.end)
+        self._append_log(
+            f"اكتملت المراجعة. تم تعديل {modified_count} مقطعًا، "
+            "وحُفظ توقيت Gemini الأصلي منفصلًا عن الأوقات النهائية."
+        )
+
     def _preview_selected_clip(self, preview_kind: ClipPreviewKind) -> None:
         row = self._selected_clip_row()
         if row is None:
@@ -3601,6 +3736,81 @@ class MainWindow(QMainWindow):
         else:
             self._append_log("فشل إنشاء المعاينة: تعذر فتح ملف المعاينة")
 
+    def _offer_youtube_download_for_preview(self) -> None:
+        """Request consent once, then download source without blocking the GUI."""
+        if self._youtube_preview_thread is not None:
+            self._append_log("يجري تجهيز مصدر يوتيوب للمعاينة بالفعل.")
+            return
+        if self._processing_thread is not None or self._queue_processing_thread is not None:
+            QMessageBox.information(
+                self, "المعاينة مؤجلة",
+                "أكمل مهام القص والتنزيل الجارية قبل تجهيز فيديو المعاينة.",
+            )
+            return
+        try:
+            url = validate_youtube_url(self.youtube_input.text().strip())
+            project = validate_required_text(self.project_name_input.text(), "Project name")
+        except ValueError as error:
+            QMessageBox.warning(
+                self, "معلومات المعاينة ناقصة",
+                f"{error}\nتأكد من وجود رابط يوتيوب واسم للمشروع.",
+            )
+            return
+        answer = QMessageBox.question(
+            self, "تنزيل فيديو للمعاينة",
+            "للسماع حول بداية السؤال ونهاية الجواب يجب تجهيز نسخة محلية من فيديو يوتيوب.\n"
+            "سيُنزل البرنامج الفيديو إلى مجلد المشروع، ويعيد استخدامه عند القص بدل تنزيله مرتين.\n"
+            "هل تريد بدء التنزيل الآن؟",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        thread = QThread(self)
+        worker = YoutubePreviewWorker(
+            self.video_processor, url=url, project_name=project,
+            use_browser_cookies=self.use_browser_cookies_checkbox.isChecked(),
+            browser=self._selected_browser_identifier(),
+        )
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._append_log)
+        worker.succeeded.connect(self._youtube_preview_succeeded)
+        worker.failed.connect(self._youtube_preview_failed)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._youtube_preview_finished)
+        self._youtube_preview_thread = thread
+        self._youtube_preview_worker = worker
+        self._youtube_preview_pending = False
+        self._set_processing_enabled(False)
+        self.processing_status_label.setText("الحالة: تنزيل فيديو المعاينة...")
+        thread.start()
+
+    @Slot(str)
+    def _youtube_preview_succeeded(self, video_path: str) -> None:
+        self._append_log(f"أصبح مصدر المعاينة جاهزًا: {video_path}")
+        self._youtube_preview_pending = True
+
+    @Slot(str)
+    def _youtube_preview_failed(self, reason: str) -> None:
+        self._youtube_preview_pending = False
+        self._append_log(reason)
+        QMessageBox.warning(self, "فشل تحضير فيديو المعاينة", reason)
+
+    @Slot()
+    def _youtube_preview_finished(self) -> None:
+        self._youtube_preview_thread = None
+        self._youtube_preview_worker = None
+        self._set_processing_enabled(True)
+        if self._youtube_preview_pending:
+            self._youtube_preview_pending = False
+            self.processing_status_label.setText("الحالة: جاهز للمعاينة")
+            QTimer.singleShot(0, self.review_clips_before_cutting)
+        else:
+            self.processing_status_label.setText("الحالة: فشل تجهيز فيديو المعاينة")
+
     def _current_preview_video_path(self) -> Path | None:
         if self.local_file_radio.isChecked():
             try:
@@ -3611,10 +3821,10 @@ class MainWindow(QMainWindow):
 
         project_folder = self.output_root / sanitize_project_name(self.project_name_input.text())
         input_video_path = project_folder / INPUT_VIDEO_NAME
-        if input_video_path.is_file():
+        if cached_youtube_video(input_video_path, self.youtube_input.text().strip()):
             return input_video_path
 
-        self._write_log("يجب تنزيل الفيديو أولًا قبل المعاينة")
+        self._write_log("يجب تنزيل الفيديو أولًا قبل المعاينة؛ يمكنك تجهيز نسخة المصدر من زر المراجعة.")
         return None
 
     def _preview_video_duration(self, input_video_path: Path) -> float | None:
@@ -3687,6 +3897,8 @@ class MainWindow(QMainWindow):
                     start=self._cell_text(row, START_COLUMN),
                     end=self._cell_text(row, END_COLUMN),
                     exclusions=self._cell_text(row, EXCLUSIONS_COLUMN),
+                    original_start=self._original_clip_time(row, START_COLUMN),
+                    original_end=self._original_clip_time(row, END_COLUMN),
                 )
             )
 
@@ -3866,6 +4078,13 @@ class MainWindow(QMainWindow):
         item = self.clips_table.item(row, column)
         return item.text().strip() if item is not None else ""
 
+    def _original_clip_time(self, row: int, column: int) -> str:
+        item = self.clips_table.item(row, column)
+        if item is None:
+            return ""
+        original = item.data(Qt.ItemDataRole.UserRole)
+        return str(original).strip() if original else item.text().strip()
+
     def _classification_cell_text(self, row: int, column: int) -> str:
         item = self.classification_rules_table.item(row, column)
         return item.text().strip() if item is not None else ""
@@ -3899,6 +4118,8 @@ class MainWindow(QMainWindow):
                 start=clip.start,
                 end=clip.end,
                 exclusions=clip.exclusions,
+                original_start=getattr(clip, "original_start", ""),
+                original_end=getattr(clip, "original_end", ""),
             )
 
     def _apply_smart_paste_preview(self, preview: SmartPastePreview) -> bool:
@@ -4270,6 +4491,8 @@ class MainWindow(QMainWindow):
             self.preview_clip_start_button,
             self.preview_clip_end_button,
             self.preview_selected_clip_button,
+            self.review_clips_button,
+            self.github_update_button,
             self.add_classification_button,
             self.delete_classification_button,
             self.reset_classification_button,
