@@ -8,7 +8,7 @@ import re
 import sys
 from urllib.parse import parse_qs, urlsplit
 
-from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QBrush, QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -67,6 +67,7 @@ from src.clip_preview import (
 )
 from src.export_utils import ExportError, validate_output_folder_path
 from src.gemini_import import GeminiImportError, normalize_youtube_video_url, parse_gemini_response
+from src.github_update_ui import GithubUpdateController
 from src.import_utils import ClipImportError, ImportedClipRow, import_clip_rows
 from src.job_queue import ClipJob, JobSettings, JobStatus, VideoJob, VideoSourceType as QueueVideoSourceType
 from src.job_queue_processor import (
@@ -96,7 +97,7 @@ from src.smart_paste_parser import (
 )
 from src.smart_validation import format_smart_validation_report_ar, validate_clips_before_cutting
 from src.time_utils import normalize_timestamp_text, parse_timestamp
-from src.version import APP_NAME, APP_SUBTITLE
+from src.version import APP_NAME, APP_SUBTITLE, APP_VERSION
 from src.validation import ClipRowInput, normalize_clip_exclusions, validate_clip_rows, validate_required_text
 from src.video_speed import AR_INVALID_VIDEO_SPEED, DEFAULT_VIDEO_SPEED, VideoSpeedError, normalize_video_speed
 from src.video_volume import (
@@ -1034,6 +1035,8 @@ class MainWindow(QMainWindow):
         self.new_work_button = QPushButton("عمل جديد")
         self.direct_cut_button = QPushButton("بدء القص المباشر - وضع قديم")
         self.open_output_button = QPushButton("فتح مجلد النتائج")
+        self.github_update_button = QPushButton("فحص تحديثات GitHub")
+        self.github_update_status_label = QLabel(f"الإصدار {APP_VERSION}")
         self.processing_status_label = QLabel("الحالة: جاهز")
         self.show_global_log_button = QPushButton("عرض السجل العام")
         self.log_header_label = QLabel("سجل عام")
@@ -1046,6 +1049,16 @@ class MainWindow(QMainWindow):
         self._apply_visual_polish()
         self.setCentralWidget(self._build_scrollable_ui())
         self._connect_signals()
+        self._github_updates = GithubUpdateController(
+            self,
+            self.github_update_button,
+            self.github_update_status_label,
+            is_processing=lambda: (
+                self._processing_thread is not None
+                or self._queue_processing_thread is not None
+            ),
+        )
+        QTimer.singleShot(4500, self._github_updates.check_on_startup)
         self._reset_classification_rules(log=False)
         self._update_source_inputs()
         self._update_speed_volume_controls()
@@ -1181,8 +1194,17 @@ class MainWindow(QMainWindow):
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
 
+        update_layout = QVBoxLayout()
+        self.github_update_status_label.setWordWrap(True)
+        self.github_update_button.setToolTip(
+            "يبحث عن إصدار أحدث منشور رسميًا على GitHub؛ التثبيت يتطلب موافقتك."
+        )
+        update_layout.addWidget(self.github_update_status_label)
+        update_layout.addWidget(self.github_update_button)
+
         layout.addWidget(logo)
         layout.addLayout(title_layout, stretch=1)
+        layout.addLayout(update_layout)
 
         return frame
 
@@ -4387,6 +4409,7 @@ class MainWindow(QMainWindow):
             self.preview_clip_end_button,
             self.preview_selected_clip_button,
             self.review_clips_button,
+            self.github_update_button,
             self.add_classification_button,
             self.delete_classification_button,
             self.reset_classification_button,
